@@ -57,6 +57,17 @@ try {
     if ($__ijInv) {
         require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceInsightsService.php';
         $__ijIns = InvoiceInsightsService::snapshot($__ijDb, date('Y-m-d'));
+        try {
+            require_once APP_ROOT . '/Modules/Accounting/Services/RecurringBillService.php';
+            require_once APP_ROOT . '/Modules/Accounting/Services/CashFlowForecastService.php';
+            $__ijForecast = (new CashFlowForecastService($__ijDb))->forecast();
+            $__ijIns['cash'] = InvoiceInsightsService::cashLine($__ijForecast, date('Y-m-d'));
+            $__ijIns['holders'] = InvoiceInsightsService::holders(array_merge((array)($__ijForecast['invoice_events'] ?? []), array_map(
+                static fn($d) => ['who' => $d['who'] ?? 'client', 'amount' => $d['amount'], 'date' => '', 'late' => true],   // over 120 days late: not forecast, still owed
+                (array)($__ijForecast['doubtful'] ?? []))), date('Y-m-d'));
+        } catch (Throwable $__forecastError) {
+            error_log('Invoice insights forecast unavailable: ' . $__forecastError->getMessage());
+        }
         $__ijPulse = null;
     } else {
         require_once APP_ROOT . '/Modules/Expenses/Services/ExpensePulseService.php';
@@ -256,9 +267,9 @@ $__ijViz = static function (?array $p) use ($__ijSvg): string {
         . '<svg viewBox="0 0 ' . $w . ' ' . $h . '" width="' . $w . '" height="' . $h . '" role="img" aria-label="Approved receipts by month, last six months">' . $bars . '</svg>'
         . '<p class="it-job-viz-gst"><b>' . h($money((float)$p['quarter_gst'])) . '</b> GST on receipts in ' . h($p['quarter_label']) . ' <span>— claim it back</span></p></figure>';
 };
-// Invoice graphs (Invoices page only). One bar chart: rows of [label, value, class]; money() formats the headline numbers.
+// Invoice graphs (Invoices page only). Each picture follows its owner-facing sentence.
 $__ijMoney = static fn(float $v): string => '$' . number_format($v, $v >= 1000 ? 0 : 2);
-$__ijBars = static function (string $title, string $sub, array $rows, string $aria, string $foot = '') use ($__ijSvg, $__ijMoney): string {
+$__ijBars = static function (string $kind, string $title, string $headline, array $rows, string $foot = ''): string {
     $w = 288; $h = 120; $pad = 8; $n = max(1, count($rows)); $gap = $n > 8 ? 4 : 8; $bw = (int)floor(($w - $pad * 2) / $n) - $gap;
     $max = 0.0; foreach ($rows as $r) $max = max($max, (float)$r[1]);
     $max = $max > 0 ? $max : 1;
@@ -266,31 +277,74 @@ $__ijBars = static function (string $title, string $sub, array $rows, string $ar
     foreach ($rows as $i => $r) {
         $bh = (int)round(((float)$r[1] / $max) * 80);
         $x = $pad + $i * ($bw + $gap); $y = 96 - $bh;
-        $bars .= '<rect x="' . $x . '" y="' . $y . '" width="' . $bw . '" height="' . max($bh, 1) . '" rx="3" class="' . h($r[2]) . '"></rect>'
+        $bars .= '<rect x="' . $x . '" y="' . $y . '" width="' . $bw . '" height="' . max($bh, 1) . '" rx="3" class="' . h($r[2]) . '" style="--i:' . (int)$i . '"></rect>'
                . (($n > 8 && $i % 2 === 0) ? '' : '<text x="' . ($x + $bw / 2) . '" y="112" text-anchor="middle" class="it-viz-lbl">' . h($r[0]) . '</text>');
     }
-    return '<figure class="it-job-viz it-viz-flat"><figcaption><b>' . h($title) . '</b><span>' . h($sub) . '</span></figcaption>'
-        . '<svg viewBox="0 0 ' . $w . ' ' . $h . '" width="' . $w . '" height="' . $h . '" role="img" aria-label="' . h($aria) . '">' . $bars . '</svg>'
+    return '<figure class="it-job-viz it-viz-flat" data-viz="' . h($kind) . '"><figcaption><span class="it-viz-title">' . h($title) . '</span><b class="it-viz-headline">' . h($headline) . '</b></figcaption>'
+        . '<svg viewBox="0 0 ' . $w . ' ' . $h . '" width="' . $w . '" height="' . $h . '" role="img" aria-label="' . h($headline) . '">' . $bars . '</svg>'
         . ($foot !== '' ? '<p class="it-job-viz-gst">' . $foot . '</p>' : '') . '</figure>';
 };
-$__ijInvViz = static function (array $d, bool $all) use ($__ijBars, $__ijMoney): string {
+$__ijCashViz = static function (array $cash): string {
+    $w = 288; $h = 120; $left = 8; $right = 280; $top = 8; $bottom = 104;
+    $values = [$cash['floor']];
+    foreach ($cash['points'] as $p) { $values[] = $p['low']; $values[] = $p['high']; }
+    $min = min($values); $max = max($values); if ($max <= $min) $max = $min + 1;
+    $x = static fn(int $i): float => $left + ($right - $left) * $i / max(1, count($cash['points']) - 1);
+    $y = static fn(float $v): float => $bottom - ($v - $min) / ($max - $min) * ($bottom - $top);
+    $line = []; $high = []; $low = []; $lowX = $left; $lowY = $bottom;
+    foreach ($cash['points'] as $i => $p) {
+        $px = $x($i); $py = $y((float)$p['closing']);
+        $line[] = $px . ',' . $py; $high[] = $px . ',' . $y((float)$p['high']); $low[] = $px . ',' . $y((float)$p['low']);
+        if ($p['start'] === $cash['low']['start']) { $lowX = $px; $lowY = $py; }
+    }
+    $band = implode(' ', array_merge($high, array_reverse($low)));
+    $area = implode(' ', $line) . ' ' . $right . ',' . $bottom . ' ' . $left . ',' . $bottom;
+    $floorY = $y((float)$cash['floor']);
+    $foot = 'From the bank as of ' . date('M j, Y', strtotime((string)$cash['as_of'])) . '; band ±' . number_format((float)$cash['band_pct'], 1) . '%';
+    if ($cash['thin']) $foot .= ' — some clients pay unpredictably';
+    return '<figure class="it-job-viz it-viz-flat" data-viz="cash"><figcaption><span class="it-viz-title">Predicted cash, next 13 weeks</span><b class="it-viz-headline">' . h($cash['headline']) . '</b></figcaption>'
+        . '<svg viewBox="0 0 ' . $w . ' ' . $h . '" width="' . $w . '" height="' . $h . '" role="img" aria-label="' . h($cash['headline']) . '">'
+        . '<polygon class="it-viz-cash-area" points="' . h($area) . '"></polygon><polygon class="it-viz-band" points="' . h($band) . '"></polygon>'
+        . '<line class="it-viz-floor" x1="' . $left . '" y1="' . $floorY . '" x2="' . $right . '" y2="' . $floorY . '"></line>'
+        . '<path class="it-viz-cash-line" pathLength="1" d="M ' . h(implode(' L ', $line)) . '"></path>'
+        . '<circle class="it-viz-low" cx="' . $lowX . '" cy="' . $lowY . '" r="4"></circle></svg>'
+        . '<p class="it-job-viz-gst">' . h($foot) . '</p></figure>';
+};
+$__ijHoldersViz = static function (array $holders) use ($__ijMoney): string {
+    if (empty($holders['rows'])) return '';
+    $w = 288; $rowH = 26; $h = count($holders['rows']) * $rowH + 8; $max = max(array_column($holders['rows'], 'amount')) ?: 1;
+    $bars = '';
+    foreach ($holders['rows'] as $i => $row) {
+        $y = 5 + $i * $rowH; $barW = max(2, (int)round((float)$row['amount'] / $max * 76));
+        $class = $row['late'] ? 'it-viz-hbar it-viz-late' : 'it-viz-hbar';
+        $bars .= '<text x="4" y="' . ($y + 8) . '" class="it-viz-lbl it-viz-who">' . h(function_exists('mb_strimwidth') ? mb_strimwidth((string)$row['who'], 0, 30, '…', 'UTF-8') : (string)$row['who']) . '</text>'
+            . '<text x="4" y="' . ($y + 19) . '" class="it-viz-lbl it-viz-expect">' . ($row['expect'] !== '' ? 'expect ~' . h($row['expect']) : 'long overdue') . '</text>'
+            . '<rect x="164" y="' . $y . '" width="' . $barW . '" height="18" rx="3" class="' . h($class) . '" style="--i:' . (int)$i . '"></rect>'
+            . '<text x="284" y="' . ($y + 13) . '" text-anchor="end" class="it-viz-lbl it-viz-amount">' . h($__ijMoney((float)$row['amount'])) . '</text>';
+    }
+    return '<figure class="it-job-viz it-viz-flat" data-viz="holders"><figcaption><span class="it-viz-title">Who’s holding your money</span><b class="it-viz-headline">' . h($holders['headline']) . '</b></figcaption>'
+        . '<svg viewBox="0 0 ' . $w . ' ' . $h . '" width="' . $w . '" height="' . $h . '" role="img" aria-label="' . h($holders['headline']) . '">' . $bars . '</svg></figure>';
+};
+$__ijInvViz = static function (array $d, bool $all) use ($__ijBars, $__ijCashViz, $__ijHoldersViz, $__ijMoney): string {
     $in = array_map(static fn($m) => [$m['label'], $m['total'], $m['now'] ? 'it-viz-now' : 'it-viz-bar'], $d['months']);
-    $out = $__ijBars('Money in, last 12 months', $__ijMoney((float)$d['this_month']) . ' this month', $in, 'Invoices paid by month, last twelve months',
+    $money = $__ijBars('in', 'Money in', $d['money_headline'], $in,
         '<b>' . h($__ijMoney((float)$d['year_total'])) . '</b> paid in the last 12 months');
-    if (!$all) return $out;
-    $age = array_map(static fn($b) => [$b['label'], $b['amount'], $b['late'] ? 'it-viz-late' : 'it-viz-bar'], $d['aging']);
-    $out .= $__ijBars('Still owed, by days late', $__ijMoney((float)$d['owed_total']) . ' in ' . (int)$d['owed_count'], $age, 'Unpaid balance by how many days past due',
-        '<b>' . h($__ijMoney((float)$d['aging'][1]['amount'] + (float)$d['aging'][2]['amount'] + (float)$d['aging'][3]['amount'])) . '</b> is past its due date');
+    if (!$all) return $money;
+    $out = !empty($d['cash']) ? $__ijCashViz($d['cash']) : '';
+    $out .= !empty($d['holders']) ? $__ijHoldersViz($d['holders']) : '';
+    $out .= $money;
     $pay = array_map(static fn($m) => [$m['label'], (float)($m['days'] ?? 0), $m['now'] ? 'it-viz-now' : 'it-viz-bar'], $d['pay_days']);
-    $out .= $__ijBars('Days to get paid', $d['avg_days'] !== null ? 'average ' . $d['avg_days'] . ' days' : 'no payments yet', $pay, 'Average days from invoice to payment, by month paid, last six months',
+    $out .= $__ijBars('pay', 'Days to get paid', $d['pay_headline'], $pay,
         'Invoice date to payment date, by month paid');
     return $out;
 };
 itIconSprite();
 ?>
 <?php if (!empty($__ijInv) && !$__ij): /* nothing to decide on Invoices: the invoice graphs */ ?>
-<div class="it-job-outer"><section class="it-inv-viz" aria-label="Invoice graphs">
+<?php $__ijPanels = 2 + (!empty($__ijIns['cash']) ? 1 : 0) + (!empty($__ijIns['holders']['rows']) ? 1 : 0); ?>
+<div class="it-job-outer"><section class="it-inv-viz" data-n="<?= (int)$__ijPanels ?>" aria-label="Invoice insights">
   <?= $__ijInvViz($__ijIns, true) ?></section></div>
+<script src="<?= function_exists('_av') ? _av('/crm/js/ittai-viz.js') : '/crm/js/ittai-viz.js' ?>" defer></script>
 <?php return; endif; ?>
 <div class="it-job-outer"><div class="it-job-wrap">
 <section class="it-job" data-head="penny" data-kind="<?= h((string)($__ij['kind'] ?? 'idle')) ?>" aria-label="Penny's job">

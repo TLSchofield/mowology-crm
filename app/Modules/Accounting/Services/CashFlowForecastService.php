@@ -379,13 +379,14 @@ class CashFlowForecastService
             $pastDue = (int)floor((strtotime($today) - strtotime($due)) / 86400);
             $label = $inv['invoice_number'] . ' · ' . ($inv['who'] ?: 'client');
             if ($pastDue > self::DOUBTFUL_DAYS) {
-                $doubtful[] = ['label' => $label, 'amount' => round((float)$inv['balance_due'], 2), 'days' => $pastDue, 'id' => (int)$inv['id']];
+                $doubtful[] = ['label' => $label, 'amount' => round((float)$inv['balance_due'], 2), 'days' => $pastDue, 'id' => (int)$inv['id'], 'who' => ($inv['who'] ?: 'client')];
                 continue;
             }
             $expected = self::expectedPayDate($due, $lateDays, $today);
             if ($expected <= $until) $inflowByClient[$key] = ($inflowByClient[$key] ?? 0.0) + (float)$inv['balance_due'];   // band weight = money inside the horizon only
             $events[] = ['date' => $expected, 'amount' => (float)$inv['balance_due'],
                          'kind' => 'invoice', 'label' => $label, 'id' => (int)$inv['id'],
+                         'who' => ($inv['who'] ?: 'client'), 'days_overdue' => max(0, $pastDue),
                          // Late for THIS client: past due and past their own usual lateness (operating rules).
                          'late' => self::isLateForClient($pastDue, $lateDays),
                          'why' => 'due ' . $due . ($lateDays ? ', usually pays ' . $lateDays . ' days late' : '') . ($pastDue > 0 ? ' (' . $pastDue . ' days overdue)' : '')];
@@ -502,6 +503,7 @@ class CashFlowForecastService
         $f['everyday_categories'] = $ev['categories'];
         $f['notes'] = $notes;
         $f['chase'] = self::chaseList($events);
+        $f['invoice_events'] = array_values(array_filter($events, static fn($e) => ($e['kind'] ?? '') === 'invoice'));
         return $f;
     }
 

@@ -739,14 +739,51 @@ body.it-shell.it-shell .it-fw-more[open] > summary::after { content: "\2212"; }
 body.it-shell.it-shell .it-fwl-more .it-pg { padding-left: 28px; }
 
 /* ── Invoices page: invoice graphs in place of the decision line when nothing is waiting ── */
-body.it-shell.it-shell .it-inv-viz { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+body.it-shell.it-shell .it-inv-viz { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+body.it-shell.it-shell .it-inv-viz[data-n="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+body.it-shell.it-shell .it-inv-viz[data-n="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 body.it-shell.it-shell .it-inv-viz .it-job-viz { padding: 16px; border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-lg); background: var(--it-surface); }
 body.it-shell.it-shell .it-viz-flat::before { display: none; }
 body.it-shell.it-shell .it-job-viz .it-viz-late { fill: var(--it-status-attention); }
-@media (max-width: 1400px) { body.it-shell.it-shell .it-inv-viz { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 1100px) { body.it-shell.it-shell .it-inv-viz { grid-template-columns: 1fr; } }
+body.it-shell.it-shell .it-inv-viz .it-job-viz figcaption { display: block; min-height: 58px; }
+body.it-shell.it-shell .it-inv-viz .it-viz-title { display: block; font-size: 12px; line-height: 16px; color: var(--it-meta); }
+body.it-shell.it-shell .it-inv-viz .it-viz-headline { display: block; margin-top: 4px; font-size: 15px; line-height: 20px; font-weight: 600; color: var(--it-text); }
+body.it-shell.it-shell .it-inv-viz .it-viz-hbar { fill: var(--it-sunk); stroke: var(--it-line); stroke-width: 1; }
+body.it-shell.it-shell .it-inv-viz .it-viz-who, body.it-shell.it-shell .it-inv-viz .it-viz-amount { fill: var(--it-text); font-weight: 600; }
+body.it-shell.it-shell .it-inv-viz .it-viz-hbar.it-viz-late { fill: var(--it-status-attention); stroke: none; }
+body.it-shell.it-shell .it-inv-viz .it-viz-expect { font-size: 7.5px; }
+body.it-shell.it-shell .it-inv-viz .it-viz-cash-area { fill: var(--it-sunk); }
+body.it-shell.it-shell .it-inv-viz .it-viz-band { fill: var(--it-selected); opacity: .7; }
+body.it-shell.it-shell .it-inv-viz .it-viz-floor { stroke: var(--it-status-attention); stroke-width: 1; stroke-dasharray: 4 3; }
+body.it-shell.it-shell .it-inv-viz .it-viz-cash-line { fill: none; stroke: var(--it-tenant); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+body.it-shell.it-shell .it-inv-viz .it-viz-low { fill: var(--it-status-attention); stroke: var(--it-surface); stroke-width: 2; }
+@media (max-width: 1499px) { body.it-shell.it-shell .it-inv-viz, body.it-shell.it-shell .it-inv-viz[data-n="3"] { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 1100px) { body.it-shell.it-shell .it-inv-viz, body.it-shell.it-shell .it-inv-viz[data-n="3"] { grid-template-columns: 1fr; } }
 /* The strip's charts are drawn 288 wide and scaled to the card (about 1.5x): size the labels to land near 12 px. */
 body.it-shell.it-shell .it-inv-viz .it-viz-lbl { font-size: 8px; line-height: 10px; }
+
+body.it-shell.it-shell .it-inv-viz.is-armed .it-job-viz:not(.is-in) .it-viz-headline { opacity: 0; transform: translateY(8px); }
+body.it-shell.it-shell .it-inv-viz.is-armed .it-viz-headline { transition: opacity 500ms ease-out var(--d, 0ms), transform 500ms ease-out var(--d, 0ms); }
+body.it-shell.it-shell .it-inv-viz.is-armed rect.it-viz-bar,
+body.it-shell.it-shell .it-inv-viz.is-armed rect.it-viz-now,
+body.it-shell.it-shell .it-inv-viz.is-armed rect.it-viz-late,
+body.it-shell.it-shell .it-inv-viz.is-armed rect.it-viz-hbar { transform-box: fill-box; transform-origin: bottom; transition: transform 700ms cubic-bezier(.2,.7,.2,1) calc(var(--d, 0ms) + var(--i, 0) * 45ms); }
+body.it-shell.it-shell .it-inv-viz.is-armed rect.it-viz-hbar { transform-origin: left; }
+body.it-shell.it-shell .it-inv-viz.is-armed .it-job-viz:not(.is-in) rect.it-viz-bar,
+body.it-shell.it-shell .it-inv-viz.is-armed .it-job-viz:not(.is-in) rect.it-viz-now,
+body.it-shell.it-shell .it-inv-viz.is-armed .it-job-viz:not(.is-in) rect.it-viz-late { transform: scaleY(0); }
+body.it-shell.it-shell .it-inv-viz.is-armed .it-job-viz:not(.is-in) rect.it-viz-hbar { transform: scaleX(0); }
+body.it-shell.it-shell .it-inv-viz.is-armed .it-viz-cash-line { stroke-dasharray: 1; stroke-dashoffset: 0; transition: stroke-dashoffset 1100ms cubic-bezier(.2,.7,.2,1) calc(var(--d, 0ms) + 180ms); }
+body.it-shell.it-shell .it-inv-viz.is-armed .it-job-viz:not(.is-in) .it-viz-cash-line { stroke-dashoffset: 1; }
+body.it-shell.it-shell .it-inv-viz.is-armed .it-viz-band,
+body.it-shell.it-shell .it-inv-viz.is-armed .it-viz-cash-area { transition: opacity 600ms ease-out calc(var(--d, 0ms) + 300ms); }
+body.it-shell.it-shell .it-inv-viz.is-armed .it-job-viz:not(.is-in) .it-viz-band,
+body.it-shell.it-shell .it-inv-viz.is-armed .it-job-viz:not(.is-in) .it-viz-cash-area { opacity: 0; }
+body.it-shell.it-shell .it-inv-viz.is-armed .it-viz-low { transform-box: fill-box; transform-origin: center; transition: transform 350ms cubic-bezier(.2,.7,.2,1) calc(var(--d, 0ms) + 1050ms); }
+body.it-shell.it-shell .it-inv-viz.is-armed .it-job-viz:not(.is-in) .it-viz-low { transform: scale(0); }
+@media (prefers-reduced-motion: reduce) {
+  body.it-shell.it-shell .it-inv-viz.is-armed *, body.it-shell.it-shell .it-inv-viz.is-armed *::before, body.it-shell.it-shell .it-inv-viz.is-armed *::after { transition: none; }
+}
 
 /* First-week short menu: the page's head keeps her card under the page's row; introduction left of the face, card runs left from the spine */
 body.it-shell.it-shell .it-fw-card { display: block; margin: 4px 0 10px; }
