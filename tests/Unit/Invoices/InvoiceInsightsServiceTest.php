@@ -176,7 +176,7 @@ class InvoiceInsightsServiceTest extends TestCase
     public function testMonthsBeforeTheFirstPaidInvoiceComeFromTheBooks(): void
     {
         $paid = [['created_at' => '2026-03-01', 'paid_at' => '2026-03-10', 'total' => 500], ['created_at' => '2026-10-20', 'paid_at' => '2026-11-10', 'total' => 80]];
-        $ledger = ['2025-11' => 1000.0, '2026-01' => 700.0, '2026-03' => 9999.0, '2026-11' => 9999.0];   // March and later: invoices win (the books can double count)
+        $ledger = ['2025-11' => 1000.0, '2026-01' => 700.0, '2026-03' => 300.0, '2026-04' => 9999.0, '2026-11' => 9999.0];   // March (first invoice month): the larger of the two; April on: invoices only (the books can double count)
         $s = InvoiceInsightsService::build($paid, [], '2026-11-24', $ledger);
         $byLabel = [];
         foreach ($s['months'] as $m) $byLabel[$m['label']] = $m;
@@ -184,6 +184,9 @@ class InvoiceInsightsServiceTest extends TestCase
         $this->assertSame(500.0, $byLabel['Mar']['total']);
         $this->assertSame([80.0, 1000.0], [$byLabel['Nov']['total'], $byLabel['Nov']['last_year']]);
         $this->assertSame('$80.00 this month, down 92% on last November', $s['money_headline']);
+        $this->assertSame(0.0, $byLabel['Apr']['total']);
+        $bigger = InvoiceInsightsService::build($paid, [], '2026-11-24', ['2026-03' => 800.0]);
+        $this->assertSame(800.0, $bigger['months'][3]['total']);
         $none = InvoiceInsightsService::build($paid, [], '2026-11-24');
         $this->assertSame(0.0, $none['months'][11]['last_year']);
     }

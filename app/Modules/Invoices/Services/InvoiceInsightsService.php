@@ -37,7 +37,7 @@ final class InvoiceInsightsService
      * Pure. $paid rows: created_at, paid_at, total. $open rows: due_date (may be null), balance_due.
      * $ledger: 'YYYY-MM' => income from the books. A month BEFORE the first paid invoice in this system (the Jobber era, whose
      * invoices were never imported as paid) takes its income from the books; every later month stays invoice-based, because
-     * the books can count a deposit twice once the invoices exist (see Known-Failure-Patterns, income double count).
+     * the books can count a deposit twice once the invoices exist; the cut-over month takes the larger of the two (see Known-Failure-Patterns, income double count).
      */
     public static function build(array $paid, array $open, string $today, array $ledger = []): array
     {
@@ -51,7 +51,10 @@ final class InvoiceInsightsService
         }
         $firstInvoiceMonth = $byMonth ? min(array_keys($byMonth)) : null;
         $val = static function (string $k) use ($byMonth, $ledger, $firstInvoiceMonth): float {
-            return isset($ledger[$k]) && ($firstInvoiceMonth === null || $k < $firstInvoiceMonth) ? (float)$ledger[$k] : (float)($byMonth[$k] ?? 0.0);
+            $inv = (float)($byMonth[$k] ?? 0.0);
+            if (!isset($ledger[$k]) || ($firstInvoiceMonth !== null && $k > $firstInvoiceMonth)) return $inv;
+            // Before the first paid invoice: the books. In that first month (the cut-over, part Jobber part here): the larger of the two.
+            return $firstInvoiceMonth !== null && $k === $firstInvoiceMonth ? max($inv, (float)$ledger[$k]) : (float)$ledger[$k];
         };
         $months = [];
         for ($i = 11; $i >= 0; $i--) {
