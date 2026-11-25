@@ -27,7 +27,8 @@ require_once CRM_INCLUDES . '/functions.php';
 require_once CRM_INCLUDES . '/plan-functions.php';
 require_once CRM_INCLUDES . '/timeclock-functions.php';
 require_once CRM_INCLUDES . '/weather-service.php';
-require_once dirname(__DIR__, 3) . '/app/Modules/Quiz/Services/PreshiftGate.php';
+// APP_ROOT, not dirname(__DIR__, 3): production keeps app/ inside the web root, so the dirname path 500s there.
+require_once APP_ROOT . '/Modules/Quiz/Services/PreshiftGate.php';
 
 requireLogin();
 $user = getCurrentUser();
