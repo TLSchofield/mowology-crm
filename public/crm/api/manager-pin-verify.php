@@ -100,7 +100,9 @@ try {
     // Upsert vehicle_trip_reports to mark pre-trip as skipped.
     // Uses try/catch fallback in case migration 1017 hasn't run yet
     // (pre_trip_skipped / skip_reason columns may not exist).
-    $existingStmt = $db->prepare("SELECT id FROM vehicle_trip_reports WHERE driver_id = ? AND report_date = ? LIMIT 1");
+    // Only today's still-open, never-inspected row is reused; a CLOSED trip is history and must
+    // not have its pre_trip_at overwritten (a second trip the same day gets a new row).
+    $existingStmt = $db->prepare("SELECT id FROM vehicle_trip_reports WHERE driver_id = ? AND report_date = ? AND post_trip_at IS NULL ORDER BY id DESC LIMIT 1");
     $existingStmt->execute([$userId, $today]);
     $existing = $existingStmt->fetch(PDO::FETCH_ASSOC);
 

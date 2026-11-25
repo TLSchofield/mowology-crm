@@ -55,6 +55,44 @@ class TripReportService
         return empty($latest['post_trip_at']) ? 'open' : 'closed';
     }
 
+    /**
+     * The one reply for "you cannot clock out, a trip is still open". Every clock endpoint
+     * sends THIS body, and it always says clocked_in = true: a client that tests
+     * `success || !clocked_in` must not read the refusal as a clock-out.
+     *
+     * @return array<string,mixed>
+     */
+    public static function postTripRefusal(array $openTrip): array
+    {
+        return [
+            'success'            => false,
+            'clocked_in'         => true,
+            'error'              => 'Complete your post-trip vehicle check before clocking out.',
+            'error_code'         => 'post_trip_required',
+            'post_trip_required' => true,
+            'trip_report_id'     => (int)($openTrip['id'] ?? 0),
+            'trip_sequence'      => max(1, (int)($openTrip['trip_sequence'] ?? 1)),
+        ];
+    }
+
+    /**
+     * Null when the user may clock out; otherwise the refusal body. Decided by the open trip
+     * (whoever opened one closes it), never by a role flag: some people drive only some days.
+     * Fails open on a database error — a person is never trapped on the clock.
+     *
+     * @return array<string,mixed>|null
+     */
+    public function clockOutRefusal(int $userId): ?array
+    {
+        try {
+            $trip = $this->openTrip($userId);
+        } catch (Throwable $e) {
+            error_log('[TripReportService] post-trip gate check failed: ' . $e->getMessage());
+            return null;
+        }
+        return $trip ? self::postTripRefusal($trip) : null;
+    }
+
     /** @return array{checks: array<string,int>, odometer_start: ?int, defects_critical: string, defect_unhitch: int, defects_non_urgent: string, safe_to_drive: int} */
     public static function sanitizePreTrip(array $in): array
     {

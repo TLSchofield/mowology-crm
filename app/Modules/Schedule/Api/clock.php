@@ -214,6 +214,21 @@ try {
                 break;
             }
 
+            // Post-trip gate, the same rule the web clock enforces (TripReportService). It is
+            // OPT-IN: only a client that sends trip_gate=true has a screen for the refusal.
+            // A replayed offline punch (`queued`) is never refused — the tap already happened,
+            // and the phone's queue would drop a 409 and lose the punch. Both native apps keep
+            // their own client-side gate for the offline case.
+            if (!empty($input['trip_gate']) && !$queued) {
+                require_once APP_ROOT . '/Modules/Driver/Services/TripReportService.php';
+                $refusal = (new TripReportService($db))->clockOutRefusal($userId);
+                if ($refusal !== null) {
+                    http_response_code(409);
+                    echo json_encode($refusal);
+                    break;
+                }
+            }
+
             $lat   = isset($input['lat'])   ? (float)$input['lat']  : null;
             $lng   = isset($input['lng'])   ? (float)$input['lng']  : null;
             if ($lat !== null && ($lat < -90 || $lat > 90)) $lat = null;
