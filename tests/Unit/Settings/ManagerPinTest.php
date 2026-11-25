@@ -36,11 +36,15 @@ final class ManagerPinTest extends TestCase
 
     public function testEndpointUsesLockoutHashAndLog(): void
     {
-        $src = file_get_contents(__DIR__ . '/../../../public/crm/api/manager-pin-verify.php');
+        // The rule lives in one service shared by the web endpoint and the phone API.
+        $src = file_get_contents(__DIR__ . '/../../../app/Modules/Driver/Services/PreTripBypassService.php');
         $this->assertStringContainsString('AttemptThrottle::pinIsLocked(', $src);
         $this->assertStringContainsString('ManagerPin::verify(', $src);
         $this->assertStringContainsString("logActivity(\$userId, null, 'Manager PIN failed'", $src);
-        $this->assertStringNotContainsString('hash_equals($storedPin', $src);
+        $this->assertStringNotContainsString('hash_equals($stored', $src);
+        foreach (['public/crm/api/manager-pin-verify.php', 'app/Modules/Schedule/Api/trip-report.php'] as $f) {
+            $this->assertStringContainsString('PreTripBypassService::attempt(', file_get_contents(__DIR__ . '/../../../' . $f), $f);
+        }
         $save = file_get_contents(__DIR__ . '/../../../app/Modules/Settings/Api/ops-settings.php');
         $this->assertStringContainsString('ManagerPin::forStorage(', $save);
     }
