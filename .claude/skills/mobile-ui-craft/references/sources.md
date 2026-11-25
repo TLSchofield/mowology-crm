@@ -9,3 +9,5 @@
 - prefers-reduced-motion: https://web.dev/articles/prefers-reduced-motion
 - Design Motion free pattern library (ideas re-stated in our own words; their video and text are not copied): https://www.designmotionhq.com/patterns — data-table, hover-trap, color-accessibility, optimistic-ui, doherty-threshold, animation-timing, easing-curves, loading-states-system, skeleton-loading, bottom-sheets, focus-states, form-validation-timing.
 - NOT fetched (client-rendered pages returned no text): Apple HIG layout (44×44 pt hit target) and Material 3 (48dp target). Both figures are standard knowledge; verify in a browser if a decision hangs on them.
+
+- Motion UI Interface (Instagram reel "iPhone · 6 invisible details", seen 2026-11-25 as screenshots): press feedback 0 ms vs 120 ms; springs damping 0.8 / 1.5 % overshoot; momentum 1000 px glide, rate 0.998; rubber band 200 px pull → 86 px; interruptible (no 180 ms wait); continuous corners. Secondary source, numbers not independently checked.
