@@ -592,6 +592,7 @@ require_once __DIR__ . '/../app/Modules/Team/Services/DepartureAutoStopService.p
 
 // Driver (commercial vehicle trip inspections)
 require_once __DIR__ . '/../app/Modules/Driver/Services/TripReportService.php';
+require_once __DIR__ . '/../app/Modules/Driver/Services/PreTripBypassService.php';
 
 // Tracking (Trackimo truck GPS)
 require_once __DIR__ . '/../app/Modules/Tracking/Services/TrackimoService.php';

@@ -280,28 +280,18 @@ try {
             // Multi-trip-aware: each shift's trip must be closed before
             // the matching clock-out.
             if (!$override) {
-                try {
-                    // Whoever opened a trip closes it — decided by the open trip itself, not
-                    // by users.is_driver (the owner drives some days and is not "a driver").
-                    require_once APP_ROOT . '/Modules/Driver/Services/TripReportService.php';
-                    $tripRow = (new TripReportService($db))->openTrip((int)$targetUserId);
-                    {
-                        if ($tripRow) {
-                            http_response_code(409);
-                            echo json_encode([
-                                'success'             => false,
-                                'error'               => 'Complete your post-trip vehicle check before clocking out.',
-                                'error_code'          => 'post_trip_required',
-                                'post_trip_required'  => true,
-                                'trip_report_id'      => (int)$tripRow['id'],
-                                'trip_sequence'       => 1,
-                            ]);
-                            exit;
-                        }
-                    }
-                } catch (Throwable $e) {
-                    error_log('[time-clock] post-trip gate check failed: ' . $e->getMessage());
-                    // Fail open — never trap a driver because of a DB error.
+                // Whoever opened a trip closes it — decided by the open trip itself, not
+                // by users.is_driver (the owner drives some days and is not "a driver").
+                // Fails open inside clockOutRefusal: never trap a person on a DB error.
+                require_once APP_ROOT . '/Modules/Driver/Services/TripReportService.php';
+                $refusal = (new TripReportService($db))->clockOutRefusal((int)$targetUserId);
+                if ($refusal !== null) {
+                    // Report the real state: a retry after a queued clock-out went through
+                    // must not tell the client the person is still on the clock.
+                    $refusal['clocked_in'] = (bool)getActiveClockEntry((int)$targetUserId);
+                    http_response_code(409);
+                    echo json_encode($refusal);
+                    exit;
                 }
             }
 

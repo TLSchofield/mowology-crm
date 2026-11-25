@@ -8,9 +8,12 @@ declare(strict_types=1);
  * pre-trip and post-trip. Authorization: Bearer <jwt>
  *
  * GET  ?mode=status
+ * GET  ?mode=history            — the driver's own recent trips (the phone's driver log)
+ * GET  ?mode=pdf&report_id=N    — the driver's OWN report as a PDF (application/pdf)
  * POST {action:'declare',   driving: bool, vehicle_id?}
  * POST {action:'pre_trip',  vehicle_id, chk_*: bool…, odometer_start?, defects_critical?,
  *                           defect_unhitch?, defects_non_urgent?, safe_to_drive: bool}
+ * POST {action:'pre_trip_bypass', pin, vehicle_id?, reason?}   — a manager's PIN waives the pre-trip
  * POST {action:'post_trip', odometer_end?, end_of_day_remarks?, hos_*?, confirm_odometer?}
  *
  * Every POST may carry `performed_at` (device epoch ms): an inspection done with no signal is
@@ -49,6 +52,25 @@ try {
     $today   = date('Y-m-d');
 
     if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+        $mode = trim((string)($_GET['mode'] ?? 'status'));
+        if ($mode === 'history') {
+            echo json_encode(['success' => true, 'trips' => $service->history($userId, (int)($_GET['limit'] ?? 30))]);
+            exit;
+        }
+        if ($mode === 'pdf') {
+            $path = $service->pdfPathFor($userId, (int)($_GET['report_id'] ?? 0));
+            if ($path === null) {
+                http_response_code(404);
+                echo json_encode(['success' => false, 'message' => 'That report has no PDF yet.']);
+                exit;
+            }
+            header('Content-Type: application/pdf');
+            header('Content-Disposition: attachment; filename="trip_report_' . (int)$_GET['report_id'] . '.pdf"');
+            header('Content-Length: ' . filesize($path));
+            header('Cache-Control: private, max-age=0, must-revalidate');
+            readfile($path);
+            exit;
+        }
         echo json_encode(['success' => true] + $service->status($userId, $today));
         exit;
     }
@@ -84,6 +106,27 @@ try {
             if (!$result['may_drive']) {
                 $service->alertOfficeUnsafe($result['report_id'], (string)($jwtUser['name'] ?? "User #{$userId}"));
             }
+            break;
+
+        case 'pre_trip_bypass':
+            // The vehicle is optional here (a manager may waive before one is chosen), but when
+            // given it must be one the fleet offers.
+            $offered = array_column($service->vehicles(), 'id');
+            $wanted  = (string)($input['vehicle_id'] ?? '');
+            $vehicle = ($wanted !== '' && in_array($wanted, $offered, true)) ? $wanted : (count($offered) === 1 ? $offered[0] : null);
+            require_once APP_ROOT . '/Modules/Driver/Services/PreTripBypassService.php';
+            $r = PreTripBypassService::attempt($db, $userId, (string)($input['pin'] ?? ''), (string)($input['reason'] ?? ''),
+                $vehicle, (string)($_SERVER['REMOTE_ADDR'] ?? ''), $today);
+            if (!$r['ok']) {
+                // A wrong PIN is a 4xx the phone shows — it never queues it.
+                http_response_code($r['status']);
+                echo json_encode(['success' => false, 'message' => $r['error']]);
+                exit;
+            }
+            if ($vehicle !== null) {
+                $service->declare($userId, true, $vehicle, 'ios', null);
+            }
+            $extra = ['report_id' => $r['report_id']];
             break;
 
         case 'post_trip':
