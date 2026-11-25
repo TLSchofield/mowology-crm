@@ -215,6 +215,7 @@ $uid = 'qwiz-' . ($block['id'] ?? substr(md5(uniqid('', true)), 0, 8));
 .mw-qwiz__phone-cta p{color:#c9a84c;font-size:.88rem}
 @keyframes mwQwizPop{from{transform:scale(0);opacity:0}to{transform:scale(1);opacity:1}}
 @media(max-width:640px){.mw-qwiz__row{grid-template-columns:1fr}.mw-qwiz__service-grid{grid-template-columns:repeat(2,1fr)}.mw-qwiz__card{padding:1.5rem 1.25rem}}
+@media (pointer: coarse){.mw-qwiz__field input,.mw-qwiz__field select,.mw-qwiz__field textarea{font-size:16px}}
 </style>
 
 <script<?= MwCsp::attr() ?>>

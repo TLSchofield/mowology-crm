@@ -207,6 +207,7 @@ $name = htmlspecialchars($tokenRow['full_name'] ?? 'there');
     .success-title { font-size: 19px; font-weight: 700; color: #1a1a1a; text-align: center; margin-bottom: 8px; }
     .success-body  { color: #555; font-size: 14px; line-height: 1.6; text-align: center; }
     .success-note  { color: #888; font-size: 12px; text-align: center; margin-top: 16px; }
+      @media (pointer: coarse) { .field input[type="password"] { font-size: 16px; } } /* iOS zooms on focus below 16px */
   </style>
 </head>
 <body>

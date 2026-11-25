@@ -42209,3 +42209,15 @@ body.mw-books {
     #invoiceForm { grid-template-columns: minmax(0, 1fr); }
     .mw-inv-side { grid-column: 1; position: static; }
 }
+
+/* ── Touch screens: form text is 16px (iOS zooms the page on focus below 16px; mobile-ui-craft M1) ──
+   Phone and tablet only; desktop keeps its compact sizes. Checkboxes, radios, ranges, files, colour
+   and buttons are excluded because they never trigger the zoom. */
+@media (pointer: coarse) {
+  /* :not(.mw-fs-keep) only raises specificity so this beats older "font-size:13px!important" rules; opt a field out with that class */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="image"]):not(.mw-fs-keep),
+  select:not(.mw-fs-keep),
+  textarea:not(.mw-fs-keep) {
+    font-size: 16px !important;
+  }
+}

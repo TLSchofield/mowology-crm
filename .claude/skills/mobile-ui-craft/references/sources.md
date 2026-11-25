@@ -19,3 +19,11 @@
 - Design Motion carousel "Rules like these, checked in your app" (UI geometry, 8 sheets, seen 2026-11-25 as screenshots): ratios 1:1 / 4:3 / 16:9, aspect-ratio reserves the box, object-fit cover never fill, tightest crop 16:9→1:1 loses 43.75 % (keeps 56.25 %), 4:3→1:1 loses 25 %. The arithmetic checks out (9/16 = 56.25 %). Secondary source.
 
 - Design Motion reel "Two colors that match. Then a third one shows up at the same size" (5 slides, seen 2026-11-25 as screenshots): 60/30/10; same-weight third colour (40/30/30) looks cheap; accent count 7 vs 2, three max; tint grays 4 % (#18181B → #16201F); blur test shows three flat zones. Slide 5 ends "Or let Claude Code do it" (a plug for their paid UX Engine). Secondary source, numbers not independently checked.
+
+- Design Motion reels seen 2026-11-25 as Desktop screenshots: "The perfect text input" (6 slides: label outside, 44px/16px, real focus ring 2px+2px offset, border 3:1 at rest with #3F3F46 1.9:1 vs #71717A 4.1:1, errors after blur with aria-describedby, type=email autocomplete=email) and "Six rules every button should follow" (44px tap area, say the action, one primary, same-width loading, visible focus, disabled says why; the five parts focus ring / label / border / fill / shadow). Secondary source, numbers not independently checked; WCAG 1.4.11 itself is a published standard.
+
+- Design Motion reel "Five decisions, one search" (UX Engine plugin promo, 5 decisions, seen 2026-11-25 as Desktop screenshots): full-screen sheet; one step at a time with done steps folded to one line; live count on the Show button (312 / 9 / 4 places); map/list share one pill in the thumb zone; recent searches before typing, zero keystrokes. Secondary source, a product promo.
+
+- Design Motion reel "Five pieces, one first run" (UX Engine promo, seen 2026-11-25 as Desktop screenshots): one question; open on a checklist at 1/3 with step 1 ticked; empty state with one button; one coach mark near the thumb ("past three tips, nobody reads"); skip in a fixed corner, resume with progress kept. Secondary source.
+
+- Design Motion reel "Why does an AI input feel premium?" (5 states, seen 2026-11-25 as Desktop screenshots): focus ring not border swap; suggestion chips before typing; grows with the text and the toolbar stays put; uploads in place, no modal; send becomes stop. Secondary source.

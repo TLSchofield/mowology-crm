@@ -41,6 +41,8 @@ COLS = re.compile(r'grid-template-columns:\s*([^;]+)')
 hits = collections.defaultdict(list)
 all_rules = {}
 phone_selectors = set()
+covered_files = set()    # files with a phone-only global 16px rule on select (covers every small input in that file)
+coarse16 = set()          # (file, selector) with a phone-only font-size:16px rule
 safe_selectors = set()   # selectors that get safe-area padding in ANY rule (it is often added in a later phone rule)
 
 for f in files:
@@ -59,11 +61,16 @@ for f in files:
             for s in sel.split(','): safe_selectors.add(s.strip())
         if phone:
             for s in sel.split(','): phone_selectors.add(s.strip())
+            if re.search(r'font-size:\s*16px', body):
+                for s in sel.split(','):
+                    coarse16.add((f, s.strip()))
+                    if re.match(r'select(:not\([^)]*\))*$', s.strip()): covered_files.add(f)
 
 for f, rules in all_rules.items():
     for sel, body, phone in rules:
         s1 = ' '.join(sel.split())[:70]
-        if INPUT.search(sel) and not SKIPSEL.search(sel) and not phone:
+        if INPUT.search(sel) and not SKIPSEL.search(sel) and not phone and f not in covered_files \
+           and not any((f, x.strip()) in coarse16 for x in sel.split(',')):
             m = FS.search(body)
             if m:
                 px = float(m.group(1)) * (1 if m.group(2) == 'px' else 16)
