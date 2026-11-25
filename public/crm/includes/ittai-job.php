@@ -383,7 +383,7 @@ $__ijMoneyViz = static function (array $d) use ($__ijMoney, $__ijShort): string 
         $line = '<line class="it-viz-target" x1="' . $pad . '" y1="' . $ty . '" x2="' . ($w - $pad) . '" y2="' . $ty . '"></line>'
             . '<text x="' . $pad . '" y="' . max(10.0, $ty - 3) . '" text-anchor="start" class="it-viz-lbl it-viz-cash-lbl">target ' . h($__ijShort($target)) . '/mo</text>';
     }
-    $foot = '<b>' . h($__ijMoney((float)$d['year_total'])) . '</b> paid in the last 12 months. Hollow bars: the same month last year.'
+    $foot = '<b>' . h($__ijMoney((float)$d['year_total'])) . '</b> paid in the last 12 months. ' . (array_sum(array_column($d['months'], 'last_year')) > 0 ? 'Hollow bars: the same month last year.' : 'No invoices from last year to compare with yet.')
         . ($target ? ' Dashed: ' . h($__ijMoney($target)) . ' a month covers costs and your pay.' : '');
     return '<figure class="it-job-viz it-viz-flat" data-viz="in"><figcaption><span class="it-viz-title">Money in</span><b class="it-viz-headline">' . h($d['money_headline']) . '</b></figcaption>'
         . '<svg viewBox="0 0 ' . $w . ' 120" width="' . $w . '" height="120" role="img" aria-label="' . h($d['money_headline']) . '">' . $bars . $line . $lbl . '</svg>'
