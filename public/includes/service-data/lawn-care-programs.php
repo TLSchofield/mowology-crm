@@ -43,10 +43,10 @@ return [
             'items'   => [
                 ['title' => 'Timed for the Coast', 'desc' => 'Vancouver lawns face soggy winters, spring moss and summer drought. Treatments are scheduled around that, not around a generic calendar.'],
                 ['title' => 'One Crew, Whole Year', 'desc' => 'The crew that mows the lawn also aerates, feeds and overseeds it, so nothing is missed and nothing is double-booked.'],
-                ['title' => 'Photo-Verified', 'desc' => 'Every treatment visit ends with photos, so a strata council or homeowner can see it was done and when.'],
+                ['title' => 'Photos of every treatment', 'desc' => 'Every treatment visit ends with photos, so a strata council or homeowner can see it was done and when.'],
                 ['title' => 'Less Moss, Fewer Bare Patches', 'desc' => 'Aeration, lime and overseeding tackle the causes of a thin coastal lawn instead of hiding the symptoms.'],
-                ['title' => 'Strata & Commercial Scale', 'desc' => 'Large common-property lawns, boulevards and sports fields are scheduled with the equipment to match.'],
-                ['title' => 'Insured & Reliable', 'desc' => '$5M liability coverage and visits that happen when the plan says they will.'],
+                ['title' => 'Strata and commercial lawns', 'desc' => 'Large common-property lawns, boulevards and sports fields are scheduled with the equipment to match.'],
+                ['title' => 'Insured', 'desc' => '$5M liability coverage. Visits happen when the plan says they will.'],
             ],
         ],
         [
