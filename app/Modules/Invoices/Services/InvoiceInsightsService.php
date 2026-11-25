@@ -35,9 +35,9 @@ final class InvoiceInsightsService
 
     /**
      * Pure. $paid rows: created_at, paid_at, total. $open rows: due_date (may be null), balance_due.
-     * $ledger: 'YYYY-MM' => income from the books. A month BEFORE the first paid invoice in this system (the Jobber era, whose
-     * invoices were never imported as paid) takes its income from the books; every later month stays invoice-based, because
-     * the books can count a deposit twice once the invoices exist; the cut-over month takes the larger of the two (see Known-Failure-Patterns, income double count).
+     * $ledger: 'YYYY-MM' => income from the books. Months before the cut-over (the first month where paid invoices agree with the books within 2%; the Jobber era,
+     * whose invoices were never all imported as paid) take the larger of books and invoices; from the cut-over on, invoices only, because
+     * the books can count a deposit twice once the invoices exist (see Known-Failure-Patterns, income double count).
      */
     public static function build(array $paid, array $open, string $today, array $ledger = []): array
     {
@@ -50,11 +50,20 @@ final class InvoiceInsightsService
             $byMonth[$k] = ($byMonth[$k] ?? 0.0) + (float)($r['total'] ?? 0);
         }
         $firstInvoiceMonth = $byMonth ? min(array_keys($byMonth)) : null;
-        $val = static function (string $k) use ($byMonth, $ledger, $firstInvoiceMonth): float {
+        // The cut-over: the first month from which the invoices carry the income, i.e. the first month where they agree with the books
+        // (within 2%). Earlier months take the larger of the two (the Jobber era, whose invoices were never all imported as paid).
+        // With no month that agrees yet, the first paid-invoice month is the cut-over.
+        $cutover = $firstInvoiceMonth;
+        $agreeKeys = array_keys($byMonth);
+        sort($agreeKeys);
+        foreach ($agreeKeys as $k) {
+            $b = (float)($ledger[$k] ?? 0);
+            if ($b > 0 && $byMonth[$k] > 0 && abs($byMonth[$k] - $b) <= max(1.0, $b * 0.02)) { $cutover = $k; break; }
+        }
+        $val = static function (string $k) use ($byMonth, $ledger, $cutover, $firstInvoiceMonth): float {
             $inv = (float)($byMonth[$k] ?? 0.0);
-            if (!isset($ledger[$k]) || ($firstInvoiceMonth !== null && $k > $firstInvoiceMonth)) return $inv;
-            // Before the first paid invoice: the books. In that first month (the cut-over, part Jobber part here): the larger of the two.
-            return $firstInvoiceMonth !== null && $k === $firstInvoiceMonth ? max($inv, (float)$ledger[$k]) : (float)$ledger[$k];
+            if (!isset($ledger[$k]) || ($cutover !== null && $k >= $cutover && $k > $firstInvoiceMonth)) return $inv;
+            return max($inv, (float)$ledger[$k]);
         };
         $months = [];
         for ($i = 11; $i >= 0; $i--) {
@@ -113,7 +122,7 @@ final class InvoiceInsightsService
         $usesBooks = false;   // did any shown month come from the books rather than invoices?
         for ($j = 23; $j >= 0; $j--) {
             $k = date('Y-m', strtotime($nowKey . '-01 -' . $j . ' months'));
-            if (isset($ledger[$k]) && $ledger[$k] > 0 && ($firstInvoiceMonth === null || $k < $firstInvoiceMonth)) { $usesBooks = true; break; }
+            if (isset($ledger[$k]) && $ledger[$k] > 0 && ($cutover === null || $k < $cutover)) { $usesBooks = true; break; }
         }
         $thisMonth = (float)end($monthRows)['total'];
         $priorYear = 0.0;
