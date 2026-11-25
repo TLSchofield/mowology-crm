@@ -11,3 +11,11 @@
 - NOT fetched (client-rendered pages returned no text): Apple HIG layout (44×44 pt hit target) and Material 3 (48dp target). Both figures are standard knowledge; verify in a browser if a decision hangs on them.
 
 - Motion UI Interface (Instagram reel "iPhone · 6 invisible details", seen 2026-11-25 as screenshots): press feedback 0 ms vs 120 ms; springs damping 0.8 / 1.5 % overshoot; momentum 1000 px glide, rate 0.998; rubber band 200 px pull → 86 px; interruptible (no 180 ms wait); continuous corners. Secondary source, numbers not independently checked.
+
+- Design Motion reel on status columns, seen 2026-11-25 as screenshots ("5/5 fixes"): 12 % tint with teal-300 text; icon per status (Lucide Check / Clock / X); badge 22 px high, 12 px text, name 14 px and louder; label the state not the action; four hues. Secondary source, numbers not independently checked against our apps.
+
+- Design Motion reel on optimistic UI, seen 2026-11-25 as screenshots ("5/5"): optimistic = rarelyFails && canUndo (like / check / reorder yes; Pay $240, Delete forever never); pending at opacity 0.6 → 1 with clock → check; failed: rolled-back state, shake 300 ms, toast "Couldn't save your like" + Retry; retry quietly (retry 2/3, queued: 3, Offline chip). Secondary source, numbers not independently checked.
+
+- Design Motion carousel "Rules like these, checked in your app" (UI geometry, 8 sheets, seen 2026-11-25 as screenshots): ratios 1:1 / 4:3 / 16:9, aspect-ratio reserves the box, object-fit cover never fill, tightest crop 16:9→1:1 loses 43.75 % (keeps 56.25 %), 4:3→1:1 loses 25 %. The arithmetic checks out (9/16 = 56.25 %). Secondary source.
+
+- Design Motion reel "Two colors that match. Then a third one shows up at the same size" (5 slides, seen 2026-11-25 as screenshots): 60/30/10; same-weight third colour (40/30/30) looks cheap; accent count 7 vs 2, three max; tint grays 4 % (#18181B → #16201F); blur test shows three flat zones. Slide 5 ends "Or let Claude Code do it" (a plug for their paid UX Engine). Secondary source, numbers not independently checked.
