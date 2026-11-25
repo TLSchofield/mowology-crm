@@ -56,7 +56,14 @@ try {
     foreach ($__ijJobs as $__ijI => $__ijJ) { $__ijJobs[$__ijI]['index'] = $__ijI + 1; $__ijJobs[$__ijI]['total'] = count($__ijJobs); }
     if ($__ijInv) {
         require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceInsightsService.php';
-        $__ijIns = InvoiceInsightsService::snapshot($__ijDb, date('Y-m-d'));
+        $__ijLedger = [];   // income by month from the books: fills the months before this system's first paid invoice (the Jobber era, and last year's bars)
+        try {
+            require_once APP_ROOT . '/Modules/Accounting/Services/AccountingService.php';
+            foreach ((new AccountingService($__ijDb))->getMonthlyTrend(24) as $__ijR) $__ijLedger[(string)$__ijR['month']] = (float)$__ijR['revenue'];
+        } catch (Throwable $__ledgerError) {
+            error_log('Invoice insights ledger income unavailable: ' . $__ledgerError->getMessage());
+        }
+        $__ijIns = InvoiceInsightsService::snapshot($__ijDb, date('Y-m-d'), $__ijLedger);
         try {
             require_once APP_ROOT . '/Modules/Accounting/Services/RecurringBillService.php';
             require_once APP_ROOT . '/Modules/Accounting/Services/CashFlowForecastService.php';
@@ -384,6 +391,7 @@ $__ijMoneyViz = static function (array $d) use ($__ijMoney, $__ijShort): string 
             . '<text x="' . $pad . '" y="' . max(10.0, $ty - 3) . '" text-anchor="start" class="it-viz-lbl it-viz-cash-lbl">target ' . h($__ijShort($target)) . '/mo</text>';
     }
     $foot = '<b>' . h($__ijMoney((float)$d['year_total'])) . '</b> paid in the last 12 months. ' . (array_sum(array_column($d['months'], 'last_year')) > 0 ? 'Hollow bars: the same month last year.' : 'No invoices from last year to compare with yet.')
+        . (!empty($d['uses_books']) ? ' Months before invoices were kept here come from your books.' : '')
         . ($target ? ' Dashed: ' . h($__ijMoney($target)) . ' a month covers costs and your pay.' : '');
     return '<figure class="it-job-viz it-viz-flat" data-viz="in"><figcaption><span class="it-viz-title">Money in</span><b class="it-viz-headline">' . h($d['money_headline']) . '</b></figcaption>'
         . '<svg viewBox="0 0 ' . $w . ' 120" width="' . $w . '" height="120" role="img" aria-label="' . h($d['money_headline']) . '">' . $bars . $line . $lbl . '</svg>'

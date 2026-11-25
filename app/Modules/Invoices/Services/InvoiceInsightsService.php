@@ -16,7 +16,7 @@ final class InvoiceInsightsService
      *               aging: array<int, array{label: string, count: int, amount: float, late: bool}>, owed_total: float, owed_count: int,
      *               pay_days: array<int, array{label: string, days: ?float, now: bool}>, avg_days: ?float, has_data: bool}
      */
-    public static function snapshot(PDO $db, string $today): array
+    public static function snapshot(PDO $db, string $today, array $ledger = []): array
     {
         $paid = [];
         $open = [];
@@ -30,28 +30,29 @@ final class InvoiceInsightsService
         } catch (Throwable $e) {
             error_log('InvoiceInsightsService: ' . $e->getMessage());
         }
-        return self::build($paid, $open, $today);
+        return self::build($paid, $open, $today, $ledger);
     }
 
     /**
      * Pure. $paid rows: created_at, paid_at, total. $open rows: due_date (may be null), balance_due.
+     * $ledger: 'YYYY-MM' => income from the books. A month BEFORE the first paid invoice in this system (the Jobber era, whose
+     * invoices were never imported as paid) takes its income from the books; every later month stays invoice-based, because
+     * the books can count a deposit twice once the invoices exist (see Known-Failure-Patterns, income double count).
      */
-    public static function build(array $paid, array $open, string $today): array
+    public static function build(array $paid, array $open, string $today, array $ledger = []): array
     {
         $nowKey = substr($today, 0, 7);
         $lastYearKey = date('Y-m', strtotime($nowKey . '-01 -1 year'));
-        $priorYearFrom = date('Y-m', strtotime($nowKey . '-01 -23 months'));
-        $priorYearTo = date('Y-m', strtotime($nowKey . '-01 -12 months'));
         $byMonth = [];   // every paid month fetched (up to 24), so each of the 12 shown can sit beside the same month a year earlier
-        $lastYearTotal = 0.0;
-        $lastYearCount = 0;
-        $priorYearCount = 0;
         foreach ($paid as $r) {
             $k = substr((string)($r['paid_at'] ?? ''), 0, 7);
+            if ($k === '') continue;
             $byMonth[$k] = ($byMonth[$k] ?? 0.0) + (float)($r['total'] ?? 0);
-            if ($k >= $priorYearFrom && $k <= $priorYearTo) $priorYearCount++;
-            if ($k === $lastYearKey) { $lastYearTotal += (float)($r['total'] ?? 0); $lastYearCount++; }
         }
+        $firstInvoiceMonth = $byMonth ? min(array_keys($byMonth)) : null;
+        $val = static function (string $k) use ($byMonth, $ledger, $firstInvoiceMonth): float {
+            return isset($ledger[$k]) && ($firstInvoiceMonth === null || $k < $firstInvoiceMonth) ? (float)$ledger[$k] : (float)($byMonth[$k] ?? 0.0);
+        };
         $months = [];
         for ($i = 11; $i >= 0; $i--) {
             $t = strtotime(substr($today, 0, 7) . '-01 -' . $i . ' months');
@@ -74,8 +75,8 @@ final class InvoiceInsightsService
         $i = 0;
         $monthKeys = array_keys($months);
         foreach ($months as $m) {
-            $monthRows[] = ['label' => $m['label'], 'total' => round($m['total'], 2), 'now' => $m['now'],
-                            'last_year' => round($byMonth[date('Y-m', strtotime($monthKeys[$i] . '-01 -1 year'))] ?? 0.0, 2)];
+            $monthRows[] = ['label' => $m['label'], 'total' => round($val($monthKeys[$i]), 2), 'now' => $m['now'],
+                            'last_year' => round($val(date('Y-m', strtotime($monthKeys[$i] . '-01 -1 year'))), 2)];
             if ($i >= 6) {   // the last 6 months
                 $payRows[] = ['label' => $m['label'], 'days' => $m['n'] > 0 ? round($m['days'] / $m['n'], 1) : null, 'now' => $m['now']];
                 $sumDays += $m['days']; $nDays += $m['n'];
@@ -106,8 +107,15 @@ final class InvoiceInsightsService
         foreach ($buckets as &$bk) $bk['amount'] = round($bk['amount'], 2);
         unset($bk);
 
+        $usesBooks = false;   // did any shown month come from the books rather than invoices?
+        for ($j = 23; $j >= 0; $j--) {
+            $k = date('Y-m', strtotime($nowKey . '-01 -' . $j . ' months'));
+            if (isset($ledger[$k]) && $ledger[$k] > 0 && ($firstInvoiceMonth === null || $k < $firstInvoiceMonth)) { $usesBooks = true; break; }
+        }
         $thisMonth = (float)end($monthRows)['total'];
-        $lastYear = $lastYearCount > 0 || $priorYearCount > 0 ? round($lastYearTotal, 2) : null;
+        $priorYear = 0.0;
+        for ($j = 23; $j >= 12; $j--) $priorYear += $val(date('Y-m', strtotime($nowKey . '-01 -' . $j . ' months')));
+        $lastYear = $priorYear > 0 ? round($val($lastYearKey), 2) : null;
         $yoy = $lastYear !== null && $lastYear > 0 ? round(($thisMonth - $lastYear) / $lastYear * 100, 1) : null;
         $moneyHeadline = self::money($thisMonth) . ' this month';
         if ($yoy !== null) {
@@ -130,6 +138,7 @@ final class InvoiceInsightsService
             'last_year_same_month' => $lastYear,
             'yoy_pct'     => $yoy,
             'money_headline' => $moneyHeadline,
+            'uses_books' => $usesBooks,
             'aging'      => $buckets,
             'owed_total' => round($owed, 2),
             'owed_count' => $owedN,
