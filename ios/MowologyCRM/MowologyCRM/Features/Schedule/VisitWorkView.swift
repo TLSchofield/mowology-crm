@@ -2,330 +2,259 @@
 //  VisitWorkView.swift
 //  MowologyCRM
 //
-//  Native on-site job timer screen — equivalent of visit-work.php for iOS.
-//  Pushed from VisitDetailView when the crew member taps "Start Job".
+//  Proof-of-work for one visit: tick the checklist, log materials used, leave
+//  notes for the office or the client. Mirrors the Checklist / Materials / Notes
+//  tabs of the web PoW screen (crm/jobs/visit-work.php).
 //
-//  State machine:
-//    scheduled  → "Start Job" button → in_progress  → "End Job" button → completed
-//
-//  GPS breadcrumbs are collected every second and flushed to pow-gps-sync.php
-//  every 30s while the visit is in_progress. The elapsed timer is local-only;
-//  the authoritative duration is computed server-side from job_time_entries timestamps.
 
 import SwiftUI
 
 struct VisitWorkView: View {
+    @Environment(\.itAppStyle) private var appStyle
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
-    let stop:        Stop
-    let visit:       Visit
-    let authSession: AuthSession
+    @StateObject private var viewModel: VisitWorkViewModel
 
-    @StateObject private var vm: VisitWorkViewModel
-    @Environment(\.dismiss) private var dismiss
+    private enum Pane: String, CaseIterable { case checklist = "Checklist", materials = "Materials", notes = "Notes" }
+    @State private var section = Pane.checklist
 
-    init(stop: Stop, visit: Visit, authSession: AuthSession) {
-        self.stop        = stop
-        self.visit       = visit
-        self.authSession = authSession
-        _vm = StateObject(wrappedValue: VisitWorkViewModel(visit: visit, authSession: authSession))
+    // Composer state
+    @State private var newChecklistItem = ""
+    @State private var materialName = ""
+    @State private var materialQty  = ""
+    @State private var materialUnit = ""
+    @State private var noteText     = ""
+    @State private var noteType     = VisitNoteType.general
+    @State private var noteVisible  = false
+
+    init(visitId: Int, authSession: AuthSession) {
+        _viewModel = StateObject(wrappedValue: VisitWorkViewModel(visitId: visitId, authSession: authSession))
     }
-
-    // MARK: - Body
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 24) {
-
-                // ── Property header ─────────────────────────────────────────
-                propertyHeader
-
-                // ── Timer display ───────────────────────────────────────────
-                timerCard
-
-                // ── Action button ───────────────────────────────────────────
-                actionButton
-
-                // ── Notes ───────────────────────────────────────────────────
-                if vm.visitStatus.lowercased() == "in_progress" {
-                    notesCard
-                }
-
-                // ── Photo proof + endorsement trio ──────────────────────────
-                photoAndEndorseSection
-
-                // ── Completion banner ───────────────────────────────────────
-                if vm.visitStatus.lowercased() == "completed" {
-                    completionBanner
-                }
-
-                Spacer(minLength: 24)
+        VStack(spacing: 0) {
+            Picker("Section", selection: $section) {
+                ForEach(Pane.allCases, id: \.self) { Text($0.rawValue).tag($0) }
             }
+            .pickerStyle(.segmented)
             .padding(.horizontal, 16)
-            .padding(.top, 20)
+            .padding(.vertical, 10)
+
+            if viewModel.isLocked {
+                banner("Locked by the office — view only.", icon: "lock.fill", tint: appStyle.meta)
+            }
+            if let error = viewModel.errorMessage {
+                banner(error, icon: "exclamationmark.triangle.fill", tint: appStyle.attention)
+            }
+
+            List {
+                switch section {
+                case .checklist: checklistSection
+                case .materials: materialsSection
+                case .notes:     notesSection
+                }
+            }
+            .listStyle(.insetGrouped)
+            .itAppForm()
+            .scrollDismissesKeyboard(.interactively)
         }
-        .background(Color(.systemGroupedBackground))
-        .navigationTitle("On Site")
+        .background(appStyle.page)
+        .itAppScreen()
+        .navigationTitle("Work Record")
         .navigationBarTitleDisplayMode(.inline)
-        .alert("Error", isPresented: Binding(
-            get: { vm.errorMessage != nil },
-            set: { if !$0 { vm.errorMessage = nil } }
-        )) {
-            Button("OK", role: .cancel) { vm.errorMessage = nil }
-        } message: {
-            Text(vm.errorMessage ?? "")
-        }
-    }
-
-    // MARK: - Property Header
-
-    private var propertyHeader: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(stop.displayName ?? stop.propertyAddress)
-                .font(.title3.weight(.semibold))
-                .foregroundStyle(Color.MW.dark)
-
-            Text(stop.fullAddress)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-
-            Text(visit.serviceTypeLabel)
-                .font(.caption.weight(.medium))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
-                .background(Color.MW.green.opacity(0.12))
-                .foregroundStyle(Color.MW.green)
-                .clipShape(Capsule())
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-    }
-
-    // MARK: - Timer Card
-
-    private var timerCard: some View {
-        VStack(spacing: 12) {
-            // Status badge
-            Text(statusLabel)
-                .font(.caption.weight(.semibold))
-                .textCase(.uppercase)
-                .foregroundStyle(statusColor)
-                .tracking(1)
-
-            // Elapsed time — only shown while in progress
-            if vm.visitStatus.lowercased() == "in_progress" {
-                Text(vm.elapsedFormatted)
-                    .font(.system(size: 52, weight: .light, design: .monospaced))
-                    .foregroundStyle(Color.MW.dark)
-                    .contentTransition(.numericText())
-                    .animation(.linear(duration: 0.2), value: vm.elapsedSeconds)
-
-                Text("elapsed on site")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else if vm.visitStatus.lowercased() == "completed" {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 52))
-                    .foregroundStyle(Color.MW.green)
-            } else {
-                Image(systemName: "timer")
-                    .font(.system(size: 52))
-                    .foregroundStyle(Color.MW.green.opacity(0.4))
-
-                Text("Timer starts when you tap Start Job")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                if viewModel.isSaving || viewModel.isLoading {
+                    ProgressView()
+                } else if viewModel.hasUnsavedChecklist || viewModel.hasUnsavedMaterials {
+                    Button("Retry") {
+                        Task {
+                            if viewModel.hasUnsavedChecklist { await viewModel.saveChecklist() }
+                            if viewModel.hasUnsavedMaterials { await viewModel.saveMaterials() }
+                        }
+                    }
+                    .tint(appStyle.attention)
+                }
             }
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 28)
-        .padding(.horizontal, 16)
-        .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .task { await viewModel.load() }
     }
 
-    // MARK: - Action Button
+    // MARK: - Checklist
 
     @ViewBuilder
-    private var actionButton: some View {
-        let status = vm.visitStatus.lowercased()
-
-        if status == "scheduled" {
-            Button {
-                Task { await vm.startVisit() }
-            } label: {
-                Label("Start Job", systemImage: "play.fill")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
-                    .background(Color.MW.green)
-                    .foregroundStyle(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
+    private var checklistSection: some View {
+        Section {
+            if viewModel.checklist.isEmpty && !viewModel.isLoading {
+                Text("No checklist for this job. Add your own items below.")
+                    .font(appStyle.font(.subheadline))
+                    .foregroundStyle(appStyle.meta)
             }
-            .disabled(vm.isLoading)
-            .overlay {
-                if vm.isLoading {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.MW.green.opacity(0.7))
-                    ProgressView().tint(.white)
+            ForEach(viewModel.checklist) { item in
+                Button {
+                    viewModel.toggle(item)
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: item.checked ? "checkmark.circle.fill" : "circle")
+                            .font(appStyle.font(.title3))
+                            .foregroundStyle(item.checked ? appStyle.tenant : (appStyle.isEnabled ? appStyle.line : Color(.systemGray3)))
+                        Text(item.item)
+                            .foregroundStyle(item.checked ? .secondary : appStyle.text)
+                            .strikethrough(item.checked, color: appStyle.meta)
+                        Spacer(minLength: 0)
+                    }
+                    .frame(minHeight: appStyle.isEnabled ? 48 : nil)
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .disabled(viewModel.isLocked)
             }
+        } header: {
+            if !viewModel.checklist.isEmpty {
+                Text("\(viewModel.checkedCount) of \(viewModel.checklist.count) done")
+            }
+        }
 
-        } else if status == "in_progress" {
-            Button(role: .destructive) {
-                Task { await vm.endVisit() }
-            } label: {
-                Label("End Job", systemImage: "stop.fill")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
-                    .background(Color.red.opacity(0.9))
-                    .foregroundStyle(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-            }
-            .disabled(vm.isLoading)
-            .overlay {
-                if vm.isLoading {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.red.opacity(0.7))
-                    ProgressView().tint(.white)
+        if !viewModel.isLocked {
+            Section {
+                AnyLayout(appStyle.isEnabled && dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout())) {
+                    TextField("Add checklist item", text: $newChecklistItem)
+                        .submitLabel(.done)
+                        .onSubmit(addChecklistItem)
+                    Button("Add", action: addChecklistItem)
+                        .frame(minHeight: appStyle.isEnabled ? 48 : nil)
+                        .disabled(newChecklistItem.trimmingCharacters(in: .whitespaces).isEmpty)
+                        .tint(appStyle.tenant)
                 }
             }
         }
     }
 
-    // MARK: - Notes Card
-
-    private var notesCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Job Notes")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Color.MW.dark)
-
-            TextEditor(text: $vm.pendingNoteText)
-                .frame(minHeight: 100)
-                .padding(8)
-                .background(Color(.tertiarySystemGroupedBackground))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(Color(.separator), lineWidth: 0.5)
-                )
-
-            HStack {
-                if vm.noteSaved {
-                    Label("Saved", systemImage: "checkmark.circle.fill")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(Color.MW.green)
-                        .transition(.opacity)
-                }
-                Spacer()
-                Button("Save Note") {
-                    Task { await vm.saveNote() }
-                }
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(vm.pendingNoteText.trimmingCharacters(in: .whitespaces).isEmpty
-                    ? .secondary : Color.MW.green)
-                .disabled(vm.pendingNoteText.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
-            .animation(.easeInOut(duration: 0.2), value: vm.noteSaved)
-        }
-        .padding(16)
-        .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+    private func addChecklistItem() {
+        viewModel.addChecklistItem(newChecklistItem)
+        newChecklistItem = ""
     }
 
-    // MARK: - Photo + Endorsement Section
+    // MARK: - Materials
 
-    private var photoAndEndorseSection: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            JobPhotoSection(
-                visitId:       visit.visitId,
-                isActive:      vm.visitStatus.lowercased() == "in_progress",
-                authSession:   authSession,
-                isFlagged:     vm.isFlagged,
-                isFlagLoading: vm.isFlagLoading,
-                onFlagToggle:  { await vm.toggleFlag() }
-            )
-
-            // Review earned strip — visible once the client has actually reviewed.
-            if vm.isFlagged && vm.contactHasReviewed {
-                HStack(spacing: 0) {
-                    Image(systemName: "heart.fill")
-                        .foregroundStyle(Color.MW.orange)
-                        .font(.caption)
-                        .padding(.trailing, 6)
-                    Text("You endorsed this visit · ")
-                        .font(.caption)
-                        .foregroundStyle(Color.MW.dark)
-                    Text("Review received ★★★★★")
-                        .font(.caption.bold())
-                        .foregroundStyle(Color.MW.dark)
-                    Spacer(minLength: 0)
+    @ViewBuilder
+    private var materialsSection: some View {
+        Section {
+            if viewModel.materials.isEmpty && !viewModel.isLoading {
+                Text("Nothing logged yet.")
+                    .font(appStyle.font(.subheadline))
+                    .foregroundStyle(appStyle.meta)
+            }
+            ForEach(viewModel.materials) { material in
+                AnyLayout(appStyle.isEnabled && dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout())) {
+                    Text(material.name)
+                    Spacer()
+                    Text(material.quantityLabel).foregroundStyle(appStyle.meta)
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .background(Color.MW.green.opacity(0.08))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(Color.MW.green.opacity(0.25), lineWidth: 1)
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .padding(.top, 8)
+            }
+            .onDelete { offsets in
+                Task { await viewModel.removeMaterials(at: offsets) }
+            }
+            .deleteDisabled(viewModel.isLocked)
+        } header: {
+            Text("Materials used")
+        }
+
+        if !viewModel.isLocked {
+            Section {
+                TextField("Material (e.g. Fertilizer 20-5-10)", text: $materialName)
+                AnyLayout(appStyle.isEnabled && dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout())) {
+                    TextField("Qty", text: $materialQty)
+                        .keyboardType(.decimalPad)
+                        .frame(maxWidth: appStyle.isEnabled && dynamicTypeSize.isAccessibilitySize ? .infinity : 90)
+                    Divider()
+                    TextField("Unit (kg, bags, yd)", text: $materialUnit)
+                        .textInputAutocapitalization(.never)
+                }
+                Button {
+                    let qty = Double(materialQty.replacingOccurrences(of: ",", with: "."))
+                    let (name, unit) = (materialName, materialUnit)
+                    materialName = ""; materialQty = ""; materialUnit = ""
+                    Task { await viewModel.addMaterial(name: name, qty: qty, unit: unit) }
+                } label: {
+                    Label("Add material", systemImage: "plus.circle.fill")
+                        .frame(minHeight: appStyle.isEnabled ? 48 : nil)
+                }
+                .disabled(materialName.trimmingCharacters(in: .whitespaces).isEmpty)
+                .tint(appStyle.tenant)
+            } header: {
+                Text("Log a material")
             }
         }
-        .padding(16)
-        .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
-    // MARK: - Completion Banner
+    // MARK: - Notes
 
-    private var completionBanner: some View {
-        VStack(spacing: 10) {
-            Text("Visit Complete")
-                .font(.headline)
-                .foregroundStyle(Color.MW.dark)
-            Text("Great work! This visit has been recorded.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-            Button("Back to Schedule") {
-                dismiss()
+    @ViewBuilder
+    private var notesSection: some View {
+        if !viewModel.isLocked {
+            Section {
+                TextField("What should the office know?", text: $noteText, axis: .vertical)
+                    .lineLimit(3...8)
+                Picker("Type", selection: $noteType) {
+                    ForEach(VisitNoteType.allCases) { Text($0.label).tag($0) }
+                }
+                Toggle("Client can see this", isOn: $noteVisible)
+                    .tint(appStyle.tenant)
+                Button {
+                    Task {
+                        if await viewModel.addNote(noteText, type: noteType, visibleToCustomer: noteVisible) {
+                            noteText = ""; noteType = .general; noteVisible = false
+                        }
+                    }
+                } label: {
+                    Label("Save note", systemImage: "square.and.pencil")
+                        .frame(minHeight: appStyle.isEnabled ? 48 : nil)
+                }
+                .disabled(noteText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || viewModel.isSaving)
+                .tint(appStyle.tenant)
+            } header: {
+                Text("New note")
             }
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(Color.MW.green)
-            .padding(.top, 4)
         }
-        .frame(maxWidth: .infinity)
-        .padding(20)
-        .background(Color.MW.green.opacity(0.08))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.MW.green.opacity(0.3), lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+
+        Section {
+            if viewModel.notes.isEmpty && !viewModel.isLoading {
+                Text("No notes on this visit.")
+                    .font(appStyle.font(.subheadline))
+                    .foregroundStyle(appStyle.meta)
+            }
+            ForEach(viewModel.notes) { note in
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Text(VisitNoteType.label(for: note.noteType))
+                            .font(appStyle.font(.caption, weight: .bold))
+                            .foregroundStyle(note.noteType == "issue" ? appStyle.attention : appStyle.tenant)
+                        if note.visibleToCustomer {
+                            Label("Client", systemImage: "eye.fill")
+                                .font(appStyle.font(.caption2))
+                                .foregroundStyle(appStyle.meta)
+                        }
+                        Spacer()
+                        Text(note.author ?? "").font(appStyle.font(.caption2)).foregroundStyle(appStyle.meta)
+                    }
+                    Text(note.content).font(appStyle.font(.subheadline))
+                }
+                .padding(.vertical, 2)
+            }
+        } header: {
+            Text("On this visit")
+        }
     }
 
-    // MARK: - Helpers
+    // MARK: - Banner
 
-    private var statusLabel: String {
-        switch vm.visitStatus.lowercased() {
-        case "in_progress": return "In Progress"
-        case "completed":   return "Completed"
-        case "cancelled":   return "Cancelled"
-        default:            return "Scheduled"
-        }
-    }
-
-    private var statusColor: Color {
-        switch vm.visitStatus.lowercased() {
-        case "in_progress": return Color.MW.green
-        case "completed":   return .green
-        case "cancelled":   return .red
-        default:            return .blue
-        }
+    private func banner(_ text: String, icon: String, tint: Color) -> some View {
+        Label(text, systemImage: icon)
+            .font(appStyle.font(.footnote))
+            .foregroundStyle(tint)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 8)
     }
 }

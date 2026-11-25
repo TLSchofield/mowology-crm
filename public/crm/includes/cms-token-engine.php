@@ -28,11 +28,15 @@ function cms_getTokenDefaults(): array
     }
 
     // Start with hardcoded constants (always available, even if DB is down)
+    if (!function_exists('_idFromName') && defined('APP_ROOT')) require_once APP_ROOT . '/Services/Messaging/IdentityMail.php';
+    $idb = function_exists('_idFromName') ? BusinessIdentity::get() : ['name' => '', 'phone' => '', 'email' => ''];
+    $idDigits = preg_replace('/\D+/', '', (string)$idb['phone']);
+    if (strlen((string)$idDigits) === 11 && $idDigits[0] === '1') $idDigits = substr($idDigits, 1);
     $defaults = [
-        'BRAND'       => defined('SITE_NAME') ? SITE_NAME : 'Mowology',
-        'PHONE'       => defined('SITE_PHONE_DISPLAY') ? SITE_PHONE_DISPLAY : '778-846-9273',
-        'PHONE_TEL'   => defined('SITE_PHONE_TEL') ? SITE_PHONE_TEL : '7788469273',
-        'EMAIL'       => defined('SITE_EMAIL') ? SITE_EMAIL : 'office@mowology.ca',
+        'BRAND'       => defined('SITE_NAME') ? SITE_NAME : $idb['name'],
+        'PHONE'       => defined('SITE_PHONE_DISPLAY') ? SITE_PHONE_DISPLAY : (strlen((string)$idDigits) === 10 ? substr($idDigits, 0, 3) . '-' . substr($idDigits, 3, 3) . '-' . substr($idDigits, 6) : $idb['phone']),
+        'PHONE_TEL'   => defined('SITE_PHONE_TEL') ? SITE_PHONE_TEL : $idDigits,
+        'EMAIL'       => defined('SITE_EMAIL') ? SITE_EMAIL : $idb['email'],
         'YEAR'        => defined('SITE_YEAR') ? SITE_YEAR : date('Y'),
         'CTA_URL'     => '/quote',
         'CTA_TEXT'    => 'Get Your Free Quote',

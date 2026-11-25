@@ -10,6 +10,11 @@
 require_once __DIR__ . '/../loginAuth/auth.php';
 requireLogin();
 requirePermission('database.manage'); // Super-admin only
+// Platform-operator tool: refused for every tenant business (its menu entry is hidden there too).
+if (!class_exists('Tenant') || !Tenant::isDefault()) {
+    http_response_code(403);
+    exit('Not available.');
+}
 
 $user = getCurrentUser();
 $db   = getDB();

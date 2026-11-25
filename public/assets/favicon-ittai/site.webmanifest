@@ -1,0 +1,85 @@
+{
+  "name": "Mowology CRM",
+  "short_name": "Mowology",
+  "description": "Landscaping CRM - Schedule, quotes, jobs & invoicing",
+  "id": "/crm/",
+  "start_url": "/crm/app-launch.php",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#233A5E",
+  "background_color": "#F8F6F0",
+  "icons": [
+    {
+      "src": "/assets/favicon-ittai/android-chrome-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/assets/favicon-ittai/android-chrome-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/assets/favicon-ittai/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Clock In",
+      "short_name": "Clock In",
+      "url": "/crm/app-launch.php",
+      "description": "Start or end your shift",
+      "icons": [
+        {
+          "src": "/assets/favicon-ittai/android-chrome-192x192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Schedule",
+      "short_name": "Schedule",
+      "url": "/crm/jobs/schedule.php",
+      "description": "View today's schedule",
+      "icons": [
+        {
+          "src": "/assets/favicon-ittai/android-chrome-192x192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Snap Receipt",
+      "short_name": "Receipt",
+      "url": "/crm/expenses_appstack.php?mode=quick",
+      "description": "Quick receipt capture",
+      "icons": [
+        {
+          "src": "/assets/favicon-ittai/android-chrome-192x192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Vehicle Log",
+      "short_name": "Vehicle",
+      "url": "/crm/driver-log.php",
+      "description": "Pre-trip vehicle inspection",
+      "icons": [
+        {
+          "src": "/assets/favicon-ittai/android-chrome-192x192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
+  ],
+  "categories": [
+    "business",
+    "productivity"
+  ],
+  "lang": "en-CA"
+}

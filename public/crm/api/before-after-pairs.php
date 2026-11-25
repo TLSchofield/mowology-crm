@@ -3,7 +3,7 @@
  * API: Before & After Pairs
  *
  * GET  ?limit=6          — fetch published pairs for public module
- * GET  ?limit=100&admin=1 — fetch all pairs for admin panel (requires login)
+ * GET  ?limit=100&admin=1 — fetch all pairs for admin panel (requires portfolio.edit)
  *
  * Returns JSON with pairs[] array, each item containing:
  *   id, before_id, after_id, before_url, after_url,
@@ -29,13 +29,28 @@ require_once CRM_INCLUDES . '/functions.php';
 header('Content-Type: application/json');
 header('X-Content-Type-Options: nosniff');
 
-$isAdmin = isset($_GET['admin']) && $_GET['admin'] === '1' && isLoggedIn();
+// The full list (pending pairs, consent state) is for those who approve them — portfolio.edit
+// (managers/admins). Any login used to get it (Fable review 2026-10-12); others get the public feed.
+$isAdmin = isset($_GET['admin']) && $_GET['admin'] === '1' && isLoggedIn()
+    && function_exists('userHasPermission') && userHasPermission('portfolio.edit');
 $limit   = min((int)($_GET['limit'] ?? 6), 100);
 
 try {
     $db = getDB();
 
-    $where = $isAdmin ? '' : 'WHERE p.published = 1';
+    if (!$isAdmin) {
+        // Public feed: approved pairs, public fields only — see BeforeAfterService::publicShape().
+        require_once APP_ROOT . '/Modules/Portfolio/Services/BeforeAfterService.php';
+        $pairs = (new BeforeAfterService($db))->published($limit);
+        echo json_encode([
+            'success' => true,
+            'pairs'   => $pairs,
+            'total'   => count($pairs),
+        ], JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
+        exit;
+    }
+
+    // Admin panel: every pair (pending ones included) — the manager page's list shows status.
     $stmt  = $db->prepare("
         SELECT
             p.id,
@@ -44,17 +59,20 @@ try {
             p.label,
             p.service,
             p.category,
+            p.area,
             p.published,
+            p.status,
+            p.consent_state,
             p.sort_order,
             p.crew,
             p.created_at,
             mb.file_path AS before_url,
             ma.file_path AS after_url,
-            DATE_FORMAT(p.updated_at, '%M %Y') AS date
+            DATE_FORMAT(COALESCE(p.approved_at, p.updated_at), '%M %Y') AS date
         FROM  ba_pairs p
         JOIN  media_assets mb ON mb.id = p.before_id
         JOIN  media_assets ma ON ma.id = p.after_id
-        {$where}
+        WHERE p.status <> 'pending'
         ORDER BY p.sort_order ASC, p.id DESC
         LIMIT " . (int)$limit . "
     ");
@@ -74,7 +92,10 @@ try {
             'label'        => $row['label'],
             'service'      => $row['service'],
             'category'     => $row['category'],
+            'area'         => $row['area'] ?? '',
             'published'    => (bool)$row['published'],
+            'status'       => $row['status'],
+            'consent'      => $row['consent_state'],
             'sort_order'   => (int)$row['sort_order'],
             'crew'         => $row['crew'] ?? '',
             'date'         => $row['date'],

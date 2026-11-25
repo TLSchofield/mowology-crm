@@ -16,6 +16,8 @@ try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
     require_once CRM_INCLUDES . '/functions.php';
     requireLogin();
+    require_once APP_ROOT . '/Core/MigrationRunnerGuard.php';
+    migrationRunnerGuard(); // admin only; GET shows a confirm button, the run needs POST + CSRF (2026-10-12)
     requirePermission('settings.edit');
 
     $db  = getDB();

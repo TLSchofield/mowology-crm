@@ -1,0 +1,203 @@
+<?php
+declare(strict_types=1);
+
+use PHPUnit\Framework\TestCase;
+
+/**
+ * PennyJobAdapter::fromTransfer — a pending e-Transfer (listPending() row + EtransferDeskService::read()) becomes the
+ * job strip's shape: the "2/3" fraction, the label naming the match, the e-Transfer above the rail and the invoice(s)
+ * below it, and Record payment carrying the exact form fields the Invoices card posts to etransfer-confirm.php.
+ */
+class PennyJobAdapterEtransferTest extends TestCase
+{
+    private function row(array $over = []): array
+    {
+        return $over + [
+            'id' => 512, 'sender_name' => 'John Hughes', 'amount' => '1890.00', 'allocated_amount' => '0.00',
+            'memo' => 'INV-2026-0465 thanks', 'email_date' => '2026-11-03 14:14:00', 'transfer_type' => 'autodeposit',
+            'match_method' => 'invoice_number', 'match_confidence' => 'high', 'matched_invoice_number' => 'INV-2026-0465',
+            'bank_transaction_id' => 77, 'bank_transaction_date' => '2026-11-04', 'likely_deposit_date' => null,
+        ];
+    }
+
+    private function read(array $over = []): array
+    {
+        return $over + [
+            'id' => 512, 'active' => 1890.0, 'kind' => 'match', 'confirmed' => 3,
+            'lines' => [['invoice' => 'INV-2026-0465', 'amount' => 1890.0]],
+            'say' => 'John Hughes paid $1,890.00 for INV-2026-0465 — the invoice number is on the transfer. Record it?',
+        ];
+    }
+
+    private function facts(): array
+    {
+        return ['INV-2026-0465' => ['invoice_number' => 'INV-2026-0465', 'invoice_date' => '2026-10-20', 'balance_due' => 1890.0, 'payer_name' => 'John Hughes']];
+    }
+
+    public function testSingleInvoiceFullyInHand(): void
+    {
+        $j = PennyJobAdapter::fromTransfer($this->row(), $this->read(), $this->facts(), 2, 3);
+        $this->assertSame('penny', $j['head']);
+        $this->assertSame('etransfer', $j['kind']);
+        $this->assertSame('et:512', $j['key']);
+        $this->assertSame(['matched' => 3, 'total' => 3], $j['pieces']);
+        $this->assertSame('1 invoice + payment', $j['label']);
+        $this->assertSame('known', $j['sure'], 'the invoice number is on the transfer: solid blue, not gold');
+        $this->assertSame([2, 3], [$j['index'], $j['total']]);
+        $this->assertSame('e-Transfer', $j['left']['label']);
+        $this->assertSame('John Hughes', $j['left']['who']);
+        $this->assertSame('Interac email Nov 3, 2:14 pm', $j['left']['when']);
+        $this->assertSame('INV-2026-0465', $j['right']['label']);
+        $this->assertSame('John Hughes', $j['right']['who']);
+        $this->assertSame('Bank', $j['start']['label']);
+        $this->assertSame('/crm/ledger/', $j['anchor']['href']);
+        $this->assertNull($j['undo'], 'the card offers no undo for a recorded payment, so neither does the strip');
+    }
+
+    public function testColumnsCompareTheTwoSides(): void
+    {
+        $cols = PennyJobAdapter::fromTransfer($this->row(), $this->read(), $this->facts(), 1, 1)['columns'];
+        $this->assertSame(['Amount', 'Payer', 'Dates', 'Memo'], array_column($cols, 'label'));
+        $this->assertSame(['label' => 'Amount', 'top' => '$1,890.00', 'bottom' => '$1,890.00', 'state' => 'same'], $cols[0]);
+        $this->assertSame('same', $cols[1]['state']);
+        $this->assertSame(['label' => 'Payer', 'top' => '', 'bottom' => '', 'state' => 'same'], $cols[1], 'the frame names both sides: the column is a disc alone');
+        $this->assertSame(['label' => 'Dates', 'top' => 'Banked Nov 4', 'bottom' => '', 'state' => 'info'], $cols[2]);
+        $this->assertSame(['label' => 'Memo', 'top' => '', 'bottom' => '', 'state' => 'same'], $cols[3]);
+    }
+
+    /** A strata plan paying its owner's invoice: the names differ, but the owner has recorded that pair before, so the Payer column matches. */
+    public function testPayerMatchesWhenPennyHasLearnedWhoPaysForWhom(): void
+    {
+        $row = $this->row(['sender_name' => 'STRATA PLAN BCS-2106']);
+        $facts = ['INV-2026-0465' => ['invoice_number' => 'INV-2026-0465', 'invoice_date' => '2026-10-20', 'balance_due' => 1890.0, 'payer_name' => 'Alexandra Bee']];
+        $plain = PennyJobAdapter::fromTransfer($row, $this->read(), $facts, 1, 1)['columns'][1];
+        $this->assertSame('differs', $plain['state']);
+        $learned = PennyJobAdapter::fromTransfer($row, $this->read(), $facts, 1, 1, fn(string $s, string $p): bool => $s === 'STRATA PLAN BCS-2106' && $p === 'Alexandra Bee')['columns'][1];
+        $this->assertSame('same', $learned['state']);
+    }
+
+    /** Record payment is the card's own request: action=record, notification_id, invoice_numbers[], amounts[] to etransfer-confirm.php. */
+    public function testRecordPaymentIsTheCardsExactRequest(): void
+    {
+        $j = PennyJobAdapter::fromTransfer($this->row(), $this->read(), $this->facts(), 1, 1);
+        $this->assertSame('/crm/api/etransfer-confirm.php', $j['api']);
+        $this->assertSame('form', $j['transport']);
+        $this->assertSame('Record payment', $j['primary']['label']);
+        $this->assertSame('INV-2026-0465', $j['primary']['sub'], 'the amount is already on the rail');
+        $this->assertSame(['action' => 'record', 'notification_id' => 512, 'invoice_numbers' => ['INV-2026-0465'], 'amounts' => ['1890.00']], $j['primary']['request']);
+        $this->assertSame('Not this invoice', $j['secondary']['label']);
+        $this->assertSame(['mode' => 'pick', 'notification_id' => 512, 'href' => '/crm/invoices/#etransfers'], $j['secondary']['request']);
+    }
+
+    public function testSixInvoicesNamedInTheMemo(): void
+    {
+        $lines = []; $facts = []; $nums = [];
+        foreach ([65, 66, 118, 440, 441, 442] as $i => $n) {
+            $no = 'INV-2026-' . str_pad((string)$n, 4, '0', STR_PAD_LEFT);
+            $nums[] = $no;
+            $lines[] = ['invoice' => $no, 'amount' => 58.21];
+            $facts[$no] = ['invoice_number' => $no, 'invoice_date' => '2026-0' . (3 + (int)($i / 2)) . '-10', 'balance_due' => 58.21, 'payer_name' => 'Alison Birdsall'];
+        }
+        $row = $this->row(['sender_name' => 'STRATA PLAN BCS-2106', 'amount' => '349.26', 'memo' => 'invoices 0065, 0066, 0118, 0440, 0441 and 0442', 'match_method' => null, 'match_confidence' => 'none', 'matched_invoice_number' => null, 'bank_transaction_id' => null, 'bank_transaction_date' => null, 'likely_deposit_date' => '2026-11-05']);
+        $read = $this->read(['active' => 349.26, 'kind' => 'named', 'confirmed' => 2, 'lines' => $lines, 'say' => 'named']);
+        $j = PennyJobAdapter::fromTransfer($row, $read, $facts, 1, 1);
+        $this->assertSame(['matched' => 2, 'total' => 3], $j['pieces']);
+        $this->assertSame('6 invoices + payment', $j['label']);
+        $this->assertSame('held', $j['sure'], 'named, but the sender differs from the payer and no pair is learned: broken triangle');
+        $this->assertSame('6 invoices', $j['right']['label']);
+        $this->assertSame('Alison Birdsall', $j['right']['who']);
+        $cols = $j['columns'];
+        $this->assertSame(['$349.26', '$349.26', 'same'], [$cols[0]['top'], $cols[0]['bottom'], $cols[0]['state']]);
+        $this->assertSame('differs', $cols[1]['state'], 'the strata sent it; the invoices are for the owner');
+        $this->assertSame(['Likely Nov 5', ''], [$cols[2]['top'], $cols[2]['bottom']]);
+        $this->assertSame($nums, $j['primary']['request']['invoice_numbers']);
+        $this->assertSame(array_fill(0, 6, '58.21'), $j['primary']['request']['amounts']);
+        $this->assertSame('6 invoices', $j['primary']['sub']);
+    }
+
+    public function testAmountDiffersAndAGuessIsHeld(): void
+    {
+        $row = $this->row(['amount' => '1800.00', 'memo' => '', 'match_method' => 'sender_name', 'match_confidence' => 'medium', 'bank_transaction_id' => null, 'bank_transaction_date' => null]);
+        $read = $this->read(['active' => 1800.0, 'kind' => 'likely', 'confirmed' => 1, 'lines' => [['invoice' => 'INV-2026-0465', 'amount' => 1800.0]]]);
+        $j = PennyJobAdapter::fromTransfer($row, $read, $this->facts(), 1, 1);
+        $this->assertSame(['matched' => 1, 'total' => 3], $j['pieces']);
+        $this->assertSame('forming', $j['sure'], 'a reading by name, never recorded, and the amount differs: three loose lines');
+        $cols = $j['columns'];
+        $this->assertSame(['$1,800.00', '$1,890.00', 'differs'], [$cols[0]['top'], $cols[0]['bottom'], $cols[0]['state']]);
+        $this->assertSame(['Not banked yet', 'info'], [$cols[2]['top'], $cols[2]['state']]);
+        $this->assertSame('info', $cols[3]['state']);
+        $this->assertSame(['1800.00'], $j['primary']['request']['amounts']);
+    }
+
+    public function testUnknownInvoiceFactsStayInfo(): void
+    {
+        $j = PennyJobAdapter::fromTransfer($this->row(), $this->read(), [], 1, 1);
+        $this->assertSame(['–', 'info'], [$j['columns'][0]['bottom'], $j['columns'][0]['state']]);
+        $this->assertSame('info', $j['columns'][1]['state']);
+        $this->assertSame('', $j['right']['who']);
+    }
+
+    /** The strip offers Record only with a proposal: a duplicate, a leftover or a blank reading stays on the card. */
+    public function testOnlyProposalsBecomeJobs(): void
+    {
+        $this->assertTrue(PennyJobAdapter::proposes($this->read()));
+        $this->assertFalse(PennyJobAdapter::proposes($this->read(['kind' => 'duplicate'])));
+        $this->assertFalse(PennyJobAdapter::proposes($this->read(['kind' => 'leftover', 'lines' => []])));
+        $this->assertFalse(PennyJobAdapter::proposes($this->read(['kind' => 'none', 'lines' => []])));
+        $this->assertFalse(PennyJobAdapter::proposes($this->read(['lines' => []])));
+        $this->assertFalse(PennyJobAdapter::proposes($this->read(['kind' => 'named_check'])), 'memo names invoices that do not add up or are unclear: the card');
+        $this->assertFalse(PennyJobAdapter::proposes($this->read(['credit' => ['amount' => 50.0, 'with_record' => true, 'already_paid' => []]])), 'more than the invoice owes: the card offers the credit');
+        $this->assertTrue(PennyJobAdapter::proposes($this->read(['credit' => ['amount' => 50.0, 'with_record' => false, 'already_paid' => []]])), 'a part-recorded leftover credit does not block a proposal with lines');
+        $this->assertTrue(PennyJobAdapter::proposes($this->read(['kind' => 'likely'])));
+    }
+
+    public function testSureOfMatch(): void
+    {
+        // kind, times recorded for this payer, a ≠ disc showing
+        $this->assertSame('known', PennyJobAdapter::sureOfTransfer('match', 0, false), 'number on the transfer: solid blue');
+        $this->assertSame('forming', PennyJobAdapter::sureOfTransfer('spread', 0, false), 'never recorded, only a reading: three loose lines');
+        $this->assertSame('held', PennyJobAdapter::sureOfTransfer('spread', 1, false), 'seen once: broken triangle');
+        $this->assertSame('known', PennyJobAdapter::sureOfTransfer('spread', 2, false), 'recorded twice: known');
+        $this->assertSame('held', PennyJobAdapter::sureOfTransfer('named_check', 3, true), 'a ≠ disc holds it at broken');
+        $this->assertSame('held', PennyJobAdapter::sureOfTransfer('match', 9, true), 'one cent out: broken, however well known');
+        $this->assertSame('known', PennyJobAdapter::sureOfTransfer('match', 4, false));
+        $this->assertSame('mastered', PennyJobAdapter::sureOfTransfer('match', 5, false), 'five recordings, nothing differing: gold');
+        $this->assertSame('mastered', PennyJobAdapter::sureOfTransfer('spread', 5, false));
+        $this->assertSame('forming', PennyJobAdapter::sureOfTransfer('none', 0, true));
+    }
+
+    public function testCandidatesCarryTheExactRecordRequestAndAreCapped(): void
+    {
+        $candidates = [];
+        foreach ([1, 2, 3, 4] as $n) {
+            $candidates[] = ['invoice_number' => 'INV-2026-000' . $n, 'payer_name' => 'Payer ' . $n, 'balance_due' => 364.65, 'invoice_date' => '2026-11-01', 'score' => 60];
+        }
+        $j = PennyJobAdapter::fromTransfer($this->row(), $this->read(), $this->facts(), 1, 1, null, null, $candidates);
+        $this->assertSame('propose', $j['mode']);
+        $this->assertCount(3, $j['candidates']);
+        $this->assertSame(['invoice' => 'INV-2026-0001', 'who' => 'Payer 1', 'owing' => '$364.65', 'issued' => 'Issued Nov 1',
+            'request' => ['action' => 'record', 'notification_id' => 512, 'invoice_numbers' => ['INV-2026-0001'], 'amounts' => ['364.65']]], $j['candidates'][0]);
+    }
+
+    public function testBlankReadingOpensTheChooser(): void
+    {
+        $read = $this->read(['kind' => 'none', 'lines' => [], 'confirmed' => 0]);
+        $candidate = [['invoice_number' => 'INV-2026-0001', 'payer_name' => 'Payer', 'balance_due' => 2000.00, 'invoice_date' => '2026-11-01', 'score' => 60]];
+        $j = PennyJobAdapter::fromTransfer($this->row(), $read, [], 1, 1, null, null, $candidate);
+        $this->assertSame('choose', $j['mode']);
+        $this->assertNull($j['primary']);
+        $this->assertNull($j['secondary']);
+        $this->assertSame('Which invoice?', $j['right']['label']);
+        $this->assertSame('forming', $j['sure']);
+    }
+
+    public function testOffersChoiceTruthTable(): void
+    {
+        $candidate = [['invoice_number' => 'INV-2026-0001']];
+        $this->assertTrue(PennyJobAdapter::offersChoice(['kind' => 'none', 'lines' => []], $candidate));
+        $this->assertTrue(PennyJobAdapter::offersChoice(['kind' => 'leftover', 'lines' => []], $candidate));
+        $this->assertFalse(PennyJobAdapter::offersChoice(['kind' => 'match', 'lines' => []], $candidate));
+        $this->assertFalse(PennyJobAdapter::offersChoice(['kind' => 'none', 'lines' => [['invoice' => 'INV-2026-0001']]], $candidate));
+        $this->assertFalse(PennyJobAdapter::offersChoice(['kind' => 'none', 'lines' => []], []));
+    }
+}

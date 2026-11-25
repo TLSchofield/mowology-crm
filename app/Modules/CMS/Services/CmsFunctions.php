@@ -12,6 +12,7 @@
  */
 
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 
 if (!defined('APP_ROOT')) {
     require_once dirname(__DIR__, 3) . '/Core/paths.php';
@@ -200,7 +201,7 @@ function cms_savePage(array $data, ?int $pageId = null, int $userId = 0): int
 
     // Auto-generate canonical if not provided
     if (!$cannonicalUrl) {
-        $siteUrl = defined('SITE_URL') ? SITE_URL : 'https://mowology.ca';
+        $siteUrl = defined('SITE_URL') ? SITE_URL : _idSiteUrl();
         $cannonicalUrl = $siteUrl . '/' . trim($slug, '/');
     }
 
@@ -790,7 +791,8 @@ function cms_getMediaAssets(array $filters = [], int $limit = 50, int $offset = 
     $siteId = $siteId ?? (defined('CMS_SITE_ID') ? CMS_SITE_ID : 1);
     $db = getDB();
 
-    $sql = "SELECT * FROM media_assets WHERE site_id = " . (int)$siteId;
+    $sql = "SELECT * FROM media_assets WHERE site_id = " . (int)$siteId
+         . " AND (context_type IS NULL OR context_type != 'expense')";
 
     if (!empty($filters['type'])) {
         $sql .= " AND file_type = ?";
@@ -1234,12 +1236,17 @@ function cms_logCmsActivity(int $userId, string $action, string $summary, array 
  * @param int $pageId
  * @return string|null Cached HTML, or null on miss / expired
  */
-function cms_getPageHtmlCache(int $pageId): ?string
+function cms_getPageHtmlCache(int $pageId, ?int $notOlderThan = null): ?string
 {
     try {
         $db = getDB();
+        // UNIX_TIMESTAMP() converts in MySQL's own session timezone — the same one
+        // NOW() wrote cached_at in — so the epoch is comparable with PHP's time()
+        // and filemtime(). strtotime() on the raw column applied PHP's timezone
+        // (America/Vancouver) to a UTC-written value, which made every cache row look
+        // hours younger than it was and defeated the not-older-than check.
         $stmt = $db->prepare("
-            SELECT cache_html, cached_at, ttl_seconds
+            SELECT cache_html, UNIX_TIMESTAMP(cached_at) AS cached_ts, ttl_seconds
             FROM cms_page_cache
             WHERE page_id = ?
             LIMIT 1
@@ -1252,15 +1259,39 @@ function cms_getPageHtmlCache(int $pageId): ?string
         }
 
         // Check TTL
-        $age = time() - strtotime($row['cached_at']);
+        $cachedAt = (int)$row['cached_ts'];
+        $age = time() - $cachedAt;
         if ($age > (int)$row['ttl_seconds']) {
             return null; // Expired
+        }
+
+        // A cached page also goes stale when the shared public includes
+        // (head/header/footer) change: the HTML would keep pointing at old
+        // asset URLs, nav links, etc. until the TTL ran out.
+        if ($notOlderThan !== null && $cachedAt < $notOlderThan) {
+            return null;
         }
 
         return $row['cache_html'];
     } catch (\Throwable $e) {
         // Table probably not created yet — silently skip
         return null;
+    }
+}
+
+/**
+ * Cache-row metadata for diagnostics: when the row was written (MySQL epoch),
+ * its TTL, and MySQL's own idea of "now" so clock/timezone skew is visible.
+ */
+function cms_getPageHtmlCacheMeta(int $pageId): array
+{
+    try {
+        $stmt = getDB()->prepare("SELECT UNIX_TIMESTAMP(cached_at) AS cached_ts, ttl_seconds, UNIX_TIMESTAMP() AS db_now FROM cms_page_cache WHERE page_id = ? LIMIT 1");
+        $stmt->execute([$pageId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $row ? array_map('intval', $row) : ['cached_ts' => 0, 'ttl_seconds' => 0, 'db_now' => 0];
+    } catch (\Throwable $e) {
+        return ['cached_ts' => -1, 'ttl_seconds' => -1, 'db_now' => -1];
     }
 }
 
@@ -1311,7 +1342,7 @@ function cms_invalidateAllPageHtmlCache(): void
 {
     try {
         $db = getDB();
-        $db->exec("TRUNCATE TABLE cms_page_cache");
+        $db->exec("DELETE FROM cms_page_cache");   // not TRUNCATE: needs DROP, which the data-only user lacks (#27)
     } catch (\Throwable $e) {
         // Silently skip
     }
@@ -1330,7 +1361,7 @@ function cms_invalidateAllPageHtmlCache(): void
 function cms_pingIndexNow(string $slug): void
 {
     try {
-        $siteUrl = defined('SITE_URL') ? SITE_URL : 'https://mowology.ca';
+        $siteUrl = defined('SITE_URL') ? SITE_URL : _idSiteUrl();
         $host    = parse_url($siteUrl, PHP_URL_HOST) ?? 'mowology.ca';
         $pageUrl = rtrim($siteUrl, '/') . '/' . ltrim($slug, '/');
 
@@ -1377,7 +1408,10 @@ function cms_incrementPageView(int $pageId): void
 {
     try {
         $db = getDB();
-        $db->prepare("UPDATE cms_pages SET view_count = view_count + 1 WHERE id = ?")
+        // `updated_at = updated_at` defeats the column's ON UPDATE CURRENT_TIMESTAMP:
+        // a page view must not look like an edit (it fed a bogus <lastmod> into
+        // the sitemap for every CMS page).
+        $db->prepare("UPDATE cms_pages SET view_count = view_count + 1, updated_at = updated_at WHERE id = ?")
            ->execute([$pageId]);
     } catch (\Throwable $e) {
         // Never surface view-count errors to visitors

@@ -25,7 +25,7 @@ if (!function_exists('getCurrentUser')) {
 // Cache version — bump this when you change role_permissions seeds
 // or when a user's roles are modified via the admin UI.
 if (!defined('PERM_CACHE_VERSION')) {
-    define('PERM_CACHE_VERSION', 4);
+    define('PERM_CACHE_VERSION', 6);
 }
 
 /**
@@ -62,12 +62,12 @@ function getUserRoles(int $userId): array
  */
 function getUserPermissions(int $userId): array
 {
-    // Check session cache first
+    // Check session cache first — it now expires after AuthFreshness::PERM_CACHE_TTL seconds, so a
+    // role change made by an admin reaches the user's open session (Fable review 2026-10-12).
     if (
         isset($_SESSION['perm_cache'])
-        && is_array($_SESSION['perm_cache'])
-        && ($_SESSION['perm_cache']['user_id'] ?? 0) === $userId
-        && ($_SESSION['perm_cache']['version'] ?? 0) === PERM_CACHE_VERSION
+        && class_exists('AuthFreshness')
+        && AuthFreshness::permCacheFresh($_SESSION['perm_cache'], $userId, PERM_CACHE_VERSION, time())
     ) {
         return $_SESSION['perm_cache']['permissions'];
     }
@@ -108,6 +108,7 @@ function getUserPermissions(int $userId): array
         'user_id'     => $userId,
         'version'     => PERM_CACHE_VERSION,
         'permissions'  => $perms,
+        'at'          => time(),
     ];
 
     return $perms;
@@ -133,7 +134,7 @@ function _legacyPermissions(int $userId): array
 
         case 'manager':
             return [
-                'jobs.view', 'jobs.edit', 'jobs.assign',
+                'jobs.view', 'jobs.edit', 'jobs.assign', 'jobs.create_field',
                 'schedule.view', 'schedule.edit',
                 'timer.start', 'timer.stop', 'timer.override',
                 'photos.upload', 'photos.delete',
@@ -145,12 +146,23 @@ function _legacyPermissions(int $userId): array
                 'team.view', 'team.edit',
                 'expenses.view', 'expenses.edit',
                 'settings.view',
+                'ledger.view',
             ];
 
+        // Outside accountant (2026-10-13): the Ledger only — never crew keys (AccountantFence also confines the login).
+        case 'accountant':
+            return ['ledger.view', 'ledger.propose'];
+
+        // Crew — every other role string (staff, technician, user, team_member, unknown). Mirrors the
+        // production 'staff' RBAC role. Never billing.* or anything office-only: a crew login with no
+        // RBAC rows used to get billing.view here and could export every invoice (#3, Fable audit 2026-10-12).
         case 'staff':
         case 'technician':
+        case 'user':
+        case 'team_member':
+        default:
             return [
-                'jobs.view',
+                'jobs.view', 'jobs.create_field',
                 'schedule.view',
                 'timer.start', 'timer.stop',
                 'photos.upload',
@@ -159,21 +171,6 @@ function _legacyPermissions(int $userId): array
                 'portfolio.view',
                 'team.view',
                 'expenses.view', 'expenses.edit',
-            ];
-
-        case 'user':
-        default:
-            return [
-                'jobs.view',
-                'schedule.view',
-                'timer.start', 'timer.stop',
-                'photos.upload',
-                'clients.view',
-                'billing.view',
-                'products.view',
-                'portfolio.view',
-                'team.view',
-                'expenses.view',
             ];
     }
 }

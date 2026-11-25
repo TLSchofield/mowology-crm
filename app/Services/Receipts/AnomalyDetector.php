@@ -43,6 +43,8 @@ function detectAnomalies(array $expense, PDO $db): array
         'checkGstMismatch',
         'checkWeekendExpense',
         'checkLocationMismatch',
+        'checkFooting',          // line items add up to MORE than the receipt (2026-11-03)
+        'checkCapitalAsset',     // equipment over the capitalization threshold: asset, not expense (2026-11-03)
     ];
 
     foreach ($rules as $ruleFn) {
@@ -106,7 +108,8 @@ function checkHighAmount(array $e, PDO $db): ?array
     $category = $e['accounting_category'] ?? '';
     if ($total <= 0 || empty($category)) return null;
 
-    $monthNum = (int)date('n');
+    require_once dirname(__DIR__, 2) . '/Modules/Expenses/Services/ReceiptAmountRules.php';
+    $monthNum = ReceiptAmountRules::monthNumber((string)($e['expense_date'] ?? date('Y-m-d')));
 
     try {
         $stmt = $db->prepare("
@@ -188,9 +191,13 @@ function checkDuplicateDay(array $e, PDO $db): ?array
 
 // ── Rule 4: No Receipt Image ─────────────────────────────────────────
 
+/** Below this total a missing receipt image is not worth a flag (parking, coffee) — plugin floor, Tim 2026-11-03. */
+const ANOMALY_NO_RECEIPT_MIN_TOTAL = 25.0;
+
 function checkNoReceipt(array $e, PDO $db): ?array
 {
     $mediaId = $e['receipt_media_id'] ?? null;
+    if ((float)($e['total'] ?? 0) < ANOMALY_NO_RECEIPT_MIN_TOTAL) return null;
     if (empty($mediaId)) {
         return [
             'code'   => 'NO_RECEIPT',
@@ -312,7 +319,11 @@ function checkSplitSuspicion(array $e, PDO $db): ?array
 }
 
 
-// ── Rule 8: GST Mismatch — GST is not ~5% of subtotal ───────────────
+// ── Rule 8: GST Mismatch — GST MORE than 5% of the subtotal ─────────
+// GST below 5% is normal: zero-rated basic groceries (bottled water, snacks), exempt items and
+// bottle deposits sit in the same subtotal (Chevron 2026-09-22: $0.12 GST on a $2.49 hot drink in
+// a $15.57 basket was right, and was flagged). GST above 5% of the pre-tax subtotal cannot come
+// from GST alone — a misread or PST read as GST — so only that is flagged (owner, 2026-10-11).
 
 function checkGstMismatch(array $e, PDO $db): ?array
 {
@@ -349,12 +360,12 @@ function checkGstMismatch(array $e, PDO $db): ?array
     $expectedGst = round($amount * 0.05, 2);
     $tolerance = max(0.10, $amount * 0.005); // $0.10 or 0.5%, whichever is larger
 
-    if ($gst > 0 && abs($gst - $expectedGst) > $tolerance) {
+    if ($gst > $expectedGst + $tolerance) {
         return [
             'code'   => 'GST_MISMATCH',
             'score'  => 20,
             'detail' => sprintf(
-                'GST $%.2f is not ~5%% of subtotal $%.2f (expected ~$%.2f)',
+                'GST $%.2f is more than 5%% of subtotal $%.2f (at most ~$%.2f)',
                 $gst, $amount, $expectedGst
             ),
         ];
@@ -475,4 +486,53 @@ function haversineDistanceAnomaly(float $lat1, float $lng1, float $lat2, float $
     $a = sin($dLat / 2) ** 2
        + cos(deg2rad($lat1)) * cos(deg2rad($lat2)) * sin($dLng / 2) ** 2;
     return $r * 2 * atan2(sqrt($a), sqrt(1 - $a));
+}
+
+/** Threshold above which equipment is a fixed asset, not an expense. Asked once, kept in ops_settings (plugin coding rule). */
+const ANOMALY_CAPITAL_DEFAULT = 500.0;   // the same $500 the receipt line rule uses for "equipment" (BankDeskService tools/equipment, CapitalItemRule 2026-10-19)
+
+/**
+ * Footing: the receipt's own lines must not add up to more than its total (lines + tax ≤ total). Fewer lines than the
+ * total is normal (partial capture); MORE means a misread line or a wrong total.
+ */
+function checkFooting(array $e, PDO $db): ?array
+{
+    $id = (int)($e['id'] ?? 0);
+    $total = (float)($e['total'] ?? $e['amount'] ?? 0);
+    if ($id <= 0 || $total <= 0) return null;
+    try {
+        $s = $db->prepare("SELECT COUNT(*) AS n, COALESCE(SUM(COALESCE(NULLIF(line_total, 0), quantity * COALESCE(unit_price, 0))), 0) AS lines_total
+                           FROM expense_line_items WHERE expense_id = ? AND COALESCE(is_adjustment, 0) = 0");
+        $s->execute([$id]);
+        $r = $s->fetch(PDO::FETCH_ASSOC);
+    } catch (Throwable $ex) {
+        return null;   // no line items table or column: nothing to foot
+    }
+    if (!$r || (int)$r['n'] === 0) return null;
+    $lines = (float)$r['lines_total'];
+    if ($lines > $total + 0.50) {
+        return ['code' => 'FOOTING_MISMATCH', 'score' => 20,
+                'detail' => 'Line items add up to $' . number_format($lines, 2) . ', more than the receipt total of $' . number_format($total, 2) . ' — a misread line or a wrong total'];
+    }
+    return null;
+}
+
+/** Equipment, tools or machinery at or over the capitalization threshold: a fixed asset changes the P&L and the tax return. */
+function checkCapitalAsset(array $e, PDO $db): ?array
+{
+    $total = (float)($e['total'] ?? $e['amount'] ?? 0);
+    $cat = strtolower((string)($e['accounting_category'] ?? $e['category'] ?? ''));
+    if ($total <= 0 || !preg_match('/equip|tool|machin|mower|trailer|vehicle|truck|computer|asset/', $cat)) return null;
+    $threshold = ANOMALY_CAPITAL_DEFAULT;
+    try {
+        $s = $db->prepare("SELECT setting_value FROM ops_settings WHERE setting_key = 'capitalization_threshold'");
+        $s->execute();
+        $v = $s->fetchColumn();
+        if ($v !== false && (float)$v > 0) $threshold = (float)$v;
+    } catch (Throwable $ex) { /* default */ }
+    if ($total >= $threshold) {
+        return ['code' => 'CAPITAL_ASSET', 'score' => 20,
+                'detail' => 'Equipment at $' . number_format($total, 2) . ' is over the $' . number_format($threshold, 0) . ' capitalization threshold — a fixed asset (1500), not an expense? (threshold: ops_settings capitalization_threshold)'];
+    }
+    return null;
 }

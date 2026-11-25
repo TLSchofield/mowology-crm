@@ -24,14 +24,17 @@ if ($quoteId) {
         SELECT q.*,
                p.address AS property_address, p.city AS property_city,
                p.site_contact_id,
-               COALESCE(qr.contact_id, p.site_contact_id) AS resolved_contact_id,
-               COALESCE(qrc.first_name, pc.first_name) AS contact_first,
-               COALESCE(qrc.last_name,  pc.last_name)  AS contact_last
+               COALESCE(q.contact_id, qr.contact_id, p.site_contact_id) AS resolved_contact_id,
+               COALESCE(qc.first_name, qrc.first_name, pc.first_name) AS contact_first,
+               COALESCE(qc.last_name,  qrc.last_name,  pc.last_name)  AS contact_last,
+               c.company_name AS quote_company_name
         FROM quotes q
         JOIN properties p ON q.property_id = p.id
         LEFT JOIN quote_requests qr  ON qr.quote_id  = q.id
+        LEFT JOIN contacts qc        ON qc.id  = q.contact_id
         LEFT JOIN contacts qrc       ON qrc.id = qr.contact_id
         LEFT JOIN contacts pc        ON pc.id  = p.site_contact_id
+        LEFT JOIN companies c        ON c.id   = q.company_id
         WHERE q.id = ? AND q.status = 'accepted'
     ");
     $stmt->execute([$quoteId]);
@@ -44,6 +47,26 @@ if ($quoteId) {
         if ($existingContract) {
             header("Location: view.php?id={$existingContract['id']}&from=quote");
             exit;
+        }
+
+        // Snow & salt contract quotes get the same set-up as signing online does
+        // (per-visit contract + daily route plan, one rate billed per run). The
+        // generic form would put every rate on one plan and bill the sum.
+        // It writes a contract and a plan, so it runs only on the confirm button
+        // (POST + CSRF) — never on a page load or a prefetch (Fable review 2026-10-12).
+        require_once APP_ROOT . '/Modules/Contracts/Services/SnowContractService.php';
+        $isSnowQuote = SnowContractService::isSnowContractQuote($quote);
+        if ($isSnowQuote
+            && $_SERVER['REQUEST_METHOD'] === 'POST'
+            && ($_POST['action'] ?? '') === 'snow_setup'
+            && verifyCSRFToken($_POST['csrf_token'] ?? '')) {
+            require_once CRM_INCLUDES . '/plan-functions.php';
+            $snowSetup = (new SnowContractService($db))->setupFromSignedQuote($quoteId);
+            if (!empty($snowSetup['contract_id']) && in_array($snowSetup['status'], ['done', 'already'], true)) {
+                header("Location: view.php?id={$snowSetup['contract_id']}&created=1");
+                exit;
+            }
+            $snowSetupError = 'Automatic snow & salt set-up did not finish: ' . ($snowSetup['detail'] ?? $snowSetup['status']);
         }
     }
 }
@@ -69,15 +92,18 @@ if ($quote) {
         $prefilledContactId   = $directContactId;
         $prefilledContactName = trim($dc['first_name'] . ' ' . $dc['last_name']);
         $prefilledPropertyId  = $directPropertyId;
-        $stmt2 = $db->prepare("SELECT id, address, city, province, postal_code, property_type FROM properties WHERE site_contact_id = ? AND status = 'active' ORDER BY address");
-        $stmt2->execute([$directContactId]);
-        $prefilledProperties = $stmt2->fetchAll(PDO::FETCH_ASSOC);
+        $prefilledProperties = getPropertiesForContact($directContactId, $db, true);
     }
 }
 
+// ── Terms templates ───────────────────────────────────────────────────────
+require_once APP_ROOT . '/Modules/Contracts/Services/ContractTermsService.php';
+$termsSvc       = new ContractTermsService($db);
+$termsTemplates = $termsSvc->listTemplates(true);
+
 // ── POST: create contract ─────────────────────────────────────────────────
-$error = '';
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'] ?? '')) {
+$error = $snowSetupError ?? '';
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') !== 'snow_setup' && verifyCSRFToken($_POST['csrf_token'] ?? '')) {
     $data = [
         'property_id'    => intval($_POST['property_id'] ?? 0),
         'contact_id'     => intval($_POST['contact_id'] ?? 0),
@@ -89,14 +115,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         'start_date'     => $_POST['start_date'] ?? '',
         'end_date'       => $_POST['end_date'] ?? '',
         'renewal_date'   => $_POST['renewal_date'] ?? '',
+        'renewal_increase_pct' => $_POST['renewal_increase_pct'] ?? '',
         'notes'          => trim($_POST['notes'] ?? ''),
+        'terms_template_id' => intval($_POST['terms_template_id'] ?? 0) ?: null,
     ];
+
+    // Seasonal templates decide two things the form should not be trusted with:
+    // a snow contract must never auto-renew, and its end date is the end of the
+    // season, not whatever was typed. "Nov 1 to Mar 31" is a billing boundary,
+    // not a sentence in the terms.
+    if (!empty($data['terms_template_id'])) {
+        $tpl = $termsSvc->getTemplate((int)$data['terms_template_id']);
+        if ($tpl) {
+            if ($termsSvc->forcesNoAutoRenew($tpl)) {
+                $data['auto_renew']   = 0;
+                $data['renewal_date'] = '';
+            }
+            $window = $termsSvc->seasonWindow($tpl, $data['start_date'] ?: null);
+            if ($window && empty($data['end_date'])) {
+                $data['end_date'] = $window['end'];
+            }
+        }
+    }
 
     $result = createContract($data, (int)$user['id']);
 
     if ($result['success']) {
         $contractId = $result['contract_id'];
         if (!empty($data['quote_id'])) {
+            // A contract quote signed online already carries the client's signature
+            // and "I agree" — the contract inherits it rather than asking again.
+            try {
+                require_once APP_ROOT . '/Modules/Contracts/Services/ContractService.php';
+                (new ContractService($db))->adoptQuoteSignature((int)$contractId, (int)$data['quote_id'], (int)$user['id']);
+            } catch (\Throwable $e) {
+                error_log("[contracts/create] quote signature not carried to contract {$contractId}: " . $e->getMessage());
+            }
+            header("Location: ../jobs/create-from-quote.php?quote_id={$data['quote_id']}&contract_id={$contractId}");
             header("Location: ../jobs/create-from-quote.php?quote_id={$data['quote_id']}&contract_id={$contractId}");
         } else {
             header("Location: view.php?id={$contractId}&created=1");
@@ -114,7 +169,12 @@ $defaultPropertyId  = $quote['property_id']  ?? $directPropertyId;
 $defaultContactId   = $prefilledContactId;
 $defaultTitle       = $quote ? ($quote['title'] ?: '') : '';
 $defaultStartDate   = $quote && $quote['accepted_at'] ? date('Y-m-d', strtotime($quote['accepted_at'])) : date('Y-m-d');
-$defaultBillingAmt  = $quote ? (number_format((float)($quote['total_amount'] ?? 0), 2)) : '';
+// Quotes store their total in `amount` (total_amount was never written, so this
+// always prefilled $0.00). No thousands separator: "1,024.28" posts as 1.
+$defaultBillingAmt  = $quote ? number_format((float)($quote['amount'] ?? 0), 2, '.', '') : '';
+$defaultBillingCycle = 'monthly';
+require_once APP_ROOT . '/Modules/Contracts/Services/ContractService.php';
+$defaultRenewalPct  = ContractService::defaultRenewalIncreasePct($db);
 $contactName        = $prefilledContactName;
 $propertyAddress    = $quote ? trim(($quote['property_address'] ?? '') . ', ' . ($quote['property_city'] ?? '')) : '';
 
@@ -142,6 +202,19 @@ $activePage = 'contracts';
               <div class="alert alert-danger"><?php echo htmlspecialchars($error); ?></div>
           <?php endif; ?>
 
+          <?php if ($quote && !empty($isSnowQuote) && empty($snowSetupError)): ?>
+              <div class="card mb-3">
+                  <div class="card-header"><h5 class="card-title mb-0">Snow &amp; salt contract</h5></div>
+                  <div class="card-body">
+                      <p class="mb-3">This quote is a snow &amp; salt contract. Setting it up creates a per-visit contract and the daily route plan, billed one rate per run — the same set-up as when a client signs online.</p>
+                      <form method="POST">
+                          <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+                          <input type="hidden" name="action" value="snow_setup">
+                          <button type="submit" class="btn btn-primary">Set up snow &amp; salt contract</button>
+                      </form>
+                  </div>
+              </div>
+          <?php else: ?>
           <form method="POST" id="contractForm">
               <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
               <input type="hidden" name="quote_id"    value="<?php echo (int)$quoteId; ?>">
@@ -158,7 +231,22 @@ $activePage = 'contracts';
                               <div class="card-body">
                                   <div class="mw-form-row">
                                       <label class="mw-form-label">Client</label>
-                                      <div class="mw-form-value text-muted"><?php echo htmlspecialchars($contactName); ?></div>
+                                      <div class="mw-form-value text-muted">
+                                          <?php if (!empty($quote['quote_company_name'])): ?>
+                                              <strong><?php echo htmlspecialchars($quote['quote_company_name']); ?></strong>
+                                              <?php if (!empty($quote['accepted_by_name'])): ?>
+                                                  <div style="font-size:0.85em;">
+                                                      Signed by <?php echo htmlspecialchars($quote['accepted_by_name']); ?><?php
+                                                      if (!empty($quote['accepted_by_title'])) echo ', ' . htmlspecialchars($quote['accepted_by_title']);
+                                                      ?>
+                                                  </div>
+                                              <?php elseif ($contactName) : ?>
+                                                  <div style="font-size:0.85em;">Contact: <?php echo htmlspecialchars($contactName); ?></div>
+                                              <?php endif; ?>
+                                          <?php else: ?>
+                                              <?php echo htmlspecialchars($contactName); ?>
+                                          <?php endif; ?>
+                                      </div>
                                   </div>
                                   <div class="mw-form-row">
                                       <label class="mw-form-label">Property</label>
@@ -245,23 +333,71 @@ $activePage = 'contracts';
 
                               <div class="mw-form-row">
                                   <label class="mw-form-label" for="start_date">Start Date <span class="text-danger">*</span></label>
-                                  <input type="date" id="start_date" name="start_date" class="form-control"
+                                  <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#start_date" aria-haspopup="true" aria-expanded="false">
+                                      <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                      <span class="mw-datepicker-date" data-mw-dp-label></span>
+                                      <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                                  </button>
+                                  <input type="date" id="start_date" name="start_date" class="form-control" hidden
                                          value="<?php echo htmlspecialchars($defaultStartDate); ?>" required>
                               </div>
+
+                              <?php if ($termsTemplates): ?>
+                              <div class="mw-form-row">
+                                  <label class="mw-form-label" for="terms_template_id">Terms &amp; Conditions</label>
+                                  <select id="terms_template_id" name="terms_template_id" class="form-control">
+                                      <option value="">Use the default for this service</option>
+                                      <?php foreach ($termsTemplates as $t): ?>
+                                          <option value="<?php echo (int)$t['id']; ?>"
+                                                  data-season="<?php echo htmlspecialchars((string)($t['season_end'] ?? '')); ?>"
+                                                  data-norenew="<?php echo !empty($t['forces_no_auto_renew']) ? '1' : '0'; ?>">
+                                              <?php echo htmlspecialchars($t['name']); ?><?php
+                                                  echo !empty($t['season_start']) && !empty($t['season_end'])
+                                                      ? ' (' . htmlspecialchars($t['season_start']) . ' to ' . htmlspecialchars($t['season_end']) . ')'
+                                                      : ''; ?>
+                                          </option>
+                                      <?php endforeach; ?>
+                                  </select>
+                                  <small class="text-muted d-block mt-1" id="termsHint">
+                                      The client sees these in full and must tick to agree before they can sign.
+                                  </small>
+                              </div>
+                              <?php endif; ?>
 
                               <div class="row">
                                   <div class="col-sm-6">
                                       <div class="mw-form-row">
                                           <label class="mw-form-label" for="end_date">End Date <span class="text-muted">(optional)</span></label>
-                                          <input type="date" id="end_date" name="end_date" class="form-control">
+                                          <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#end_date" aria-haspopup="true" aria-expanded="false">
+                                              <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                              <span class="mw-datepicker-date" data-mw-dp-label></span>
+                                              <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                                          </button>
+                                          <input type="date" id="end_date" name="end_date" class="form-control" hidden>
                                       </div>
                                   </div>
                                   <div class="col-sm-6">
                                       <div class="mw-form-row">
                                           <label class="mw-form-label" for="renewal_date">Renewal Date <span class="text-muted">(optional)</span></label>
-                                          <input type="date" id="renewal_date" name="renewal_date" class="form-control">
+                                          <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#renewal_date" aria-haspopup="true" aria-expanded="false">
+                                              <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                              <span class="mw-datepicker-date" data-mw-dp-label></span>
+                                              <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                                          </button>
+                                          <input type="date" id="renewal_date" name="renewal_date" class="form-control" hidden>
                                       </div>
                                   </div>
+                              </div>
+
+                              <div class="mw-form-row">
+                                  <label class="mw-form-label" for="renewal_increase_pct">Annual Increase %</label>
+                                  <div class="input-group">
+                                      <input type="number" id="renewal_increase_pct" name="renewal_increase_pct" class="form-control"
+                                             step="0.1" min="0" max="50"
+                                             value="<?php echo htmlspecialchars(number_format((float)$defaultRenewalPct, 1, '.', '')); ?>">
+                                      <div class="input-group-append"><span class="input-group-text">%</span></div>
+                                  </div>
+                                  <small class="form-text text-muted">Applied to the billing amount on each renewal.</small>
                               </div>
 
                               <div class="mw-form-row">
@@ -284,11 +420,9 @@ $activePage = 'contracts';
                               <div class="mw-form-row">
                                   <label class="mw-form-label" for="billing_cycle">Billing Cycle</label>
                                   <select id="billing_cycle" name="billing_cycle" class="form-control">
-                                      <option value="monthly">Monthly</option>
-                                      <option value="per_visit">Per Visit</option>
-                                      <option value="seasonal">Seasonal</option>
-                                      <option value="annual">Annual</option>
-                                      <option value="custom">Custom</option>
+                                      <?php foreach (['monthly' => 'Monthly', 'per_visit' => 'Per Visit', 'seasonal' => 'Seasonal', 'annual' => 'Annual', 'custom' => 'Custom'] as $bcVal => $bcLabel): ?>
+                                      <option value="<?php echo $bcVal; ?>"<?php echo $bcVal === $defaultBillingCycle ? ' selected' : ''; ?>><?php echo $bcLabel; ?></option>
+                                      <?php endforeach; ?>
                                   </select>
                               </div>
 
@@ -352,6 +486,7 @@ $activePage = 'contracts';
 
               </div><!-- /row -->
           </form>
+          <?php endif; ?>
 
 <?php if (!$quote): ?>
 <script>
@@ -754,6 +889,28 @@ $activePage = 'contracts';
     window._hideAddPropertyBtn = function () {
         addPropertyBtnRow.style.display = 'none';
     };
+})();
+</script>
+
+<script>
+// Mirror the server-side seasonal guard in the UI. The server still enforces
+// it — this only stops the end date and renewal fields looking editable when
+// the chosen terms are going to overrule them anyway.
+(function () {
+    var sel  = document.getElementById('terms_template_id');
+    var hint = document.getElementById('termsHint');
+    if (!sel || !hint) return;
+    var base = hint.textContent;
+    sel.addEventListener('change', function () {
+        var opt = sel.options[sel.selectedIndex];
+        if (opt && opt.getAttribute('data-norenew') === '1') {
+            var end = opt.getAttribute('data-season') || '';
+            hint.textContent = base + ' This is a seasonal agreement: auto-renew is switched off'
+                + (end ? ' and it ends on ' + end + ' of the season it starts in' : '') + '.';
+        } else {
+            hint.textContent = base;
+        }
+    });
 })();
 </script>
 

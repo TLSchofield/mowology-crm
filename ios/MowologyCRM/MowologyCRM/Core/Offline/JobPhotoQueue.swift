@@ -3,9 +3,17 @@
 //  MowologyCRM
 //
 //  Disk-backed offline queue for job before/after photo uploads.
-//  Images are written to the temp directory; metadata is stored in UserDefaults.
-//  Call drain(using:) when connectivity is restored (TimeClockViewModel and
-//  JobPhotoViewModel both observe mwPingQueueOnline to do this automatically).
+//  Image bytes go to QueueStorage (durable, non-purgeable); metadata is
+//  stored in UserDefaults.
+//  Drained by AppPhotoQueueDrainService (reconnect + foreground); screens join that run.
+//
+//  Rules (2026-10-12):
+//  - one drain at a time: a second caller waits for the run in progress (two runs over the
+//    same snapshot uploaded every photo twice → duplicate before/after rows);
+//  - a photo leaves the phone only when the server stored it ({"success": true}) or refused
+//    it with a 4xx. No signal, an expired login, a 5xx or an unreadable answer (PHP fatal =
+//    truncated HTTP 200) keep it; a server fault backs that one photo off and moves on;
+//  - each photo carries who took it; only that person's login sends it (nil = older build).
 //
 
 import Foundation
@@ -28,9 +36,16 @@ final class JobPhotoQueue: ObservableObject {
         let id: String           // idempotency / file key
         let imageFilename: String
         let visitId: Int
-        let photoType: String    // JobPhotoType.rawValue — "before" or "after"
+        let photoType: String    // JobPhotoType.rawValue — before | after | additional
         let queuedAt: Date
+        /// Who took it (nil = queued by a build before 2026-10-12).
+        var userId: Int? = nil
+        /// Server faults so far, and when this photo may be tried again.
+        var attempts: Int? = nil
+        var nextTryAt: Date? = nil
     }
+
+    private var running: Task<Void, Never>?
 
     // MARK: - Persistence
 
@@ -52,30 +67,33 @@ final class JobPhotoQueue: ObservableObject {
     // MARK: - Enqueue
 
     /// Saves an image to disk and records the pending upload.
-    /// Replaces any existing queued item for the same visit + slot so there is
-    /// always at most one pending upload per slot (the most recent capture).
-    func enqueue(imageData: Data, visitId: Int, photoType: JobPhotoType) {
-        // Remove any stale entry for this slot and clean up its file.
+    /// Before/after are single slots: a retake replaces the queued capture. Extra photos
+    /// are a list — every one is kept (a salting run queues four or more with no signal).
+    func enqueue(imageData: Data, visitId: Int, photoType: JobPhotoType, userId: Int?) {
         var current = items
-        for stale in current where stale.visitId == visitId && stale.photoType == photoType.rawValue {
-            let staleURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent(stale.imageFilename)
-            try? FileManager.default.removeItem(at: staleURL)
+        if photoType.isSingleSlot {
+            for stale in current where stale.visitId == visitId && stale.photoType == photoType.rawValue
+                && stale.userId == userId {
+                QueueStorage.remove(stale.imageFilename)
+            }
+            current.removeAll { $0.visitId == visitId && $0.photoType == photoType.rawValue && $0.userId == userId }
         }
-        current.removeAll { $0.visitId == visitId && $0.photoType == photoType.rawValue }
 
-        // Write the new image file.
+        // Write the new image file. No file, no queue entry — an entry without bytes is a lie.
         let id       = UUID().uuidString
         let filename = "jobphoto-\(id).jpg"
-        let fileURL  = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
-        try? imageData.write(to: fileURL)
+        guard QueueStorage.write(imageData, filename: filename) else {
+            print("[JobPhotoQueue] Could not save visit \(visitId) \(photoType.rawValue) to disk")
+            return
+        }
 
         current.append(PendingItem(
             id:            id,
             imageFilename: filename,
             visitId:       visitId,
             photoType:     photoType.rawValue,
-            queuedAt:      Date()
+            queuedAt:      Date(),
+            userId:        userId
         ))
         items = current
     }
@@ -85,37 +103,61 @@ final class JobPhotoQueue: ObservableObject {
         items.contains { $0.visitId == visitId && $0.photoType == photoType.rawValue }
     }
 
+    /// How many photos of this type are still waiting for signal.
+    func queuedCount(visitId: Int, photoType: JobPhotoType) -> Int {
+        items.filter { $0.visitId == visitId && $0.photoType == photoType.rawValue }.count
+    }
+
     // MARK: - Drain
 
-    /// Attempts to upload all queued photos using the provided APIClient.
-    /// Stops on the first network error to preserve order; non-network server
-    /// errors (e.g. duplicate upload) are discarded so they don't block the queue.
+    /// Uploads the signed-in person's queued photos. One run at a time: a caller arriving
+    /// mid-run waits for that run instead of starting a second over the same snapshot.
     func drain(using apiClient: APIClient) async {
-        let pending = items
+        if let running { return await running.value }
+        let task = Task { await self.drainOnce(using: apiClient) }
+        running = task
+        await task.value
+        running = nil
+    }
+
+    private func drainOnce(using apiClient: APIClient) async {
+        guard let me = apiClient.currentUserId else { return }
+        let now = Date()
+        let pending = items.filter { ($0.userId == nil || $0.userId == me) && ($0.nextTryAt ?? .distantPast) <= now }
+
         for item in pending {
-            let fileURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent(item.imageFilename)
-            guard let data = try? Data(contentsOf: fileURL),
+            guard let data = QueueStorage.read(item.imageFilename),
                   let slot = JobPhotoType(rawValue: item.photoType)
             else {
-                // File missing or type unknown — discard.
+                // File missing or type unknown — discard. A missing file here means
+                // the payload was purged or never written; log it, because it is a
+                // silent loss of photo proof and the only signal we get.
+                print("[JobPhotoQueue] Discarding visit \(item.visitId) \(item.photoType) — payload unreadable")
                 items = items.filter { $0.id != item.id }
                 continue
             }
 
             do {
-                try await apiClient.uploadJobPhoto(imageData: data, visitId: item.visitId, photoType: slot)
+                try await apiClient.uploadJobPhoto(imageData: data, visitId: item.visitId, photoType: slot, queuedAt: item.queuedAt)
                 items = items.filter { $0.id != item.id }
-                try? FileManager.default.removeItem(at: fileURL)
-            } catch let err as APIError {
-                if case .networkError = err {
-                    // Still offline — preserve queue, stop draining.
-                    return
+                QueueStorage.remove(item.imageFilename)
+            } catch where UploadFault.matches(error) {
+                // The server answered but did not decide (5xx, truncated 200). Keep the photo,
+                // back this one off (1, 2, 4 … 60 min) and carry on with the rest.
+                let tries = (item.attempts ?? 0) + 1
+                let wait  = min(60.0 * pow(2.0, Double(tries - 1)), 3600)
+                print("[JobPhotoQueue] visit \(item.visitId) \(item.photoType) server fault (try \(tries)): \(error)")
+                items = items.map {
+                    guard $0.id == item.id else { return $0 }
+                    var c = $0; c.attempts = tries; c.nextTryAt = Date().addingTimeInterval(wait); return c
                 }
-                // Server rejected (duplicate, visit closed, etc.) — discard and continue.
+            } catch APIError.serverError(let message) {
+                // An explicit 4xx refusal (visit deleted, not your visit) — retrying can't help.
+                print("[JobPhotoQueue] visit \(item.visitId) \(item.photoType) refused: \(message) — discarded")
                 items = items.filter { $0.id != item.id }
-                try? FileManager.default.removeItem(at: fileURL)
+                QueueStorage.remove(item.imageFilename)
             } catch {
+                // No signal, or the login expired: keep everything and stop.
                 return
             }
         }

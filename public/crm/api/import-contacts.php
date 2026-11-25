@@ -20,6 +20,7 @@ for ($__i = 0; $__i < 5; $__i++) {
 unset($__dir, $__i);
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 require_once PUBLIC_ROOT . '/crm/includes/functions.php';
 requireLogin();
 $user = getCurrentUser();
@@ -206,7 +207,7 @@ try {
                         $imported++;
                     }
                 } catch (Throwable $e) {
-                    $errors[] = ['row' => $rowIndex + 2, 'error' => $e->getMessage()];
+                    $errors[] = ['row' => $rowIndex + 2, 'error' => ApiResponse::message($e, 'import-contacts')];
                 }
             }
 

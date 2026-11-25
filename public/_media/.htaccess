@@ -1,5 +1,7 @@
 # Block PHP and script execution in media upload directories
-<FilesMatch "\.ph(p[3457]?|t|tml)$">
+# Every PHP-family extension, any case: the site runs .php8 as PHP (public/.htaccess AddHandler),
+# and the old list (php3/4/5/7) let an uploaded x.php8 execute (security review 2026-10-12).
+<FilesMatch "(?i)\.(ph(p\d*|t|tml|ar|ps)|inc)$">
     Require all denied
 </FilesMatch>
 
@@ -9,3 +11,7 @@
 
 # Prevent directory listing
 Options -Indexes
+
+# Belt and braces: nothing in here is ever run as a script.
+RemoveHandler .php .php3 .php4 .php5 .php7 .php8 .phtml .phar
+RemoveType .php .php3 .php4 .php5 .php7 .php8 .phtml .phar

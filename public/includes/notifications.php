@@ -228,7 +228,7 @@ function sendQuoteConfirmationEmail(array $data, string $servicesCsv = ''): bool
         ? "<p style='margin:4px 0;font-size:14px;'><strong>Services:</strong> {$serviceList}</p>"
         : '';
 
-    $subject = 'We received your quote request — Mowology';
+    $subject = 'We have your quote request';
 
     $body = "
 <html>
@@ -236,14 +236,14 @@ function sendQuoteConfirmationEmail(array $data, string $servicesCsv = ''): bool
 
   <div style='background:linear-gradient(135deg,#1A5F4A 0%,#0D3B2E 100%);padding:28px;text-align:center;'>
     <div style='font-size:38px;margin-bottom:8px;'>🌱</div>
-    <h1 style='color:white;margin:0;font-size:22px;letter-spacing:-0.3px;'>Quote Request Received</h1>
+    <h1 style='color:white;margin:0;font-size:22px;letter-spacing:-0.3px;'>Quote request received</h1>
   </div>
 
   <div style='padding:30px;background:#f9f9f9;'>
     <div style='background:white;border-radius:12px;padding:25px;box-shadow:0 2px 10px rgba(0,0,0,0.08);'>
 
       <p style='margin-top:0;font-size:16px;'>Hi {$firstName},</p>
-      <p>Thanks for reaching out! We've received your quote request and one of our team members will be in touch within <strong>24 hours</strong>.</p>
+      <p>We've got your request. Someone from the office will be in touch within <strong>24 hours</strong>, usually the same day on a weekday, to set up a time to see the property.</p>
 
       <div style='background:#E8F3F0;border-left:4px solid #2D8659;border-radius:0 8px 8px 0;padding:15px 20px;margin:20px 0;'>
         <p style='margin:0 0 8px;font-weight:bold;color:#1A5F4A;'>Your Request Summary</p>
@@ -252,19 +252,19 @@ function sendQuoteConfirmationEmail(array $data, string $servicesCsv = ''): bool
         <p style='margin:4px 0;font-size:14px;'><strong>Submitted:</strong> {$dateStr}</p>
       </div>
 
-      <p>Have questions in the meantime? Give us a call:</p>
+      <p>If it's quicker to talk, call us:</p>
       <p style='text-align:center;'>
         <a href='tel:7788469273' style='display:inline-block;background:#2D8659;color:white;padding:12px 28px;text-decoration:none;border-radius:8px;font-weight:bold;font-size:16px;'>(778) 846-9273</a>
       </p>
 
-      <p style='margin-bottom:0;color:#666;font-size:14px;'>— The Mowology Team</p>
+      <p style='margin-bottom:0;color:#666;font-size:14px;'>Mowology</p>
     </div>
   </div>
 
   <div style='background:#f0f0f0;padding:18px 30px;border-top:1px solid #ddd;font-size:11px;color:#888;line-height:1.6;'>
     <p style='margin:0 0 5px;'>You're receiving this because you submitted a quote request at <strong>mowology.ca</strong> on {$dateStr}. This is a transactional confirmation sent in direct response to your request — not a marketing email.</p>
     <p style='margin:0 0 5px;'>In compliance with <strong>Canada's Anti-Spam Legislation (CASL)</strong>, this message is sent solely because you initiated contact and provided express consent on the quote form.</p>
-    <p style='margin:0;'>To opt out of future communications, reply \"STOP\" or email <a href='mailto:office@mowology.ca' style='color:#888;'>office@mowology.ca</a>. &nbsp;|&nbsp; Mowology Landscaping, Langley, BC, Canada.</p>
+    <p style='margin:0;'>To opt out of future communications, reply \"STOP\" or email <a href='mailto:office@mowology.ca' style='color:#888;'>office@mowology.ca</a>. &nbsp;|&nbsp; Mowology Landscaping, Vancouver, BC, Canada.</p>
   </div>
 
 </body>

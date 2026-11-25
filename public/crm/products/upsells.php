@@ -24,30 +24,53 @@ try {
     $upsells = $db->query("
         SELECT
             u.id, u.base_product_id, u.upsell_product_id, u.upsell_bundle_id,
-            u.type, u.display_text, u.default_checked, u.sort_order,
+            u.upsell_type AS type, u.display_text, u.default_checked, u.sort_order,
             u.is_active, u.is_popular, u.bundled_price,
             bp.name AS base_name,
             up.name AS upsell_product_name,
             up.base_price AS upsell_product_price,
-            ub.name AS upsell_bundle_name,
-            ub.bundle_price AS upsell_bundle_price
+            ub.bundle_name AS upsell_bundle_name,
+            ub.discount_type AS upsell_bundle_discount_type,
+            ub.discount_value AS upsell_bundle_discount_value,
+            COALESCE(
+                (SELECT SUM(COALESCE(bi.override_price, p2.base_price))
+                 FROM product_bundle_items bi
+                 JOIN products p2 ON bi.product_id = p2.id
+                 WHERE bi.bundle_id = ub.id),
+                0
+            ) AS upsell_bundle_items_total
         FROM product_upsells u
         JOIN products bp ON u.base_product_id = bp.id
         LEFT JOIN products up ON u.upsell_product_id = up.id
         LEFT JOIN product_bundles ub ON u.upsell_bundle_id = ub.id
         ORDER BY bp.name, u.sort_order ASC
     ")->fetchAll(PDO::FETCH_ASSOC);
+
+    // Calculate bundle price from items + discount
+    foreach ($upsells as &$u) {
+        if (!empty($u['upsell_bundle_id'])) {
+            $raw = (float)$u['upsell_bundle_items_total'];
+            $dv  = (float)$u['upsell_bundle_discount_value'];
+            $u['upsell_bundle_price'] = ($u['upsell_bundle_discount_type'] === 'percentage')
+                ? max(0, round($raw * (1 - $dv / 100), 2))
+                : max(0, round($raw - $dv, 2));
+        } else {
+            $u['upsell_bundle_price'] = 0;
+        }
+    }
+    unset($u);
+
 } catch (Throwable $e) {
     // product_bundles may not exist on all envs — fall back to product-only
     try {
         $upsells = $db->query("
             SELECT u.id, u.base_product_id, u.upsell_product_id, NULL AS upsell_bundle_id,
-                   u.type, u.display_text, u.default_checked, u.sort_order,
+                   u.upsell_type AS type, u.display_text, u.default_checked, u.sort_order,
                    u.is_active, u.is_popular, u.bundled_price,
                    bp.name AS base_name,
                    up.name AS upsell_product_name,
                    up.base_price AS upsell_product_price,
-                   NULL AS upsell_bundle_name, NULL AS upsell_bundle_price
+                   NULL AS upsell_bundle_name, 0 AS upsell_bundle_price
             FROM product_upsells u
             JOIN products bp ON u.base_product_id = bp.id
             LEFT JOIN products up ON u.upsell_product_id = up.id
@@ -68,14 +91,31 @@ try {
     ")->fetchAll(PDO::FETCH_ASSOC);
 } catch (Throwable $e) { $products = []; }
 
-// Load bundles for picker
+// Load bundles for picker (bundle_price calculated from items + discount)
 $bundles = [];
 try {
     $bundles = $db->query("
-        SELECT id, name, bundle_price FROM product_bundles
-        WHERE is_active = 1
-        ORDER BY name ASC
+        SELECT b.id, b.bundle_name AS name, b.discount_type, b.discount_value,
+               COALESCE(
+                   (SELECT SUM(COALESCE(bi.override_price, p.base_price))
+                    FROM product_bundle_items bi
+                    JOIN products p ON bi.product_id = p.id
+                    WHERE bi.bundle_id = b.id),
+                   0
+               ) AS items_total
+        FROM product_bundles b
+        WHERE b.is_active = 1
+        ORDER BY b.bundle_name ASC
     ")->fetchAll(PDO::FETCH_ASSOC);
+
+    foreach ($bundles as &$b) {
+        $raw = (float)$b['items_total'];
+        $dv  = (float)$b['discount_value'];
+        $b['bundle_price'] = ($b['discount_type'] === 'percentage')
+            ? max(0, round($raw * (1 - $dv / 100), 2))
+            : max(0, round($raw - $dv, 2));
+    }
+    unset($b);
 } catch (Throwable $e) { $bundles = []; }
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>

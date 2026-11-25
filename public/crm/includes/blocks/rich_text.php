@@ -9,7 +9,9 @@
  */
 
 $title = $config['title'] ?? '';
-$content = $config['content'] ?? '';
+// Allow-listed HTML (Fable review 2026-10-12) — also cleans rows saved before save-block did.
+require_once APP_ROOT . '/Modules/CMS/Services/CmsHtmlSanitizer.php';
+$content = CmsHtmlSanitizer::clean((string)($config['content'] ?? ''));
 ?>
 
 <section class="slp-section">

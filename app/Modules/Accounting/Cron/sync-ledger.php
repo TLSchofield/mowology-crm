@@ -25,6 +25,8 @@ for ($__i = 0; $__i < 6; $__i++) {
     }
 }
 unset($__dir, $__i);
+// Under cron (CLI) nothing else defines getDB()/Database — the web shim gets them from auth.php.
+require_once APP_ROOT . '/Core/config.php';
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 
@@ -44,48 +46,101 @@ if (php_sapi_name() !== 'cli') {
 require_once APP_ROOT . '/Modules/Accounting/Services/AccountingService.php';
 require_once APP_ROOT . '/Modules/Accounting/Services/RulesEngine.php';
 require_once APP_ROOT . '/Modules/Accounting/Services/AlertEngine.php';
+// recordCronRun() lives here and is NOT pulled in by the CLI bootstrap
+// chain (paths.php → loginAuth/auth.php). Without this require the cron
+// fatals at the end with "Call to undefined function recordCronRun()"
+// AFTER doing the sync — which is why it logged "Last run: Never run".
+require_once APP_ROOT . '/Services/CrmFunctions.php';
 
 $db       = getDB();
 $output   = [];
 $success  = true;
 
 try {
-    // ── 1. Sync invoices + expenses into unified ledger ────────────────────────
-    $svc    = new AccountingService($db);
-    $sync   = $svc->syncAll();
-    $output = array_merge($output, $sync);
+    // ── 1 + 2. Sync invoices + expenses into the ledger, then the alert engine ─
+    // MySQL 1615 (the shared host's table cache evicting a definition mid-run) is transient: run both
+    // once more. Safe — the sync upserts and the alerts update the active alert in place.
+    for ($attempt = 1; ; $attempt++) {
+        try {
+            $svc    = new AccountingService($db);
+            $sync   = $svc->syncAll();
+            $jp = AccountingService::journalProblem($sync['journal'] ?? null);
+            if ($attempt === 1 && $jp && AccountingService::isReprepareError($jp[1])) {
+                $output['retried'] = 'journal: ' . $jp[1];
+                continue;
+            }
+            $output = array_merge($output, $sync);
 
-    // ── 2. Run alert engine ────────────────────────────────────────────────────
-    $alerts      = new AlertEngine($db);
-    $alertResult = $alerts->runAll();
-    $output['alerts_active'] = count($alertResult);
+            $alerts      = new AlertEngine($db);
+            $alertResult = $alerts->runAll();
+            $output['alerts_active'] = count($alertResult);
+            break;
+        } catch (Throwable $e) {
+            if ($attempt === 1 && AccountingService::isReprepareError($e)) {
+                $output['retried'] = $e->getMessage();
+                sleep(2);
+                continue;
+            }
+            throw $e;
+        }
+    }
 
-    // ── 3. Log to cron_runs_log ────────────────────────────────────────────────
-    $elapsed = round(microtime(true) - $cronStart, 3);
-    $output['elapsed_seconds'] = $elapsed;
-
+    // ── 2b. Approved debit/card receipts with no statement line (Tim, 2026-10-15) ──
+    // Waits for the statement; links a clear line; notes duplicates; otherwise back to draft.
     try {
-        $db->prepare("
-            INSERT INTO cron_runs_log (cron_name, status, output, duration_ms, ran_at)
-            VALUES ('accounting_sync', 'success', ?, ?, NOW())
-        ")->execute([
-            json_encode($output),
-            (int)($elapsed * 1000),
-        ]);
-    } catch (PDOException $logE) {
-        // cron_runs_log may not exist — silently ignore
+        require_once APP_ROOT . '/Modules/Accounting/Services/ReceiptBankCheck.php';
+        $output['receipt_bank_check'] = (new ReceiptBankCheck($db))->run(true)['counts'];
+        // Receipts flagged DATE_UNREADABLE: their bank lines may have arrived since (ReceiptDateCheck).
+        try {
+            require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptDateCheck.php';
+            $output['receipt_date_check'] = (new ReceiptDateCheck($db))->sweep();
+        } catch (Throwable $e) {
+            $output['receipt_date_check'] = ['error' => $e->getMessage()];
+        }
+    } catch (Throwable $e) {
+        $output['receipt_bank_check_error'] = $e->getMessage();
+        error_log('[accounting_sync] receipt bank check: ' . $e->getMessage());
+    }
+
+    // ── 3. Books vs bank + quiet signals (Charlie emails what's new) ───────────
+    try {
+        require_once APP_ROOT . '/Modules/Accounting/Services/BooksWatchService.php';
+        $output['books_watch'] = count((new BooksWatchService($db))->run()['alerts']);
+    } catch (Throwable $e) {
+        $output['books_watch_error'] = $e->getMessage();
+        error_log('[accounting_sync] books watch: ' . $e->getMessage());
     }
 
 } catch (Throwable $e) {
     $success = false;
     $output['error'] = $e->getMessage();
+}
 
-    try {
-        $db->prepare("
-            INSERT INTO cron_runs_log (cron_name, status, output, ran_at)
-            VALUES ('accounting_sync', 'error', ?, NOW())
-        ")->execute([json_encode(['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()])]);
-    } catch (PDOException $logE) { /* ignore */ }
+$durationMs = (int)(round(microtime(true) - $cronStart, 3) * 1000);
+$summary    = 'Invoices: ' . ($output['invoices_synced'] ?? 0)
+            . ', Expenses: ' . ($output['expenses_synced'] ?? 0)
+            . ', Alerts: ' . ($output['alerts_active'] ?? 0)
+            . (isset($output['retried']) ? ' (ran twice: MySQL asked to re-prepare)' : '');
+// The journal half of syncAll() catches its own exception — report it, never as 'success'.
+$status  = $success ? 'success' : 'error';
+$errText = $success ? null : ($output['error'] ?? null);
+if ($success && ($jp = AccountingService::journalProblem($output['journal'] ?? null))) {
+    [$status, $errText] = $jp;
+    $summary .= ' — ' . $errText;
+    if ($status === 'error') $success = false;
+}
+// Defensive: a missing run-tracker must never fatal the actual sync.
+if (function_exists('recordCronRun')) {
+    recordCronRun(
+        'sync_ledger',
+        $status,
+        $summary,
+        $durationMs,
+        $errText,
+        php_sapi_name() !== 'cli'
+    );
+} else {
+    error_log('[accounting_sync] recordCronRun() unavailable — ' . ($success ? 'OK' : 'ERROR') . ' ' . $summary);
 }
 
 // ── Output ─────────────────────────────────────────────────────────────────────

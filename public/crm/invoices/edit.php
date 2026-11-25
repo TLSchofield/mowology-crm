@@ -22,12 +22,15 @@
  *   - subtotal / tax_amount / total_amount / total recomputed from
  *     line items server-side; form totals are display hints only
  *   - balance_due = total_amount - amount_paid
- *   - pdf_version = 0 and pdf_generated_at = NULL so the next
- *     "Regenerate PDF" / download produces a fresh copy
+ *   - pdf_path = NULL, pdf_version = 0, pdf_generated_at = NULL so the
+ *     next "Regenerate PDF" / download produces a fresh copy
+ *     (getPdfPath() only trusts pdf_path — clearing just the version/
+ *     timestamp fields was a no-op for cache invalidation)
  *   - activity_log entry via logActivityExtended(..., 'Invoice updated')
  */
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
+require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceLineItems.php';
 
 requireLogin();
 $user = getCurrentUser();
@@ -126,8 +129,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $servicePostalCode  !== $billingPostalCode
         ) ? 1 : 0;
 
-        $taxRate = floatval($invoice['tax_rate'] ?? 0.05);
-        if ($taxRate <= 0) $taxRate = 0.05;
+        // 0.05 only when the invoice has no rate at all (NULL); a 0% invoice stays 0%, and a business not registered for GST charges none.
+        require_once APP_ROOT . '/Modules/Accounting/Services/TaxEngine.php';
+        $taxRate = TaxEngine::chargedRate($db, $invoice['tax_rate'] === null ? 0.05 : floatval($invoice['tax_rate']));
 
         // Status is restricted to non-paid values — "paid" must come from
         // record-payment.php which also updates amount_paid + paid_at.
@@ -163,41 +167,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ];
         }
 
-        // Line items
-        $postDescriptions = $_POST['li_description']  ?? [];
-        $postQuantities   = $_POST['li_quantity']     ?? [];
-        $postUnitPrices   = $_POST['li_unit_price']   ?? [];
-        $postSortOrders   = $_POST['li_sort_order']   ?? [];
-        $postVisitIds     = $_POST['li_visit_id']     ?? [];
-        $postServiceDates = $_POST['li_service_date'] ?? [];
-        $postTitles       = $_POST['li_title']        ?? [];
-
-        $cleanLineItems = [];
-        $runningSubtotal = 0.0;
-        $rowCount = max(count($postDescriptions), count($postUnitPrices));
-        for ($i = 0; $i < $rowCount; $i++) {
-            $desc = trim((string)($postDescriptions[$i] ?? ''));
-            $qty  = floatval($postQuantities[$i] ?? 0);
-            $unit = floatval($postUnitPrices[$i] ?? 0);
-            // Skip completely empty rows
-            if ($desc === '' && $qty === 0.0 && $unit === 0.0) continue;
-            if ($qty <= 0) $qty = 1;
-            $lineTotal = round($qty * $unit, 2);
-            $runningSubtotal += $lineTotal;
-            $visitId     = intval($postVisitIds[$i] ?? 0);
-            $serviceDate = trim((string)($postServiceDates[$i] ?? ''));
-            $title       = trim((string)($postTitles[$i] ?? ''));
-            $cleanLineItems[] = [
-                'description'  => $desc !== '' ? $desc : 'Services rendered',
-                'quantity'     => $qty,
-                'unit_price'   => $unit,
-                'line_total'   => $lineTotal,
-                'sort_order'   => intval($postSortOrders[$i] ?? $i),
-                'visit_id'     => $visitId > 0 ? $visitId : null,
-                'service_date' => $serviceDate !== '' ? $serviceDate : null,
-                'title'        => $title !== '' ? $title : null,
-            ];
-        }
+        // Line items — parsing shared with create.php (InvoiceLineItems).
+        $parsedLines     = InvoiceLineItems::fromPost($_POST);
+        $cleanLineItems  = $parsedLines['items'];
+        $runningSubtotal = $parsedLines['subtotal'];
 
         if (empty($cleanLineItems)) {
             $error = 'Please keep at least one line item.';
@@ -235,6 +208,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         total_amount      = ?,
                         total             = ?,
                         balance_due       = ?,
+                        pdf_path          = NULL,
                         pdf_version       = 0,
                         pdf_generated_at  = NULL,
                         updated_at        = NOW()
@@ -458,12 +432,22 @@ $activePage = 'invoices';
                         <div class="mw-form-row three mt-3">
                             <div class="mw-form-group">
                                 <label class="form-label">Issue Date</label>
-                                <input type="date" name="issue_date" class="form-control"
+                                <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#issue_date" aria-haspopup="true" aria-expanded="false">
+                                    <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                    <span class="mw-datepicker-date" data-mw-dp-label></span>
+                                    <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                                </button>
+                                <input type="date" id="issue_date" name="issue_date" class="form-control" hidden
                                        value="<?php echo htmlspecialchars($invoice['issue_date']); ?>" required>
                             </div>
                             <div class="mw-form-group">
                                 <label class="form-label">Due Date</label>
-                                <input type="date" name="due_date" class="form-control"
+                                <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#due_date" aria-haspopup="true" aria-expanded="false">
+                                    <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                    <span class="mw-datepicker-date" data-mw-dp-label></span>
+                                    <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                                </button>
+                                <input type="date" id="due_date" name="due_date" class="form-control" hidden
                                        value="<?php echo htmlspecialchars($invoice['due_date']); ?>" required>
                             </div>
                             <div class="mw-form-group">
@@ -633,6 +617,12 @@ $activePage = 'invoices';
                 <div class="card">
                     <div class="card-body">
                         <h3 class="card-title mb-3">Line Items</h3>
+                        <?php if (round((float)($invoice['amount_paid'] ?? 0), 2) <= 0 && in_array($invoice['status'], ['draft', 'sent', 'viewed', 'overdue'], true)): ?>
+                            <div class="mb-3">
+                                <button type="button" class="btn btn-sm btn-outline-secondary" data-mw-invoice-move="<?php echo (int)$invoiceId; ?>">Move to another job</button>
+                            </div>
+                        <?php endif; ?>
+                        <?php $crewTimeVisitId = (int)($invoice['visit_id'] ?? 0); include dirname(__DIR__) . '/includes/invoice-crew-time.php'; ?>
 
                         <table class="table table-sm table-bordered mb-0" id="lineItemsTable">
                             <thead class="table-light">
@@ -646,10 +636,23 @@ $activePage = 'invoices';
                                 </tr>
                             </thead>
                             <tbody id="lineItemsBody">
+                                <?php
+                                // Each row's date field needs a unique id for the datepicker
+                                // trigger to target (data-mw-dp-target is a CSS selector, not
+                                // scoped to the row) — mirrored client-side by liRowCounter
+                                // when JS appends a new row.
+                                $liDatePickerMarkup = function (string $id, string $value): string {
+                                    return '<button type="button" class="mw-datepicker-trigger mw-datepicker-trigger-sm" data-mw-dp-commit="input" data-mw-dp-target="#' . $id . '" aria-haspopup="true" aria-expanded="false">'
+                                        . '<svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>'
+                                        . '<span class="mw-datepicker-date" data-mw-dp-label></span>'
+                                        . '</button>'
+                                        . '<input type="date" id="' . $id . '" name="li_service_date[]" class="form-control form-control-sm" hidden value="' . htmlspecialchars($value) . '">';
+                                };
+                                ?>
                                 <?php if (empty($lineItems)): ?>
                                     <tr class="mw-li-row">
                                         <td><input type="text" name="li_description[]" class="form-control form-control-sm mw-li-desc" value="Services rendered"></td>
-                                        <td><input type="date" name="li_service_date[]" class="form-control form-control-sm" value=""></td>
+                                        <td><?php echo $liDatePickerMarkup('li-service-date-0', ''); ?></td>
                                         <td><input type="number" step="0.01" min="0" name="li_quantity[]" class="form-control form-control-sm mw-li-qty" value="1"></td>
                                         <td><input type="number" step="0.01" min="0" name="li_unit_price[]" class="form-control form-control-sm mw-li-unit" value="0.00"></td>
                                         <td class="mw-li-total text-right font-weight-600 pr-2">$0.00</td>
@@ -661,7 +664,7 @@ $activePage = 'invoices';
                                 <?php else: foreach ($lineItems as $idx => $li): ?>
                                     <tr class="mw-li-row">
                                         <td><input type="text" name="li_description[]" class="form-control form-control-sm mw-li-desc" value="<?php echo htmlspecialchars($li['description']); ?>"></td>
-                                        <td><input type="date" name="li_service_date[]" class="form-control form-control-sm" value="<?php echo htmlspecialchars($li['service_date'] ?? ''); ?>"></td>
+                                        <td><?php echo $liDatePickerMarkup('li-service-date-' . $idx, (string) ($li['service_date'] ?? '')); ?></td>
                                         <td><input type="number" step="0.01" min="0" name="li_quantity[]" class="form-control form-control-sm mw-li-qty" value="<?php echo htmlspecialchars((string)$li['quantity']); ?>"></td>
                                         <td><input type="number" step="0.01" min="0" name="li_unit_price[]" class="form-control form-control-sm mw-li-unit" value="<?php echo htmlspecialchars(number_format((float)$li['unit_price'], 2, '.', '')); ?>"></td>
                                         <td class="mw-li-total text-right font-weight-600 pr-2">$<?php echo number_format((float)$li['line_total'], 2); ?></td>
@@ -674,9 +677,12 @@ $activePage = 'invoices';
                             </tbody>
                         </table>
 
-                        <button type="button" class="btn btn-sm btn-outline-secondary mt-2" id="addLineItemBtn">
-                            <i data-feather="plus" class="mr-1"></i> Add Line
-                        </button>
+                        <div class="d-flex mt-2" style="gap:8px;flex-wrap:wrap;">
+                            <div id="invServicePicker"></div>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="addLineItemBtn">
+                                <i data-feather="plus" class="mr-1"></i> Add Line
+                            </button>
+                        </div>
 
                         <div class="mw-totals-box mt-3">
                             <div class="mw-totals-row">
@@ -713,6 +719,7 @@ $activePage = 'invoices';
                         <div class="mw-form-group">
                             <label class="form-label">Invoice Notes <span class="text-muted">(shown to customer)</span></label>
                             <textarea name="notes" class="form-control" rows="3"><?php echo htmlspecialchars($invoice['notes'] ?? ''); ?></textarea>
+                            <div id="miaNoteHost" class="mw-mia-host"></div>
                         </div>
 
                         <div class="mw-form-group">
@@ -732,6 +739,9 @@ $activePage = 'invoices';
                 </p>
             </form>
 
+<script src="/crm/js/mw-service-picker.js?v=20261101a"></script>
+<script src="/crm/js/mw-mia-invoice-note.js?v=20261101a"></script>
+<script src="/crm/js/mw-invoice-move.js?v=20261106a"></script>
 <script>
 (function () {
     'use strict';
@@ -791,12 +801,25 @@ $activePage = 'invoices';
 
     tbody.querySelectorAll('.mw-li-row').forEach(wireRow);
 
-    addBtn.addEventListener('click', function () {
+    // "new-N" so a fresh row's date-field id can never collide with a
+    // server-rendered "li-service-date-<index>" id — never reused, even
+    // after a row is removed.
+    var liRowCounter = 0;
+
+    function addRow(data) {
+        data = data || {};
+        var dateId = 'li-service-date-new-' + (liRowCounter++);
         var row = document.createElement('tr');
         row.className = 'mw-li-row';
         row.innerHTML =
             '<td><input type="text" name="li_description[]" class="form-control form-control-sm mw-li-desc" value=""></td>' +
-            '<td><input type="date" name="li_service_date[]" class="form-control form-control-sm" value=""></td>' +
+            '<td>' +
+                '<button type="button" class="mw-datepicker-trigger mw-datepicker-trigger-sm" data-mw-dp-commit="input" data-mw-dp-target="#' + dateId + '" aria-haspopup="true" aria-expanded="false">' +
+                    '<svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>' +
+                    '<span class="mw-datepicker-date" data-mw-dp-label></span>' +
+                '</button>' +
+                '<input type="date" id="' + dateId + '" name="li_service_date[]" class="form-control form-control-sm" hidden value="">' +
+            '</td>' +
             '<td><input type="number" step="0.01" min="0" name="li_quantity[]" class="form-control form-control-sm mw-li-qty" value="1"></td>' +
             '<td><input type="number" step="0.01" min="0" name="li_unit_price[]" class="form-control form-control-sm mw-li-unit" value="0.00"></td>' +
             '<td class="mw-li-total text-right font-weight-600 pr-2">$0.00</td>' +
@@ -804,11 +827,48 @@ $activePage = 'invoices';
             '<input type="hidden" name="li_sort_order[]" value="' + tbody.querySelectorAll('.mw-li-row').length + '">' +
             '<input type="hidden" name="li_visit_id[]" value="0">' +
             '<input type="hidden" name="li_title[]" value="">';
+        // Values are set as properties, never concatenated into the HTML above.
+        row.querySelector('.mw-li-desc').value = data.description || data.title || '';
+        row.querySelector('input[name="li_title[]"]').value = data.title || '';
+        if (data.unit_price != null) row.querySelector('.mw-li-unit').value = (parseFloat(data.unit_price) || 0).toFixed(2);
         tbody.appendChild(row);
         wireRow(row);
+        if (window.mwInitDatePickers) window.mwInitDatePickers(row);
         row.querySelector('.mw-li-desc').focus();
         recalc();
-    });
+    }
+
+    addBtn.addEventListener('click', function () { addRow(); });
+
+    if (window.MwServicePicker) {
+        var invPicker = MwServicePicker.attach(document.getElementById('invServicePicker'),
+            <?php echo json_encode(InvoiceLineItems::catalog($db), JSON_HEX_TAG | JSON_HEX_AMP | JSON_INVALID_UTF8_SUBSTITUTE) ?: '[]'; ?>,
+            function (svc) {
+                addRow({ title: svc.name, description: svc.description || svc.name, unit_price: svc.base_price });
+            });
+        // Mia's note suggestion (/crm/api/mia-invoice-suggestion.php)
+        var miaNote = document.querySelector('textarea[name="notes"]');
+        if (window.MwMiaInvoiceNote && miaNote) {
+            MwMiaInvoiceNote.attach({
+                note: miaNote, host: document.getElementById('miaNoteHost'), invoiceId: <?php echo (int)$invoiceId; ?>,
+                getContext: function () {
+                    var seen = {};
+                    var services = Array.prototype.map.call(document.querySelectorAll('input[name="li_title[]"], input[name="li_description[]"]'),
+                        function (i) { return i.value.trim(); }).filter(function (v) { if (!v || seen[v]) return false; seen[v] = 1; return true; });
+                    return { property_id: <?php echo (int)($invoice['property_id'] ?? 0); ?>, contact_id: <?php echo (int)($invoice['contact_id'] ?? 0); ?>,
+                             company_id: <?php echo (int)($invoice['company_id'] ?? 0); ?>, services: services };
+                }
+            });
+        }
+        // The client's agreed price first (/crm/api/agreed-prices.php), same as invoices/create.php.
+        var agreedPid = <?php echo (int)($invoice['property_id'] ?? 0); ?>, agreedCid = <?php echo (int)($invoice['company_id'] ?? 0); ?>;
+        if (agreedPid) {
+            fetch('/crm/api/agreed-prices.php?property_id=' + agreedPid + (agreedCid ? '&company_id=' + agreedCid : ''), { credentials: 'same-origin' })
+                .then(function (r) { return r.json(); })
+                .then(function (d) { if (d && d.success) invPicker.setAgreed(d.items); })
+                .catch(function () {});
+        }
+    }
 
     // ── Recipients editor ──────────────────────────────
     var rcptBody  = document.getElementById('recipientsBody');

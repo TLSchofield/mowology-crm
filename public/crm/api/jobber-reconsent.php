@@ -28,6 +28,8 @@ for ($__i = 0; $__i < 5; $__i++) {
 unset($__dir, $__i);
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Services/Messaging/IdentityMail.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 require_once CRM_INCLUDES . '/functions.php';
 
 header('Content-Type: application/json; charset=utf-8');
@@ -36,6 +38,16 @@ session_write_close();
 requireLogin();
 $user = getCurrentUser();
 requirePermission('admin');
+
+// Every POST action changes data or sends mail: it needs the CSRF token (Fable review 2026-10-12).
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+    $csrf = (string)($_SERVER['HTTP_X_CSRF_TOKEN'] ?? $_POST['csrf_token'] ?? '');
+    if ($csrf === '' || !verifyCSRFToken($csrf)) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'error' => 'Your session expired. Reload the page and try again.']);
+        exit;
+    }
+}
 
 $action = $_GET['action'] ?? '';
 $db = getDB();
@@ -59,7 +71,8 @@ try {
 
             $allRows = [];
             foreach ([$file1, $file2] as $filePath) {
-                if (empty($filePath) || !is_file($filePath)) continue;
+                $filePath = reconsentCsvPath((string)$filePath);
+                if ($filePath === null) continue;
                 $parsed = parseJobberCsv($filePath);
                 $allRows = array_merge($allRows, $parsed);
             }
@@ -165,7 +178,8 @@ try {
 
             $allRows = [];
             foreach ([$file1, $file2] as $filePath) {
-                if (empty($filePath) || !is_file($filePath)) continue;
+                $filePath = reconsentCsvPath((string)$filePath);
+                if ($filePath === null) continue;
                 $parsed = parseJobberCsv($filePath);
                 $allRows = array_merge($allRows, $parsed);
             }
@@ -275,7 +289,7 @@ try {
                 $db->commit();
             } catch (Throwable $e) {
                 $db->rollBack();
-                echo json_encode(['success' => false, 'error' => 'Import failed: ' . $e->getMessage()]);
+                echo json_encode(['success' => false, 'error' => 'Import failed: ' . ApiResponse::message($e, 'jobber-reconsent')]);
                 break;
             }
 
@@ -587,7 +601,7 @@ try {
 
 } catch (Throwable $e) {
     error_log('jobber-reconsent API error: ' . $e->getMessage());
-    echo json_encode(['success' => false, 'error' => 'Server error: ' . $e->getMessage()]);
+    echo json_encode(['success' => false, 'error' => 'Server error: ' . ApiResponse::message($e, 'jobber-reconsent')]);
 }
 
 
@@ -598,6 +612,21 @@ try {
 /**
  * Parse a Jobber CSV export into normalized associative arrays.
  */
+/**
+ * The CSV path the page sends, only if it is a file inside /crm/tmp/ (where the export is
+ * uploaded). Until the Fable review (2026-10-12) any server path went straight to fopen().
+ */
+function reconsentCsvPath(string $path): ?string
+{
+    if ($path === '') return null;
+    $base = realpath(PUBLIC_ROOT . '/crm/tmp');
+    $real = realpath($path);
+    if ($base === false || $real === false || !is_file($real)) return null;
+    if (strpos($real, $base . DIRECTORY_SEPARATOR) !== 0) return null;
+    if (strtolower(pathinfo($real, PATHINFO_EXTENSION)) !== 'csv') return null;
+    return $real;
+}
+
 function parseJobberCsv(string $filePath): array
 {
     $rows = [];
@@ -748,15 +777,15 @@ function sendReconsentEmail(PDO $db, int $contactId): array
     // Determine if this is a current client (visited in last 12 months)
     $isCurrent = isCurrentClient($db, $contactId);
 
-    $baseUrl    = defined('SITE_URL') ? SITE_URL : 'https://mowology.ca';
+    $baseUrl    = defined('SITE_URL') ? SITE_URL : _idSiteUrl();
     $confirmUrl = $baseUrl . '/optin-confirm.php?token=' . urlencode($rawToken);
     $firstName  = $contact['first_name'] ?: 'Valued Customer';
 
     // Build variant-specific email
     if ($isCurrent) {
-        $subject = 'Stay in the loop — Mowology Landscaping';
+        $subject = 'Stay in the loop — ' . _idCompanyInfo()['company_name'];
         $body = '<h2>Hi ' . htmlspecialchars($firstName) . ',</h2>
-<p>As a valued Mowology client, we want to make sure you\'re getting the most out of our services.</p>
+<p>As a valued ' . htmlspecialchars(_idFromName()) . ' client, we want to make sure you\'re getting the most out of our services.</p>
 <p>We occasionally send updates about seasonal care tips, scheduling reminders, and exclusive offers for existing clients.</p>
 <p>To keep receiving these updates, just confirm below:</p>
 <p style="margin:24px 0;">
@@ -768,7 +797,7 @@ function sendReconsentEmail(PDO $db, int $contactId): array
 <p style="color:#666;font-size:13px;">If you prefer not to receive these updates, simply ignore this email. Your service schedule is not affected either way.</p>
 <p style="color:#666;font-size:13px;">This link expires in 30 days.</p>';
     } else {
-        $subject = 'We\'d love to hear from you — Mowology Landscaping';
+        $subject = 'We\'d love to hear from you — ' . _idCompanyInfo()['company_name'];
         $body = '<h2>Hi ' . htmlspecialchars($firstName) . ',</h2>
 <p>It\'s been a while since we last worked together, and we wanted to reach out.</p>
 <p>Spring is here and our crews are gearing up for the season. Whether you need lawn care, garden maintenance, hedge trimming, or a fresh landscape design, we\'d love to help again.</p>

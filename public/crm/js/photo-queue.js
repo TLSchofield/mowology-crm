@@ -222,6 +222,7 @@
         var DB_VERSION = 1;
         var STORE      = 'uploads';
         var _db        = null;
+        var _storeHealed = false;
 
         function openDB() {
             if (_db) return Promise.resolve(_db);
@@ -232,7 +233,23 @@
                     var store = db.createObjectStore(STORE, { keyPath: 'id', autoIncrement: true });
                     store.createIndex('status', 'status', { unique: false });
                 };
-                req.onsuccess  = function (e) { _db = e.target.result; resolve(_db); };
+                req.onsuccess  = function (e) {
+                    var opened = e.target.result;
+                    if (!opened.objectStoreNames.contains(STORE)) {
+                        // A store-less DB at version 1 — older mw-sync-status.js opened this name with no
+                        // version and so CREATED it empty; onupgradeneeded never runs again at v1 and every
+                        // transaction threw "One of the specified object stores was not found". It holds
+                        // nothing, so drop it and open again (once).
+                        opened.close();
+                        if (_storeHealed) { reject(new Error('IndexedDB store missing')); return; }
+                        _storeHealed = true;
+                        var del = indexedDB.deleteDatabase(DB_NAME);
+                        del.onsuccess = function () { openDB().then(resolve, reject); };
+                        del.onerror = del.onblocked = function () { reject(new Error('IndexedDB store missing')); };
+                        return;
+                    }
+                    _db = opened; resolve(_db);
+                };
                 req.onerror    = function (e) { reject(e.target.error); };
             });
         }

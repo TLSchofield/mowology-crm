@@ -25,6 +25,7 @@ if (!defined('APP_ROOT')) {
 header('Content-Type: application/json');
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 
 requireLogin();
 $user = getCurrentUser();
@@ -122,5 +123,5 @@ try {
 } catch (Throwable $e) {
     error_log("SEO Targets Error: " . $e->getMessage());
     http_response_code(500);
-    die(json_encode(['success' => false, 'message' => 'Error: ' . $e->getMessage()]));
+    die(json_encode(['success' => false, 'message' => 'Error: ' . ApiResponse::message($e, 'targets')]));
 }

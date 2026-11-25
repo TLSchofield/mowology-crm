@@ -26,10 +26,12 @@ for ($__i = 0; $__i < 5; $__i++) {
 unset($__dir, $__i);
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 require_once CRM_INCLUDES . '/functions.php';
 
 requireLogin();
 $user = getCurrentUser();
+requirePermission('products.edit');
 session_write_close();
 
 header('Content-Type: application/json');
@@ -73,7 +75,7 @@ try {
         $groupKey   = trim($_POST['group_key'] ?? '');
         $groupLabel = trim($_POST['group_label'] ?? '');
         $unit       = trim($_POST['unit'] ?? 'sqft');
-        $types      = trim($_POST['measurement_types'] ?? '');
+        $typesRaw   = trim($_POST['measurement_types'] ?? '');
 
         if (!$groupKey || !$groupLabel) throw new Exception('Group key and label are required');
         if (!in_array($unit, ['sqft', 'linear_ft'])) throw new Exception('Unit must be sqft or linear_ft');
@@ -81,6 +83,13 @@ try {
         // Sanitize group_key: lowercase, underscores only
         $groupKey = preg_replace('/[^a-z0-9_]/', '_', strtolower($groupKey));
         if (strlen($groupKey) > 50) $groupKey = substr($groupKey, 0, 50);
+
+        // Sanitize each measurement type the same way add-type does: lowercase, [a-z0-9_] only
+        $newTypes = array_filter(array_map(
+            function ($t) { return preg_replace('/[^a-z0-9_]/', '_', trim(strtolower($t))); },
+            explode(',', $typesRaw)
+        ));
+        $types = implode(',', $newTypes);
 
         // Check for duplicate key
         $existing = $db->prepare("SELECT id FROM measurement_groups WHERE group_key = ?");
@@ -97,11 +106,8 @@ try {
         $stmt->execute([$groupKey, $groupLabel, $types, $unit, $maxSort]);
 
         // If measurement types were provided, ensure the ENUM accepts them
-        if ($types) {
-            $newTypes = array_filter(array_map('trim', explode(',', $types)));
-            foreach ($newTypes as $newType) {
-                ensureMeasurementTypeExists($db, $newType);
-            }
+        foreach ($newTypes as $newType) {
+            ensureMeasurementTypeExists($db, $newType);
         }
 
         echo json_encode([
@@ -196,7 +202,7 @@ try {
 
 } catch (Exception $e) {
     http_response_code(400);
-    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    echo json_encode(['success' => false, 'error' => ApiResponse::message($e, 'measurement-groups')]);
 }
 
 
@@ -206,6 +212,11 @@ try {
  */
 function ensureMeasurementTypeExists(PDO $db, string $type): void {
     try {
+        // Defense in depth: enforce the same [a-z0-9_] charset regardless of what the
+        // caller already sanitized, since this value gets concatenated into an ALTER TABLE.
+        $type = preg_replace('/[^a-z0-9_]/', '_', strtolower($type));
+        if ($type === '') return;
+
         // Check column type
         $col = $db->query("SHOW COLUMNS FROM property_measurements LIKE 'measurement_type'")->fetch(PDO::FETCH_ASSOC);
         if (!$col) return;
@@ -225,7 +236,9 @@ function ensureMeasurementTypeExists(PDO $db, string $type): void {
                 // Add the new value to the ENUM
                 $existing[] = $type;
                 $enumStr = "'" . implode("','", $existing) . "'";
-                $db->exec("ALTER TABLE property_measurements MODIFY COLUMN measurement_type ENUM({$enumStr}) NOT NULL DEFAULT 'other'");
+                // Until migration 1345 (ENUM → VARCHAR) has run: the ALTER needs the schema-owning
+                // MySQL user — the app's everyday user is data-only (Fable audit #27).
+                Database::ddl()->exec("ALTER TABLE property_measurements MODIFY COLUMN measurement_type ENUM({$enumStr}) NOT NULL DEFAULT 'other'");
             }
         }
     } catch (Exception $e) {

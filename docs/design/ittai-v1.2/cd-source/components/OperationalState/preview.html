@@ -1,0 +1,23 @@
+<!-- @dsCard group="AI Office" height=88 subtitle="Five states · colour, icon, line and word" -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+<style>
+body{margin:0;background:var(--surface);font-family:Inter,system-ui,sans-serif}
+.row{display:flex;gap:32px;padding:20px 24px;flex-wrap:wrap}
+.st{display:flex;flex-direction:column;gap:8px}
+.w{display:flex;align-items:center;gap:6px;font-size:14px;line-height:20px;font-weight:600}
+</style>
+</head>
+<body>
+<div class="row">
+<div class="st"><svg width="64" height="6" aria-hidden="true"><line x1="3" y1="3" x2="61" y2="3" stroke-width="3" stroke-linecap="round" style="stroke:var(--state-working)"/></svg><span class="w" style="color:var(--state-working)"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.8a6.2 6.2 0 1 1 0 12.4a6.2 6.2 0 1 1 0-12.4zM8 4.8V8l2.2 1.4" fill="none" stroke="currentColor" stroke-width="2"/></svg>Working</span></div>
+<div class="st"><svg width="64" height="6" aria-hidden="true"><line x1="3" y1="3" x2="61" y2="3" stroke-width="3" stroke-linecap="round" style="stroke:var(--state-approval)"/></svg><span class="w" style="color:var(--state-approval)"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5 15 14H1z" fill="currentColor"/></svg>Waiting for approval</span></div>
+<div class="st"><svg width="64" height="6" aria-hidden="true"><line x1="3" y1="3" x2="61" y2="3" stroke-width="3" stroke-linecap="round" style="stroke:var(--state-blocked)"/></svg><span class="w" style="color:var(--state-blocked)"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.1 1h5.8L15 5.1v5.8L10.9 15H5.1L1 10.9V5.1z" fill="currentColor"/><path d="M4.6 8h6.8" stroke-width="2.2" style="stroke:var(--surface)"/></svg>Blocked</span></div>
+<div class="st"><svg width="64" height="6" aria-hidden="true"><line x1="3" y1="3" x2="61" y2="3" stroke-width="3" stroke-linecap="round" stroke-dasharray="0.01 6.44" style="stroke:var(--state-idle)"/></svg><span class="w" style="color:var(--state-idle)"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2a6 6 0 1 1 0 12a6 6 0 1 1 0-12z" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="2.6 2.1"/></svg>Idle</span></div>
+<div class="st"><svg width="64" height="6" aria-hidden="true"><line x1="3" y1="3" x2="61" y2="3" stroke-width="1" style="stroke:var(--state-unavailable)"/></svg><span class="w" style="color:var(--state-unavailable)"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2a6 6 0 1 1 0 12a6 6 0 1 1 0-12zM3.8 12.2 12.2 3.8" fill="none" stroke="currentColor" stroke-width="2"/></svg>Unavailable</span></div>
+</div>
+</body>
+</html>

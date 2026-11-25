@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "ca.mowology.crm",
+      "sha256_cert_fingerprints": [
+        "47:2F:D5:0F:E3:06:FB:FB:90:A3:CB:CE:2C:AA:19:1F:61:FC:AF:26:98:6B:55:65:B5:91:93:3F:03:79:BA:03"
+      ]
+    }
+  }
+]

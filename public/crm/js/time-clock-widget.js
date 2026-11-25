@@ -32,6 +32,17 @@
     var autoArrivalEnabled = false; // Whether proximity auto-clock-in is active
     var lastAutoStartVisitId = null; // Prevent re-triggering same visit
 
+    // ── Breaks (2026-10-13) ──
+    // Start break / End break for people (never the truck login — the server says so in
+    // status.breaks.allowed). A break pauses location sharing; the server also ignores fixes
+    // while one is open. Server first: the tap time travels as client_time, so if offline-queue.js
+    // has to queue the POST the replay still files the break at the moment it was tapped.
+    var breakAllowed = false;
+    var breaksPaid = true;
+    var breakReminderMin = 60;
+    var onBreak = null;            // { started_at: 'Y-m-d H:i:s', local?: true } or null
+    var BREAK_NOTIF_ID = 7301;
+
     // ── Screen Wake Lock ──
     // Keeps the screen on while GPS tracking is active so mobile browsers
     // don't suspend JS and drop location pings.
@@ -82,6 +93,7 @@
             deviceType = data.device_type || 'personal';
             isDriver = !!data.is_driver;
             hasActiveJobTimer = !!(data.active_job);
+            readBreakStatus(data);
 
             // Store configurable GPS intervals from server
             if (data.gps_interval_standard_ms) {
@@ -95,6 +107,7 @@
             if (data.clocked_in) {
                 clockInTime = new Date(data.clock_in.replace(' ', 'T'));
                 renderClockedIn(data.elapsed_seconds, data.active_job);
+                askDrivingIfUnasked(data);
             } else {
                 renderClockedOut();
             }
@@ -102,8 +115,17 @@
             // Read auto-arrival setting
             autoArrivalEnabled = !!data.auto_arrival_enabled;
 
-            // Start GPS based on device profile
-            if (trackingEnabled) {
+            // Start GPS based on device profile — but ONLY on a field device. A desktop
+            // browser where the same person is logged in is not where the crew member is:
+            // it reported the office/home as their position all day, could cancel genuine
+            // phone fixes as "duplicates", and would draw the client-facing route back to a desk.
+            if (trackingEnabled && !isFieldDevice()) {
+                updateTrackingDot('unknown', 'Location is tracked from your phone, not this computer');
+            } else if (trackingEnabled && data.clocked_in && onBreak) {
+                // On a break: location sharing stays paused until End break.
+                stopTracking();
+                updateTrackingDot('unknown', 'Paused — on break');
+            } else if (trackingEnabled) {
                 if (deviceType === 'truck' || isDriver || data.clocked_in) {
                     // Truck: always track when app is open
                     // is_driver: tracks without clock-in (mirrors server-side bypass)
@@ -119,7 +141,7 @@
             // One-shot proximity check on page load (all CRM pages)
             // For personal devices not currently tracking, this is the key —
             // it fires on every page navigation to detect nearby job sites.
-            if (autoArrivalEnabled && !hasActiveJobTimer) {
+            if (autoArrivalEnabled && !hasActiveJobTimer && isFieldDevice()) {
                 runOneShotProximityCheck();
             }
         })
@@ -291,10 +313,13 @@
     var SVG_PLAY = '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polygon points="10 8 16 12 10 16 10 8"></polygon></svg>';
     var SVG_STOP = '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>';
     var SVG_CLOCK = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>';
+    var SVG_COFFEE = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8h1a4 4 0 0 1 0 8h-1"></path><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"></path><line x1="6" y1="1" x2="6" y2="4"></line><line x1="10" y1="1" x2="10" y2="4"></line><line x1="14" y1="1" x2="14" y2="4"></line></svg>';
     var SVG_NAV = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"></polygon></svg>';
 
     function renderClockedOut() {
         stopTimer();
+        // Break state is NOT cleared here: this also renders when a status read fails (no signal),
+        // and a break tapped offline must survive that. readBreakStatus() / doClockOut() clear it.
         // Truck devices keep tracking even when not clocked in
         if (deviceType !== 'truck') {
             stopTracking();
@@ -305,9 +330,12 @@
                 '<span class="mw-clock-label">Clock In</span>' +
             '</button>';
         document.getElementById('btnClockIn').addEventListener('click', doClockIn);
+        renderBreakPanel(false);
     }
 
+    var lastActiveJob = null;
     function renderClockedIn(elapsedSeconds, activeJob) {
+        lastActiveJob = activeJob || null;
         var html =
             '<div class="mw-clock-active">' +
                 '<span class="mw-clock-icon-pulse">' + SVG_CLOCK + '</span>' +
@@ -326,6 +354,15 @@
                     '</span>';
         }
 
+        if (breakAllowed) {
+            html += onBreak
+                ? '<button class="mw-clock-btn mw-clock-break-btn mw-clock-break-btn--on" id="btnBreak" title="On break since ' +
+                      escapeHtml(breakSinceLabel()) + ' — tap to end your break">' + SVG_COFFEE +
+                      '<span class="mw-clock-label">End break</span></button>'
+                : '<button class="mw-clock-btn mw-clock-break-btn" id="btnBreak" title="Start break">' + SVG_COFFEE +
+                      '<span class="mw-clock-label">Break</span></button>';
+        }
+
         html +=     '<button class="mw-clock-btn mw-clock-out" id="btnClockOut" title="Clock Out">' +
                         SVG_STOP +
                         '<span class="mw-clock-label">Out</span>' +
@@ -334,7 +371,10 @@
 
         widget.innerHTML = html;
         document.getElementById('btnClockOut').addEventListener('click', doClockOut);
+        var bb = document.getElementById('btnBreak');
+        if (bb) bb.addEventListener('click', function() { if (onBreak) endBreak(); else startBreak(); });
         startTimer(elapsedSeconds);
+        renderBreakPanel(true);
     }
 
     function renderDisabled() {
@@ -391,6 +431,7 @@
                 }
                 gpsErrorCount = 0;
                 latestPosition = pos;
+                latestPosition.fixAt = pos.timestamp || Date.now();
                 updateTrackingDot('active', 'accuracy: ' + Math.round(pos.accuracy) + 'm');
             });
             // Fall through to ALSO start browser watchPosition below
@@ -427,7 +468,8 @@
                     lng: pos.coords.longitude,
                     accuracy: pos.coords.accuracy,
                     speed: pos.coords.speed,
-                    heading: pos.coords.heading
+                    heading: pos.coords.heading,
+                    fixAt: pos.timestamp || Date.now()
                 };
                 // Update topbar dot to green — GPS is actively sending
                 updateTrackingDot('active', 'accuracy: ' + Math.round(pos.coords.accuracy) + 'm');
@@ -492,7 +534,37 @@
     var GPS_QUEUE_MAX = 500; // ~4 hours at 30s intervals
     var noFixCount = 0; // Tracks consecutive sendPosition() calls with no GPS fix
 
+    // A fix older than this is history, not a position. Re-sending it (the server stamps
+    // receipt time) made a phone whose GPS had died look alive and parked.
+    function fixIsStale() {
+        if (!latestPosition) return true;
+        var maxAge = Math.max(TRACKING_INTERVAL_MS * 3, 90000);
+        return (Date.now() - (latestPosition.fixAt || 0)) > maxAge;
+    }
+
+    // The Capacitor app, a truck tablet, or a phone/tablet browser. iPadOS reports a
+    // desktop user agent, hence the touch-points test.
+    function isFieldDevice() {
+        if (window.MwNative) return true;
+        if (deviceType === 'truck') return true;
+        var ua = navigator.userAgent || '';
+        if (/Android|iPhone|iPad|iPod|Mobile/i.test(ua)) return true;
+        return /Macintosh/i.test(ua) && (navigator.maxTouchPoints || 0) > 1;
+    }
+
+    // APK 1.3.0+ : the native engine captures and uploads on its own, screen off or app
+    // closed. If the page uploaded too, every fix would arrive twice (and ours lacks a fix time).
+    function nativeEngineOwnsUploads() {
+        return !!(window.MwNative && window.MwNative.engine && window.MwNative.engine.version >= 2);
+    }
+
     function sendPosition() {
+        if (nativeEngineOwnsUploads()) return;
+        if (latestPosition && fixIsStale()) {
+            console.warn('[MwTracking] Last fix is stale — discarding instead of re-sending');
+            latestPosition = null;
+            updateTrackingDot('error', 'No recent GPS fix');
+        }
         if (!latestPosition) {
             noFixCount++;
             // After 2 misses (60s) with no position from native/watch, try one-shot fallback
@@ -505,7 +577,8 @@
                             lng: pos.coords.longitude,
                             accuracy: pos.coords.accuracy,
                             speed: pos.coords.speed,
-                            heading: pos.coords.heading
+                            heading: pos.coords.heading,
+                            fixAt: pos.timestamp || Date.now()
                         };
                         updateTrackingDot('active', 'accuracy: ' + Math.round(pos.coords.accuracy) + 'm (fallback)');
                         doSendPosition(); // Send the fallback position now
@@ -544,13 +617,14 @@
         fetch('/crm/api/crew-location.php', {
             method: 'POST',
             credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
             body: JSON.stringify({
                 lat: latestPosition.lat,
                 lng: latestPosition.lng,
                 accuracy: latestPosition.accuracy,
                 speed: latestPosition.speed,
-                heading: latestPosition.heading
+                heading: latestPosition.heading,
+                field_device: isFieldDevice()
             })
         })
         .then(function(r) {
@@ -575,11 +649,20 @@
                 // Admin explicitly disabled tracking — stop until next page load.
                 stopTracking();
             }
-            // "Not clocked in" is transient (clocking in will re-enable) — do NOT
-            // stop tracking. Just skip this ping; the next interval will retry.
+            // The server is the authority on the shift. "Not clocked in" means an auto
+            // clock-out or an office edit ended it — keep tracking and we are recording
+            // someone off the clock. Stop, and re-read status so the UI tells the truth.
+            if (data.error === 'Not clocked in') {
+                stopTracking();
+                fetchStatus();
+                return;
+            }
             // Handle server-side proximity auto-start
             if (data.auto_started) {
                 handleServerAutoStart(data.auto_started);
+            }
+            if (data.auto_stopped) {
+                handleServerAutoStop(data.auto_stopped);
             }
         })
         .catch(function(err) {
@@ -618,6 +701,7 @@
                 accuracy: pos.accuracy,
                 speed: pos.speed,
                 heading: pos.heading,
+                t: pos.fixAt || Date.now(),
                 queued_at: new Date().toISOString()
             });
             localStorage.setItem(GPS_QUEUE_KEY, JSON.stringify(queue));
@@ -626,51 +710,399 @@
         }
     }
 
+    var _flushing = false;
+
+    // Replays the offline queue as ONE batch with each fix's own time. The old flush
+    // fired the pings 200 ms apart at an endpoint that rate-limits to one per 10 s and
+    // stamps receipt time: all but the first were dropped (the server answered
+    // "success, skipped"), and the survivor was filed under the wrong time.
     function flushQueue() {
+        if (_flushing) return;
         var queue;
         try {
             queue = JSON.parse(localStorage.getItem(GPS_QUEUE_KEY) || '[]');
         } catch(e) { return; }
         if (queue.length === 0) return;
 
-        // Clear queue immediately (re-queue on failure)
-        localStorage.removeItem(GPS_QUEUE_KEY);
-        console.log('[MwTracking] Flushing ' + queue.length + ' queued GPS pings');
+        _flushing = true;
+        console.log('[MwTracking] Flushing ' + queue.length + ' queued GPS fixes as a batch');
 
-        queue.forEach(function(pos, i) {
-            setTimeout(function() {
-                fetch('/crm/api/crew-location.php', {
-                    method: 'POST',
-                    credentials: 'same-origin',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(pos)
-                }).then(function(r) {
-                    if (r.status === 401) {
-                        queuePosition(pos); // Keep for replay after re-login
-                        showSessionExpiredBanner();
-                    }
-                }).catch(function() {
-                    queuePosition(pos); // Re-queue on network failure
-                });
-            }, i * 200); // 200ms between each to avoid rate limiting
+        var points = queue.map(function(p) {
+            return { t: p.t || Date.parse(p.queued_at) || Date.now(), lat: p.lat, lng: p.lng,
+                     acc: p.accuracy, speed: p.speed, heading: p.heading };
+        });
+
+        // location-ping needs the CSRF token on the session path (2026-10-12); a stale token is
+        // refreshed from get-csrf.php and the batch retried once. A refusal leaves the queue intact.
+        function sendBatch(retried) {
+            return fetch('/api/team/location-ping', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
+                body: JSON.stringify({ points: points })
+            }).then(function(r) {
+                if (r.status === 401) { showSessionExpiredBanner(); return null; }
+                if (r.status === 403 && !retried) {
+                    return fetch('/crm/api/get-csrf.php', { credentials: 'same-origin', cache: 'no-store' })
+                        .then(function(t) { return t.json(); })
+                        .then(function(t) { if (t && t.token) window.MW_CSRF_TOKEN = t.token; return sendBatch(true); });
+                }
+                return r.ok ? r.json() : null;
+            });
+        }
+
+        sendBatch(false).then(function(data) {
+            // Only a definite answer empties the queue; anything else leaves it for next time.
+            if (data && data.success) {
+                var sent = queue.length;
+                try {
+                    var now = JSON.parse(localStorage.getItem(GPS_QUEUE_KEY) || '[]');
+                    localStorage.setItem(GPS_QUEUE_KEY, JSON.stringify(now.slice(sent)));
+                } catch(e) { /* leave it */ }
+                console.log('[MwTracking] Queue flushed — ' + (data.stored || 0) + ' stored');
+            }
+        }).catch(function() {
+            /* still offline — queue untouched */
+        }).then(function() { _flushing = false; });
+    }
+
+    // ── Native engine events ──
+    // The server ended the shift (auto clock-out, office edit) and the engine stopped itself.
+    document.addEventListener('mw-tracking-stopped', function() {
+        stopTracking();
+        fetchStatus();
+    });
+
+    // ══ Breaks ══════════════════════════════════════════════════════════════
+    function breakKey(kind) { return 'mw_break_' + kind + '_' + (window.MW_USER_ID || 'me'); }
+    function readLocalBreak() {
+        try { return JSON.parse(localStorage.getItem(breakKey('local')) || 'null'); } catch (e) { return null; }
+    }
+    function writeLocalBreak(v) { try { localStorage.setItem(breakKey('local'), JSON.stringify(v)); } catch (e) {} }
+    function clearLocalBreak() { try { localStorage.removeItem(breakKey('local')); } catch (e) {} }
+
+    // ISO 8601 with the phone's offset — what OfflineTime::accept() reads as the tap time.
+    function isoLocal(d) {
+        var off = -d.getTimezoneOffset(), sign = off >= 0 ? '+' : '-', a = Math.abs(off);
+        return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' +
+               pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()) +
+               sign + pad(Math.floor(a / 60)) + ':' + pad(a % 60);
+    }
+    function sqlLocal(d) {
+        return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' +
+               pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+    }
+    function parseSql(s) {
+        var m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/.exec(String(s || ''));
+        return m ? new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0)) : null;
+    }
+    function breakSinceLabel() {
+        var d = onBreak ? parseSql(onBreak.started_at) : null;
+        return d ? formatTime(d) : '';
+    }
+
+    /** status → break state. A tap still waiting in the offline queue wins over the server. */
+    function readBreakStatus(data) {
+        var b = data.breaks || {};
+        breakAllowed = !!b.allowed && deviceType !== 'truck' && !!data.clocked_in;
+        breaksPaid = b.paid !== false;
+        breakReminderMin = Math.max(5, parseInt(b.reminder_minutes, 10) || 60);
+        onBreak = data.on_break || null;
+        var local = readLocalBreak();
+        if (!local) { if (onBreak) scheduleBreakReminder(); else cancelBreakReminder(); return; }
+        var serverAgrees = (local.pending === 'start') === !!onBreak;
+        if (serverAgrees || !data.clocked_in) { clearLocalBreak(); if (onBreak) scheduleBreakReminder(); else cancelBreakReminder(); return; }
+        // The server hasn't seen the queued tap yet: keep showing what was tapped while it waits.
+        if (local.pending === 'start') onBreak = { started_at: local.since, local: true };
+        else onBreak = null;
+        var check = window.OfflineActions && window.OfflineActions.getPendingCount
+            ? window.OfflineActions.getPendingCount() : Promise.resolve(0);
+        check.then(function(n) {
+            if (n > 0) return;            // still queued — keep the local state
+            clearLocalBreak();            // nothing queued any more: the server is right
+            fetchStatus();
         });
     }
 
+    /** Post break_start / break_end with the tap time; same CSRF refresh-and-retry as clock actions. */
+    function postBreak(action, tappedAt, callback, _isRetry) {
+        fetch('/crm/api/time-clock.php', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
+            body: JSON.stringify({ action: action, client_time: isoLocal(tappedAt) })
+        })
+        .then(function(r) { return r.json().then(function(d) { return { status: r.status, data: d }; }); })
+        .then(function(res) {
+            var d = res.data;
+            if (!_isRetry && d && !d.success && d.error && d.error.indexOf('CSRF') !== -1) {
+                fetch('/crm/api/get-csrf.php', { credentials: 'same-origin', cache: 'no-store' })
+                    .then(function(r) { return r.json(); })
+                    .then(function(t) { if (t && t.token) window.MW_CSRF_TOKEN = t.token; postBreak(action, tappedAt, callback, true); })
+                    .catch(function() { callback(res.status, d); });
+                return;
+            }
+            callback(res.status, d);
+        })
+        .catch(function() { callback(0, null); });
+    }
+
+    var breakBusy = false;
+    function startBreak() {
+        if (breakBusy || onBreak || !breakAllowed) return;
+        breakBusy = true;
+        var tappedAt = new Date();
+        postBreak('break_start', tappedAt, function(status, data) {
+            breakBusy = false;
+            if (!data) { showToast('No connection — try Start break again', 'error'); return; }
+            if (!data.success) { showToast(data.error || 'Could not start your break', 'error'); return; }
+            if (data.queued || data.offline) {
+                writeLocalBreak({ pending: 'start', since: sqlLocal(tappedAt) });
+                onBreak = { started_at: sqlLocal(tappedAt), local: true };
+                showToast('Break saved on this phone — it will file itself when signal returns', 'info');
+            } else if (data.recorded === false) {
+                showToast(data.message || 'Break not recorded', 'error');
+                return;
+            } else if (!data.on_break) {
+                // Filed already (a replay) and not running now — the server is right.
+                clearLocalBreak();
+                fetchStatus();
+                return;
+            } else {
+                clearLocalBreak();
+                onBreak = data.on_break;
+                showToast('On break since ' + breakSinceLabel() + ' — location sharing paused', 'success');
+            }
+            stopTracking();
+            updateTrackingDot('unknown', 'Paused — on break');
+            scheduleBreakReminder();
+            applyBreakState();
+        });
+    }
+
+    function endBreak() {
+        if (breakBusy || !onBreak) return;
+        breakBusy = true;
+        var tappedAt = new Date();
+        postBreak('break_end', tappedAt, function(status, data) {
+            breakBusy = false;
+            if (!data) { showToast('No connection — try End break again', 'error'); return; }
+            if (!data.success) { showToast(data.error || 'Could not end your break', 'error'); return; }
+            if (data.queued || data.offline) {
+                var local = readLocalBreak();
+                if (local && local.pending === 'start') clearLocalBreak();       // both still queued, in order
+                else writeLocalBreak({ pending: 'end', since: onBreak.started_at });
+                showToast('Break end saved on this phone — it will file itself when signal returns', 'info');
+            } else {
+                clearLocalBreak();
+                showToast('Break ended' + (data.minutes ? ' — ' + data.minutes + ' min' : '') + '. Location sharing is back on.', 'success');
+            }
+            onBreak = null;
+            cancelBreakReminder();
+            if (trackingEnabled && isFieldDevice()) startTracking();
+            applyBreakState();
+        });
+    }
+
+    function applyBreakState() {
+        if (clockInTime === null) { renderBreakPanel(false); return; }
+        var t = document.getElementById('clockTimer');
+        var secs = t ? toSeconds(t.textContent) : 0;
+        renderClockedIn(secs, lastActiveJob);
+        fetchStatusSoon();
+    }
+    var _soon = null;
+    function fetchStatusSoon() { if (_soon) clearTimeout(_soon); _soon = setTimeout(fetchStatus, 1500); }
+    function toSeconds(txt) {
+        var p = String(txt || '').split(':');
+        return p.length === 3 ? (+p[0] * 3600 + +p[1] * 60 + +p[2]) || 0 : 0;
+    }
+
+    /** The big card on the Clock tab (My Timesheet): #mwBreakPanel, when the page has one. */
+    function renderBreakPanel(clockedIn) {
+        var panel = document.getElementById('mwBreakPanel');
+        if (!panel) return;
+        if (!clockedIn || !breakAllowed) { panel.hidden = true; panel.innerHTML = ''; return; }
+        panel.hidden = false;
+        var payNote = breaksPaid ? 'Breaks are paid.' : 'Breaks are unpaid — this time comes off your paid hours.';
+        panel.innerHTML = onBreak
+            ? '<div class="mw-break-panel-status mw-break-panel-status--on">' + SVG_COFFEE +
+                  '<span>On break since <strong>' + escapeHtml(breakSinceLabel()) + '</strong></span></div>' +
+              '<div class="mw-break-panel-sub">Location sharing is paused.' + (onBreak.local ? ' Saved on this phone — it will file when signal returns.' : '') + '</div>' +
+              '<button type="button" class="mw-break-panel-btn mw-break-panel-btn--end" id="mwBreakPanelBtn">End break</button>' +
+              '<div class="mw-break-panel-note">' + escapeHtml(payNote) + '</div>'
+            : '<button type="button" class="mw-break-panel-btn" id="mwBreakPanelBtn">' + SVG_COFFEE + '<span>Start break</span></button>' +
+              '<div class="mw-break-panel-note">Location sharing pauses during your break. ' + escapeHtml(payNote) + '</div>';
+        var btn = document.getElementById('mwBreakPanelBtn');
+        if (btn) btn.addEventListener('click', function() { if (onBreak) endBreak(); else startBreak(); });
+    }
+
+    // ── "Still on break?" ──
+    // Crew app: a native local notification with End break / Still on break, which fires even with
+    // the app closed. Browser: an in-page prompt while the page is open.
+    function localNotifications() {
+        return (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.LocalNotifications) || null;
+    }
+    var _breakActionsReady = false;
+    function ensureBreakActions() {
+        var LN = localNotifications();
+        if (!LN || _breakActionsReady) return;
+        _breakActionsReady = true;
+        try {
+            if (LN.registerActionTypes) {
+                LN.registerActionTypes({ types: [{ id: 'MW_BREAK', actions: [
+                    { id: 'end_break', title: 'End break', foreground: true },
+                    { id: 'still_on_break', title: 'Still on break' }
+                ] }] }).catch(function() {});
+            }
+            if (LN.addListener) {
+                LN.addListener('localNotificationActionPerformed', function(ev) {
+                    var n = (ev && ev.notification) || {};
+                    if (!n.extra || n.extra.mw !== 'break') return;
+                    if (ev.actionId === 'end_break') {
+                        // The listener can fire before status has loaded — wait for it.
+                        if (onBreak) endBreak(); else pendingEndFromNotification = true;
+                    } else if (ev.actionId === 'still_on_break') {
+                        scheduleBreakReminder(Date.now() + breakReminderMin * 60000);
+                    }
+                });
+            }
+        } catch (e) { /* plugin missing on an old APK — the in-page prompt still works */ }
+    }
+    var pendingEndFromNotification = false;
+
+    function nextReminderAt() {
+        try {
+            var v = JSON.parse(localStorage.getItem(breakKey('next')) || 'null');
+            if (v && onBreak && v.since === onBreak.started_at) return v.at;
+        } catch (e) {}
+        var d = onBreak ? parseSql(onBreak.started_at) : null;
+        return d ? d.getTime() + breakReminderMin * 60000 : null;
+    }
+
+    function scheduleBreakReminder(at) {
+        if (!onBreak) return;
+        if (pendingEndFromNotification) { pendingEndFromNotification = false; setTimeout(endBreak, 0); return; }
+        var when = at || nextReminderAt();
+        if (!when) return;
+        if (when < Date.now()) when = Date.now() + 1000;
+        try { localStorage.setItem(breakKey('next'), JSON.stringify({ since: onBreak.started_at, at: when })); } catch (e) {}
+        var LN = localNotifications();
+        if (LN && LN.schedule) {
+            ensureBreakActions();
+            try {
+                LN.cancel({ notifications: [{ id: BREAK_NOTIF_ID }] }).catch(function() {}).then(function() {
+                    return LN.schedule({ notifications: [{
+                        id: BREAK_NOTIF_ID,
+                        title: 'Still on break?',
+                        body: 'Your break started at ' + breakSinceLabel() + '. Tap End break when you are back at work.',
+                        schedule: { at: new Date(when), allowWhileIdle: true },
+                        actionTypeId: 'MW_BREAK',
+                        extra: { mw: 'break' },
+                        smallIcon: 'ic_stat_mowology'
+                    }] });
+                }).catch(function(err) { console.warn('[MwBreak] reminder not scheduled', err); });
+            } catch (e) {}
+        }
+    }
+
+    function cancelBreakReminder() {
+        try { localStorage.removeItem(breakKey('next')); } catch (e) {}
+        hideBreakPrompt();
+        var LN = localNotifications();
+        if (LN && LN.cancel) { try { LN.cancel({ notifications: [{ id: BREAK_NOTIF_ID }] }).catch(function() {}); } catch (e) {} }
+    }
+
+    // In-page prompt (browser, or the app with the page open).
+    function showBreakPrompt() {
+        if (document.getElementById('mwBreakPrompt')) return;
+        var bar = document.createElement('div');
+        bar.id = 'mwBreakPrompt';
+        bar.className = 'mw-break-prompt';
+        bar.innerHTML = '<span>Still on break? (since ' + escapeHtml(breakSinceLabel()) + ')</span>' +
+            '<button type="button" class="mw-break-prompt-end">End break</button>' +
+            '<button type="button" class="mw-break-prompt-still">Still on break</button>';
+        document.body.appendChild(bar);
+        bar.querySelector('.mw-break-prompt-end').addEventListener('click', function() { hideBreakPrompt(); endBreak(); });
+        bar.querySelector('.mw-break-prompt-still').addEventListener('click', function() {
+            hideBreakPrompt();
+            scheduleBreakReminder(Date.now() + breakReminderMin * 60000);
+        });
+    }
+    function hideBreakPrompt() {
+        var bar = document.getElementById('mwBreakPrompt');
+        if (bar && bar.parentNode) bar.parentNode.removeChild(bar);
+    }
+    setInterval(function() {
+        if (!onBreak) return;
+        var at = nextReminderAt();
+        if (at && Date.now() >= at) showBreakPrompt();
+    }, 20000);
+    document.addEventListener('mw-auto-started', function(ev) {
+        if (ev && ev.detail && ev.detail.visit_id) handleServerAutoStart(ev.detail);
+    });
+    // v2 APK: the native engine already raised the phone notification — just fix the screen.
+    document.addEventListener('mw-auto-stopped', function(ev) {
+        if (!ev || !ev.detail || !ev.detail.visit_id) return;
+        hasActiveJobTimer = false;
+        fetchStatus();
+        showToast('Timer stopped — you left ' + (ev.detail.property_address || 'the job site') + '. Mark it complete if you\'re done.', 'success');
+    });
+
     // ── Actions ──
+
+    // Posts a clock action with automatic CSRF-token refresh + single retry.
+    // window.MW_CSRF_TOKEN is baked into the page at render time; on a
+    // long-lived kiosk/tablet WebView that's never reloaded across a shift,
+    // it can drift out of sync with the live server session. Mirrors the
+    // same refresh-and-retry pattern already used for media uploads
+    // (schedule-pill-workflow.js doUploadPhoto).
+    // callback(status, data) — data is null on network failure.
+    function postClockAction(action, lat, lng, callback, _isRetry) {
+        // Clock-in carries the phone's location-permission snapshot (TrackingSetupGate).
+        var perms = (action === 'clock_in' && window.MwNative && window.MwNative.trackingPermissions)
+            ? window.MwNative.trackingPermissions() : Promise.resolve(null);
+        perms.then(function(trackingPerms) {
+            return fetch('/crm/api/time-clock.php', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
+                body: JSON.stringify({ action: action, lat: lat, lng: lng, tracking_perms: trackingPerms })
+            });
+        })
+        .then(function(r) {
+            return r.json().then(function(data) { return { status: r.status, data: data }; });
+        })
+        .then(function(res) {
+            var data = res.data;
+            if (!_isRetry && data && !data.success && data.error && data.error.indexOf('CSRF') !== -1) {
+                fetch('/crm/api/get-csrf.php', { method: 'GET', credentials: 'same-origin' })
+                    .then(function(r) { return r.json(); })
+                    .then(function(d) {
+                        if (d && d.token) window.MW_CSRF_TOKEN = d.token;
+                        postClockAction(action, lat, lng, callback, true);
+                    })
+                    .catch(function() { callback(res.status, data); });
+                return;
+            }
+            callback(res.status, data);
+        })
+        .catch(function() {
+            callback(0, null);
+        });
+    }
 
     function doClockIn() {
         var btn = document.getElementById('btnClockIn');
         if (btn) btn.disabled = true;
 
         getGPS(function(lat, lng) {
-            fetch('/crm/api/time-clock.php', {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'clock_in', lat: lat, lng: lng })
-            })
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
+            postClockAction('clock_in', lat, lng, function(status, data) {
+                if (data === null) {
+                    showToast('Network error', 'error');
+                    if (btn) btn.disabled = false;
+                    return;
+                }
                 if (data.success) {
                     clockInTime = new Date();
                     // Re-fetch status to get tracking flag and render properly
@@ -680,19 +1112,25 @@
                     // Driver pre-trip enforcement: server flags drivers who haven't
                     // filed a pre-trip vehicle inspection for today. Redirect them
                     // to the Driver Portal so they can complete it immediately.
-                    if (data.pre_trip_required) {
+                    // Per shift, not per person: ask "are you driving?" once, then route.
+                    if (window.MwTripLog && window.MW_USER_ID) {
+                        // Hold the in-flight flag so the status re-fetch above, which still
+                        // says 'unasked' until the answer lands, cannot open a second prompt.
+                        drivingAskInFlight = true;
                         setTimeout(function() {
-                            window.location.href = '/crm/driver-portal.php?open=pre';
-                        }, 800);
+                            window.MwTripLog.afterClockIn(data, window.MW_USER_ID).then(function(url) {
+                                drivingAskInFlight = false;
+                                if (url) { window.location.href = url; return; }
+                                if (data.driver_question_required) rememberNotDriving(data.clock_in);
+                            }, function () { drivingAskInFlight = false; });
+                        }, 600);
+                    } else if (data.pre_trip_required) {
+                        setTimeout(function() { window.location.href = '/crm/driver-log.php'; }, 800);
                     }
                 } else {
                     showToast(data.error || 'Clock in failed', 'error');
                     renderClockedOut();
                 }
-            })
-            .catch(function() {
-                showToast('Network error', 'error');
-                if (btn) btn.disabled = false;
             });
         });
     }
@@ -727,19 +1165,14 @@
         }
 
         getGPS(function(lat, lng) {
-            fetch('/crm/api/time-clock.php', {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'clock_out', lat: lat, lng: lng })
-            })
-            .then(function(r) {
-                return r.json().then(function(data) { return { status: r.status, data: data }; });
-            })
-            .then(function(res) {
-                var data = res.data;
+            postClockAction('clock_out', lat, lng, function(status, data) {
+                if (data === null) {
+                    showToast('Network error', 'error');
+                    if (btn) btn.disabled = false;
+                    return;
+                }
                 // 409 + post_trip_required: driver must submit post-trip form first.
-                if (res.status === 409 && data && data.error_code === 'post_trip_required') {
+                if (status === 409 && data.error_code === 'post_trip_required') {
                     if (btn) {
                         btn.disabled = false;
                         btn.innerHTML = SVG_STOP + '<span class="mw-clock-label">Out</span>';
@@ -752,17 +1185,17 @@
                     return;
                 }
 
-                if (data && data.success) {
+                if (data.success) {
+                    // Clocking out during a break ends it (the server closes it at the clock-out).
+                    onBreak = null;
+                    cancelBreakReminder();
+                    clearLocalBreak();
                     renderClockedOut();
                     showToast('Clocked out — Total: ' + data.total_formatted, 'success');
                 } else {
-                    showToast((data && data.error) || 'Clock out failed', 'error');
+                    showToast(data.error || 'Clock out failed', 'error');
                     if (btn) btn.disabled = false;
                 }
-            })
-            .catch(function() {
-                showToast('Network error', 'error');
-                if (btn) btn.disabled = false;
             });
         });
     }
@@ -770,14 +1203,14 @@
     // ── Helpers ──
 
     function getGPS(callback) {
-        // Native Capacitor: use native Geolocation plugin with a hard 4s timeout.
+        // Native Capacitor: use native Geolocation plugin with a hard 20s timeout.
         // Without the timeout, a denied/unavailable GPS can hang indefinitely,
         // leaving the clock button disabled with nothing happening.
         if (window.MwNative && window.MwNative.geo) {
             var done = false;
             var timer = setTimeout(function() {
                 if (!done) { done = true; callback(null, null); }
-            }, 4000);
+            }, 20000); // 2026-11-03: was 4 s, shorter than the bridge's own 10 s + 8 s chain
             window.MwNative.geo.getCurrentPosition()
                 .then(function(pos) {
                     if (!done) { done = true; clearTimeout(timer); callback(pos.lat, pos.lng); }
@@ -847,6 +1280,50 @@
      * Server detected proximity and auto-started a visit timer.
      * Update widget UI and notify other components (e.g., schedule pill workflow).
      */
+    /**
+     * "Are you driving this shift?" — asked whenever someone is on the clock and the SERVER has
+     * no answer for the shift, NOT only after pressing Clock In. Arrival detection may clock a
+     * driver in and start their job (that is fine, and wanted — on 2026-09-21 the driver could
+     * not open the app before leaving the yard); what is not optional is the form.
+     *
+     *   No  → the declaration is filed and the question stops.
+     *   Yes → straight to the pre-trip inspection. Filing it IS the declaration — so leaving the
+     *         form unfinished leaves the shift 'unasked', and the question comes back on the next
+     *         page until the inspection is filed. The commercial log is a legal record.
+     *
+     * Field devices only; never on the vehicle-log pages themselves.
+     */
+    var drivingAskInFlight = false;
+    // A "No" is remembered on the device for the day of that clock-in (localStorage — the
+    // truck tablet reloads pages and sessionStorage is per tab). The answer is also filed on
+    // the server; this only stops the question repeating while that files, or if a status
+    // read races the declaration. A crew member who takes the wheel later opens the driver
+    // log themselves.
+    function notDrivingKey(clockIn) {
+        var day = String(clockIn || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+        return 'mw_not_driving_' + window.MW_USER_ID + '_' + day;
+    }
+    function rememberNotDriving(clockIn) {
+        try { localStorage.setItem(notDrivingKey(clockIn), '1'); } catch (e) {}
+    }
+    function answeredNotDriving(clockIn) {
+        try { return !!localStorage.getItem(notDrivingKey(clockIn)); } catch (e) { return false; }
+    }
+    function askDrivingIfUnasked(status) {
+        if (!status || status.driving_shift !== 'unasked') return;
+        if (!window.MwTripLog || !window.MW_USER_ID || drivingAskInFlight) return;
+        if (!isFieldDevice()) return;                       // the office desktop is not a cab
+        if (/\/crm\/driver-(log|log-post|portal)\.php/.test(window.location.pathname)) return;
+        if (answeredNotDriving(status.clock_in)) return;
+
+        drivingAskInFlight = true;
+        window.MwTripLog.afterClockIn({ driver_question_required: true }, window.MW_USER_ID).then(function (url) {
+            drivingAskInFlight = false;
+            if (url) { window.location.href = url; return; }     // Yes → pre-trip form
+            rememberNotDriving(status.clock_in);
+        }, function () { drivingAskInFlight = false; });
+    }
+
     function handleServerAutoStart(info) {
         console.log('[MwTracking] Server auto-started visit ' + info.visit_id +
                     ' (' + info.job_title + ') at ' + info.distance_meters + 'm');
@@ -854,6 +1331,7 @@
         lastAutoStartVisitId = info.visit_id;
         hasActiveJobTimer = true;
 
+        if (info.clock_in_created) { setTimeout(fetchStatus, 1500); }
         if (info.clock_in_created) {
             clockInTime = new Date();
         }
@@ -862,13 +1340,46 @@
         fetchStatus();
 
         // Show toast
-        showToast('Auto-started: ' + (info.job_title || info.job_number || 'Job') +
+        showToast((info.resumed ? 'Resumed: ' : 'Auto-started: ') + (info.job_title || info.job_number || 'Job') +
                   ' (' + info.distance_meters + 'm away)', 'success');
+        if (window.MwNative && window.MwNative.notifications && window.MwNative.notifications.notify) {
+            window.MwNative.notifications.notify(
+                info.resumed ? 'Job timer resumed' : 'Job started automatically',
+                'You arrived at ' + (info.property_address || info.job_title || 'the job site') +
+                    (info.clock_in_created ? '. You\'ve been clocked in and the job timer is running.' : '. The job timer is running.'),
+                9000 + (parseInt(info.visit_id, 10) % 90)
+            );
+        }
 
         // Dispatch event for schedule page pill workflow
         document.dispatchEvent(new CustomEvent('mw-proximity-auto-start', {
             detail: info
         }));
+    }
+
+    /**
+     * The server stopped the job timer because this crew member LEFT the site. The visit is
+     * deliberately not completed — leaving might be a fuel run — so say what happened and let
+     * them decide. Coming back resumes the timer on its own.
+     */
+    function handleServerAutoStop(info) {
+        console.log('[MwTracking] Server auto-stopped visit ' + info.visit_id + ' — left the site');
+        hasActiveJobTimer = false;
+        fetchStatus();
+
+        var where = info.property_address || info.job_title || 'the job site';
+        var mins  = info.duration_minutes ? ' after ' + info.duration_minutes + ' min' : '';
+        showToast('Timer stopped — you left ' + where + mins + '. Mark it complete if you\'re done.', 'success');
+
+        // The phone is usually in a pocket when this happens.
+        if (window.MwNative && window.MwNative.notifications && window.MwNative.notifications.notify) {
+            window.MwNative.notifications.notify(
+                'Job timer stopped',
+                'You left ' + where + mins + '. Open the app to mark it complete — or head back and it resumes.',
+                9100 + (parseInt(info.visit_id, 10) % 800)
+            );
+        }
+        document.dispatchEvent(new CustomEvent('mw-proximity-auto-stop', { detail: info }));
     }
 
     /**
@@ -891,12 +1402,13 @@
                 fetch('/crm/api/crew-location.php', {
                     method: 'POST',
                     credentials: 'same-origin',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
                     body: JSON.stringify({
                         lat: lat,
                         lng: lng,
                         accuracy: accuracy,
-                        proximity_check: true
+                        proximity_check: true,
+                        field_device: isFieldDevice()
                     })
                 })
                 .then(function(r) { return r.json(); })
@@ -923,7 +1435,7 @@
     // Wake lock is re-acquired by the visibilitychange handler above (near its declaration).
     document.addEventListener('visibilitychange', function() {
         if (window.MwNative) return; // Native plugin handles background GPS
-        if (document.visibilityState !== 'visible' || !trackingEnabled) return;
+        if (document.visibilityState !== 'visible' || !trackingEnabled || onBreak) return;
         // Truck/is_driver: always restart. Personal: restart whenever clocked in.
         if (deviceType === 'truck' || isDriver || clockInTime !== null) {
             stopTracking();
@@ -933,7 +1445,7 @@
 
     window.addEventListener('pageshow', function(event) {
         if (window.MwNative) return; // Native plugin handles background GPS
-        if (!event.persisted || !trackingEnabled) return;
+        if (!event.persisted || !trackingEnabled || onBreak) return;
         if (deviceType === 'truck' || isDriver || clockInTime !== null) {
             stopTracking();
             startTracking();
@@ -953,13 +1465,22 @@
     window.MwTimeClock = {
         fetchStatus: fetchStatus,
         isActive: function() { return clockInTime !== null; },
+        // Shared clock_in/clock_out POST with CSRF-refresh-and-retry, and the
+        // native/browser GPS lookup — reused by my-schedule.php's mobile clock
+        // buttons so there's one implementation of the request logic, not two.
+        post: postClockAction,
+        getGPS: getGPS,
         isTracking: function() {
             return gpsWatchId !== null ||
                    (window.MwNative && window.MwNative.geo && window.MwNative.geo.watchId !== null);
         },
         getDeviceType: function() { return deviceType; },
+        // Breaks (2026-10-13): Start break / End break, and whether this person is on one.
+        startBreak: function() { startBreak(); },
+        endBreak: function() { endBreak(); },
+        isOnBreak: function() { return !!onBreak; },
         restartTracking: function() {
-            if (trackingEnabled) {
+            if (trackingEnabled && !onBreak) {
                 stopTracking();
                 startTracking();
             }
@@ -973,7 +1494,7 @@
          */
         notifyJobTimerStarted: function() {
             hasActiveJobTimer = true;
-            if (trackingEnabled) {
+            if (trackingEnabled && !onBreak) {
                 startTracking();
             }
         },

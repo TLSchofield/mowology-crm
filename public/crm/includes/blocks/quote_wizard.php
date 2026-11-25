@@ -1,4 +1,5 @@
 <?php
+require_once APP_ROOT . '/Core/Csp.php'; // nonce for this block's inline script (Fable #22)
 /**
  * Quote Wizard Block Renderer — Multi-step quote request form
  *
@@ -216,7 +217,7 @@ $uid = 'qwiz-' . ($block['id'] ?? substr(md5(uniqid('', true)), 0, 8));
 @media(max-width:640px){.mw-qwiz__row{grid-template-columns:1fr}.mw-qwiz__service-grid{grid-template-columns:repeat(2,1fr)}.mw-qwiz__card{padding:1.5rem 1.25rem}}
 </style>
 
-<script>
+<script<?= MwCsp::attr() ?>>
 (function(){
   var uid = <?= json_encode($uid) ?>;
   var submitUrl = <?= json_encode($submitUrl) ?>;

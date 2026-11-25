@@ -1,0 +1,33 @@
+{
+  "_comment": "Rehearsal business (Claudia dress rehearsal, 2026-11-03): every native switch ON so the app is fully native, as a founding business gets it. Release details are pinned here (2026-11-09): the shared app-version.json now describes Mowology's own build, which is a different app from this business's test app.",
+  "android": {
+    "version": "1.8.0",
+    "build": 22,
+    "min_version": "1.6.0",
+    "min_build": 18,
+    "apk_url": "",
+    "apk_sha256": "",
+    "native_auth": true,
+    "native_day": true,
+    "webview_shell_disabled": true,
+    "native_schedule_header": true,
+    "native_schedule_plus": true,
+    "native_timeclock": true,
+    "native_offline_start": true,
+    "native_queue_safety": true,
+    "native_tracking_setup": true,
+    "native_camera": true,
+    "native_visit": true,
+    "native_photo_gallery": true,
+    "native_quiz": true,
+    "native_ai_office": true,
+    "native_receipts": true,
+    "native_receipt_review": true,
+    "native_field_tools": true,
+    "native_invoice": true,
+    "native_trip_report": true,
+    "native_plants": true,
+    "native_signup": true,
+    "native_crew_schedule": true
+  }
+}

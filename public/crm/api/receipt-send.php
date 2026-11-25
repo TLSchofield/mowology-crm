@@ -35,6 +35,7 @@ if (!defined('APP_ROOT')) {
 
 try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+    require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
     require_once CRM_INCLUDES . '/functions.php';
     require_once APP_ROOT . '/Services/Receipts/ReceiptService.php';
 
@@ -56,6 +57,7 @@ session_write_close();
         echo json_encode(['success' => false, 'error' => 'Invalid security token']);
         exit;
     }
+    session_write_close();
 
     $action = $_GET['action'] ?? 'send';
 
@@ -68,13 +70,13 @@ session_write_close();
         }
         $testResult = sendEmail(
             $config['accounting_email'],
-            'Test Receipt — Mowology CRM',
+            'Test Receipt — ' . _idFromName() . ' CRM',
             '<h2>Receipt Forwarding Test</h2>'
-            . '<p>This is a test email from the Mowology CRM receipt forwarding system.</p>'
+            . '<p>This is a test email from the ' . htmlspecialchars(_idFromName()) . ' CRM receipt forwarding system.</p>'
             . '<p>If you receive this, your QuickBooks receipt email is configured correctly.</p>'
             . '<p><em>Sent at ' . date('Y-m-d H:i:s') . '</em></p>',
             null,
-            $config['from_name'] ?: 'Mowology Receipts'
+            $config['from_name'] ?: _idFromName() . ' Receipts'
         );
         echo json_encode([
             'success' => $testResult['success'],
@@ -156,5 +158,5 @@ session_write_close();
 
 } catch (Exception $e) {
     http_response_code(400);
-    echo json_encode(['success' => false, 'error' => $e->getMessage(), 'log_id' => null]);
+    echo json_encode(['success' => false, 'error' => ApiResponse::message($e, 'receipt-send'), 'log_id' => null]);
 }

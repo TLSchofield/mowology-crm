@@ -37,10 +37,12 @@ if (!defined('PUBLIC_ROOT')) {
 }
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 requireLogin();
 session_write_close();
 
 require_once APP_ROOT . '/Services/Media/IconGenerator.php';
+require_once dirname(__DIR__, 3) . '/Core/Uploads.php';
 
 header('Content-Type: application/json');
 
@@ -204,7 +206,7 @@ function handleUpload(\PDO $db): void
             exit;
         }
     } catch (\Throwable $e) {
-        echo json_encode(['error' => 'Database error: ' . $e->getMessage()]);
+        echo json_encode(['error' => 'Database error: ' . ApiResponse::message($e, 'api-icon-sets')]);
         exit;
     }
 
@@ -217,8 +219,8 @@ function handleUpload(\PDO $db): void
     $iconSetId = (int)$db->lastInsertId();
 
     // Save original
-    $origDir  = PUBLIC_ROOT . '/uploads/icon-sets/originals';
-    $outDir   = PUBLIC_ROOT . '/uploads/icon-sets/' . $iconSetId;
+    $origDir  = uploadsDir('icon-sets/originals');
+    $outDir   = uploadsDir('icon-sets') . '/' . $iconSetId;
     $ext      = icongen_mimeToExtension($mimeType);
     $origFile = $origDir . '/' . $iconSetId . '_' . time() . '.' . $ext;
 
@@ -246,7 +248,7 @@ function handleUpload(\PDO $db): void
     }
 
     // Update record with final path
-    $iconBasePath = '/uploads/icon-sets/' . $iconSetId . '/';
+    $iconBasePath = uploadsUrl('icon-sets') . '/' . $iconSetId . '/';
     $db->prepare('UPDATE icon_sets SET icon_base_path = ? WHERE id = ?')
        ->execute([$iconBasePath, $iconSetId]);
 
@@ -359,7 +361,7 @@ function handleAssign(\PDO $db): void
             exit;
         }
     } catch (\Throwable $e) {
-        echo json_encode(['error' => 'Database error: ' . $e->getMessage()]);
+        echo json_encode(['error' => 'Database error: ' . ApiResponse::message($e, 'api-icon-sets')]);
         exit;
     }
 
@@ -386,7 +388,7 @@ function handleUnassign(\PDO $db): void
                ->execute([$productId]);
         }
     } catch (\Throwable $e) {
-        echo json_encode(['error' => 'Database error: ' . $e->getMessage()]);
+        echo json_encode(['error' => 'Database error: ' . ApiResponse::message($e, 'api-icon-sets')]);
         exit;
     }
 

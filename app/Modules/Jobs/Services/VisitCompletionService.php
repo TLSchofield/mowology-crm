@@ -53,6 +53,20 @@ class VisitCompletionService
             $visit = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$visit) return;
 
+            // Set the timer-derived actual before computing the labor snapshot.
+            $db->prepare("
+                UPDATE job_visits
+                SET actual_duration_minutes = (
+                    SELECT COALESCE(SUM(duration_minutes), 0)
+                    FROM job_time_entries
+                    WHERE visit_id = ? AND status IN ('completed', 'edited')
+                )
+                WHERE id = ?
+            ")->execute([$visitId, $visitId]);
+            $actualStmt = $db->prepare("SELECT actual_duration_minutes FROM job_visits WHERE id = ?");
+            $actualStmt->execute([$visitId]);
+            $visit['actual_duration_minutes'] = $actualStmt->fetchColumn();
+
             // ── 2. Determine which user's rate to use ─────────────────────────
             // Prefer assigned crew; fall back to the completing user.
             $rateUserId = (int)($visit['assigned_crew_id'] ?? $completedByUserId);
@@ -65,14 +79,29 @@ class VisitCompletionService
             $hourlyRate = $rateRow ? (float)($rateRow['hourly_rate'] ?? 0) : 0.0;
 
             // ── 4. Compute labor cost ─────────────────────────────────────────
-            $actualMinutes = (int)($visit['actual_duration_minutes'] ?? 0);
-            // If actual not set yet, use estimated as fallback
-            if ($actualMinutes <= 0) {
-                $actualMinutes = (int)($visit['estimated_duration_minutes'] ?? 0);
+            // Real time first: the visit's own actual, then its timer entries (step 12 writes them to the visit
+            // only AFTER this step, so the first capture used to miss them). An estimate is a last resort and is
+            // ignored when absurd (2026-10-26: eight plans held 100+ hours, charging a $48 mow $9,859 of labor).
+            $timerMinutes = 0;
+            try {
+                $tm = $db->prepare("SELECT COALESCE(SUM(duration_minutes), 0) FROM job_time_entries WHERE visit_id = ? AND status IN ('completed', 'edited')");
+                $tm->execute([$visitId]);
+                $timerMinutes = (int)$tm->fetchColumn();
+            } catch (Throwable $te) {
+                // no timer table on this deployment: fall through to the other sources
             }
+            $labor = self::resolveLaborMinutes((int)($visit['actual_duration_minutes'] ?? 0), $timerMinutes, (int)($visit['estimated_duration_minutes'] ?? 0));
+            $actualMinutes = (int)($labor['minutes'] ?? 0);
             $laborCost = $hourlyRate > 0 && $actualMinutes > 0
                 ? round($hourlyRate * ($actualMinutes / 60), 2)
                 : null;
+
+            // A subcontracted visit costs what the subcontractor charges, not the rate of whoever accepted the work.
+            $subcontractCost = self::subcontractCost($db, $visitId);
+            if ($subcontractCost !== null) {
+                $hourlyRate = 0.0;
+                $laborCost = $subcontractCost > 0 ? $subcontractCost : null;
+            }
 
             // ── 5. Compute drive cost ─────────────────────────────────────────
             $driveMinutes = (int)($visit['drive_time_minutes'] ?? 0);
@@ -118,7 +147,8 @@ class VisitCompletionService
             // ── 9. Compute gross margin ───────────────────────────────────────
             $grossMargin = null;
             $marginPct   = null;
-            if ($quotedAmount !== null) {
+            // Unknown labor means unknown margin: subtracting nothing would report a made-up 100%.
+            if ($quotedAmount !== null && $laborCost !== null) {
                 $totalCost   = ($laborCost ?? 0) + ($materialCost ?? 0) + ($driveCost ?? 0);
                 $grossMargin = round($quotedAmount - $totalCost, 2);
                 $marginPct   = $quotedAmount > 0
@@ -170,18 +200,17 @@ class VisitCompletionService
                 ));
             }
 
-            // ── 12. Populate job_visits.actual_duration_minutes from timer entries ─
-            // Sum all completed/edited timer entries for this visit so the column
-            // reflects reality rather than staying NULL.
-            $db->prepare("
-                UPDATE job_visits
-                SET actual_duration_minutes = (
-                    SELECT COALESCE(SUM(duration_minutes), 0)
-                    FROM job_time_entries
-                    WHERE visit_id = ? AND status IN ('completed', 'edited')
-                )
-                WHERE id = ?
-            ")->execute([$visitId, $visitId]);
+            // ── 12. Fill job_visits.actual_duration_minutes from timer entries ─
+            // Only when the visit has no actual yet, and only with a real timer total. It used to overwrite a
+            // measured actual with the timer sum, or with 0 when there were no entries, so a retry of capture
+            // charged different labor than the first run (Codex review 2026-10-26).
+            if ($timerMinutes > 0) {
+                $db->prepare("
+                    UPDATE job_visits
+                    SET actual_duration_minutes = ?
+                    WHERE id = ? AND (actual_duration_minutes IS NULL OR actual_duration_minutes <= 0)
+                ")->execute([$timerMinutes, $visitId]);
+            }
 
             // ── 12b. Compute work-zone time attribution from GPS pings ────────────
             // Derives per-zone in_seconds from classified job_location_samples.
@@ -198,44 +227,48 @@ class VisitCompletionService
                 }
             }
 
-            // ── 13. Update plan's estimated_duration_minutes with rolling average ──
-            // Average per-visit actual timer totals across all completed visits that
-            // have real timer data. Rounds to nearest minute. This continuously
-            // improves scheduling accuracy as real visit times accumulate.
-            $rollAvgStmt = $db->prepare("
-                SELECT AVG(visit_total) AS avg_duration
-                FROM (
-                    SELECT SUM(jte.duration_minutes) AS visit_total
-                    FROM job_visits jv
-                    JOIN job_time_entries jte ON jte.visit_id = jv.id
-                    WHERE jv.plan_id = ?
-                      AND jv.status = 'completed'
-                      AND jte.status IN ('completed', 'edited')
-                    GROUP BY jv.id
-                    HAVING SUM(jte.duration_minutes) > 0
-                ) AS per_visit
-            ");
-            $rollAvgStmt->execute([$visit['plan_id']]);
-            $rollAvgRow = $rollAvgStmt->fetch(PDO::FETCH_ASSOC);
-            $newEstimate = ($rollAvgRow && $rollAvgRow['avg_duration'] !== null)
-                ? (int)round((float)$rollAvgRow['avg_duration'])
-                : 0;
-
-            if ($newEstimate > 0) {
-                $db->prepare("
-                    UPDATE job_plans SET estimated_duration_minutes = ? WHERE id = ?
-                ")->execute([$newEstimate, $visit['plan_id']]);
-                error_log(sprintf(
-                    '[VisitCompletion] Duration avg updated — plan #%d: %d min',
-                    $visit['plan_id'],
-                    $newEstimate
-                ));
-            }
+            // Plan lengths are set only by Otto's review, on the owner's tap (2026-11-05).
 
         } catch (Throwable $e) {
             // Never let this block visit completion — just log
             error_log('[VisitCompletionService] Error capturing snapshot for visit ' . $visitId . ': ' . $e->getMessage());
         }
+    }
+
+    /** A plan estimate longer than this is a data error, not a plan (8 hours for one visit). */
+    public const MAX_ESTIMATE_MINUTES = 480;
+    /**
+     * Measured time longer than this for one visit is a forgotten timer (40 hours). A crew's timers add up (five
+     * people for eight hours is 2,400 minutes), so the cap is far above one person's day.
+     */
+    public const MAX_ACTUAL_MINUTES = 2400;
+
+    /**
+     * Which minutes may be charged as labor for one visit.
+     *   1. the visit's own actual minutes, 2. the sum of its timer entries, 3. the plan's estimate;
+     * a source is skipped when it is empty or implausible, and when none is usable the labor is UNKNOWN (null),
+     * never a guess. Pure: no database.
+     * @return array{minutes:?int, source:string} source: actual | timer | estimate | none
+     */
+    public static function resolveLaborMinutes(int $actual, int $timer, int $estimate): array
+    {
+        if ($actual > 0 && $actual <= self::MAX_ACTUAL_MINUTES) { return ['minutes' => $actual, 'source' => 'actual']; }
+        if ($timer > 0 && $timer <= self::MAX_ACTUAL_MINUTES)   { return ['minutes' => $timer, 'source' => 'timer']; }
+        if ($estimate > 0 && $estimate <= self::MAX_ESTIMATE_MINUTES) { return ['minutes' => $estimate, 'source' => 'estimate']; }
+        return ['minutes' => null, 'source' => 'none'];
+    }
+
+    /** Measured time this long on a small job is a timer left running and closed at 12 hours (Tim, 2026-10-26). */
+    public const SUSPECT_TIMER_MINUTES = 600;
+    public const SUSPECT_TIMER_MAX_QUOTE = 200.0;
+
+    /**
+     * True when measured minutes are almost certainly a forgotten timer: 10+ hours on a job quoted under $200.
+     * Used by the margin repair to leave such labor UNKNOWN rather than show a false loss. Pure: no database.
+     */
+    public static function isSuspectTimer(int $measuredMinutes, ?float $quoted): bool
+    {
+        return $measuredMinutes >= self::SUSPECT_TIMER_MINUTES && $quoted !== null && $quoted < self::SUSPECT_TIMER_MAX_QUOTE;
     }
 
     /**
@@ -286,6 +319,23 @@ class VisitCompletionService
     /**
      * Resolve actual material cost for a visit from expenses.
      */
+    private static function subcontractCost(PDO $db, int $visitId): ?float
+    {
+        try {
+            $stmt = $db->prepare("
+                SELECT COALESCE(bill_amount, agreed_amount, 0)
+                FROM subcontract_jobs
+                WHERE visit_id = ? AND revoked_at IS NULL AND work_status = 'finished'
+                ORDER BY id DESC LIMIT 1
+            ");
+            $stmt->execute([$visitId]);
+            $cost = $stmt->fetchColumn();
+            return $cost === false ? null : (float)$cost;
+        } catch (Throwable $e) {
+            return null; // table not on this business yet
+        }
+    }
+
     private static function resolveMaterialCost(PDO $db, int $visitId): ?float
     {
         $stmt = $db->prepare("

@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Marketing Studio</title>
+<meta name="description" content="Mowology's guided workflow for writing, reviewing and shipping marketing copy with Claude.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230f2518'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-family='Georgia' font-size='18' fill='%23c9a84c'%3EM%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+<a class="skip" href="#canvas">Skip to the work</a>
+
+<header class="top">
+  <div class="top__brand">
+    <span class="top__mark" aria-hidden="true">M</span>
+    <span class="top__name">Mowology<span class="top__studio"> <span class="top__sep">·</span> Marketing Studio</span></span>
+  </div>
+  <div class="top__actions">
+    <button class="btn btn--ghost" id="btnPipeline" aria-controls="drawer" aria-expanded="false">Pipeline <span class="pill" id="pipelineCount">0</span></button>
+    <button class="btn btn--ghost" id="btnNew">New piece</button>
+  </div>
+</header>
+
+<div class="studio">
+  <aside class="rail" aria-label="Process">
+    <div class="rail__numeral" id="railNumeral" aria-hidden="true">1</div>
+    <ol class="rail__steps" id="railSteps"></ol>
+    <div class="rail__piece" id="railPiece"></div>
+  </aside>
+
+  <main class="canvas" id="canvas" tabindex="-1">
+    <div class="canvas__head">
+      <p class="eyebrow" id="stepEyebrow">Step 1 of 6</p>
+      <h1 class="canvas__title" id="stepTitle">Choose the piece</h1>
+      <p class="lede" id="stepLede"></p>
+    </div>
+    <div class="canvas__body" id="stepBody"></div>
+    <div class="canvas__nav">
+      <button class="btn btn--ghost" id="btnBack">Back</button>
+      <div class="canvas__nav-right">
+        <span class="saved" id="savedNote" aria-live="polite"></span>
+        <button class="btn btn--primary" id="btnNext">Continue</button>
+      </div>
+    </div>
+  </main>
+</div>
+
+<aside class="drawer" id="drawer" aria-label="Pipeline" hidden>
+  <div class="drawer__head">
+    <h2 class="drawer__title">Pipeline</h2>
+    <button class="btn btn--ghost" id="btnCloseDrawer" aria-label="Close pipeline">Close</button>
+  </div>
+  <div class="drawer__body" id="drawerBody"></div>
+</aside>
+<div class="scrim" id="scrim" hidden></div>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<script src="content.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

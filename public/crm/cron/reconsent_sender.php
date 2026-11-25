@@ -12,6 +12,7 @@
  */
 
 declare(strict_types=1);
+require_once __DIR__ . '/_guard.php'; // admin + POST + CSRF on the web; CLI untouched (Fable 2026-10-12)
 
 $__dir = __DIR__;
 for ($__i = 0; $__i < 5; $__i++) {
@@ -30,17 +31,29 @@ if (!$isCli) {
     requireLogin();
     requirePermission('admin');
     header('Content-Type: application/json; charset=utf-8');
+    // A GET (a link, an <img>) must never run the job — the Run-now button POSTs
+    // (Fable review 2026-10-12; same rule as estimating_feedback.php).
+    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+        http_response_code(405);
+        echo json_encode(['success' => false, 'error' => 'POST required']);
+        exit;
+    }
     session_write_close();
 }
 
 require_once CRM_INCLUDES . '/functions.php';
+require_once APP_ROOT . '/Services/Messaging/IdentityMail.php';
 require_once CRM_INCLUDES . '/messaging.php';
 
 $db = getDB();
-$limit = 10;
-$sent = 0;
-$failed = 0;
-$errors = [];
+$limit      = 10;
+$sent       = 0;
+$failed     = 0;
+$errors     = [];
+$startMs    = (int) round(microtime(true) * 1000);
+$fromWeb    = !$isCli;
+$cronStatus = 'success';
+$cronError  = null;
 
 // Fetch next batch of queued contacts
 $stmt = $db->prepare("
@@ -51,7 +64,7 @@ $stmt = $db->prepare("
       AND c.email IS NOT NULL AND c.email != ''
       AND c.is_active = 1
       AND jrq.attempts < 3
-    ORDER BY jrq.sort_priority ASC, jrq.created_at ASC
+    ORDER BY jrq.created_at ASC
     LIMIT $limit
 ");
 $stmt->execute();
@@ -93,53 +106,22 @@ foreach ($contacts as $row) {
         }
 
         // Build email
-        $baseUrl    = defined('SITE_URL') ? SITE_URL : 'https://mowology.ca';
-        $confirmUrl = $baseUrl . '/optin-confirm.php?token=' . urlencode($rawToken);
+        $baseUrl    = defined('SITE_URL') ? SITE_URL : _idSiteUrl();
+        $confirmUrl = $baseUrl . '/crm/api/optin-confirm.php?token=' . urlencode($rawToken);
         $firstName  = $row['first_name'] ?: 'Valued Customer';
 
-        // Determine if current client for email variant
-        $isCurrent = false;
-        try {
-            $curStmt = $db->prepare("
-                SELECT 1 FROM properties p
-                JOIN job_plans jp ON jp.property_id = p.id
-                JOIN job_visits jv ON jv.plan_id = jp.id
-                WHERE p.site_contact_id = ? AND jv.scheduled_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
-                LIMIT 1
-            ");
-            $curStmt->execute([$contactId]);
-            $isCurrent = (bool)$curStmt->fetchColumn();
-        } catch (Throwable $e) { /* not critical */ }
-
-        if ($isCurrent) {
-            $subject = 'Stay in the loop — Mowology Landscaping';
-            $body = '<h2>Hi ' . htmlspecialchars($firstName) . ',</h2>
-<p>As a valued Mowology client, we want to make sure you\'re getting the most out of our services.</p>
-<p>We occasionally send updates about seasonal care tips, scheduling reminders, and exclusive offers for existing clients.</p>
-<p>To keep receiving these updates, just confirm below:</p>
+        $subject = 'Please confirm your email preferences — ' . _idCompanyInfo()['company_name'];
+        $body = '<h2>Hi ' . htmlspecialchars($firstName) . ',</h2>
+<p>We\'ve recently upgraded our marketing system and want to make sure you still want to hear from us.</p>
+<p>We send occasional updates about seasonal services, special offers, and landscaping tips tailored to your property.</p>
 <p style="margin:24px 0;">
   <a href="' . htmlspecialchars($confirmUrl) . '"
      style="background:#2D8659;color:#fff;padding:14px 28px;text-decoration:none;border-radius:6px;font-size:16px;font-weight:600;display:inline-block;">
-    Yes, keep me subscribed
+    ✓ Yes, keep me subscribed
   </a>
 </p>
-<p style="color:#666;font-size:13px;">If you prefer not to receive these updates, simply ignore this email. Your service schedule is not affected either way.</p>
+<p style="color:#666;font-size:13px;">If you do not wish to receive marketing emails, simply ignore this message. You can always unsubscribe at any time.</p>
 <p style="color:#666;font-size:13px;">This link expires in 30 days.</p>';
-        } else {
-            $subject = 'We\'d love to hear from you — Mowology Landscaping';
-            $body = '<h2>Hi ' . htmlspecialchars($firstName) . ',</h2>
-<p>It\'s been a while since we last worked together, and we wanted to reach out.</p>
-<p>Spring is here and our crews are gearing up for the season. Whether you need lawn care, garden maintenance, hedge trimming, or a fresh landscape design, we\'d love to help again.</p>
-<p>If you\'d like to stay on our list for seasonal offers and updates, just confirm below:</p>
-<p style="margin:24px 0;">
-  <a href="' . htmlspecialchars($confirmUrl) . '"
-     style="background:#2D8659;color:#fff;padding:14px 28px;text-decoration:none;border-radius:6px;font-size:16px;font-weight:600;display:inline-block;">
-    Yes, keep me subscribed
-  </a>
-</p>
-<p style="color:#666;font-size:13px;">If you\'re no longer interested, simply ignore this email and you won\'t hear from us again.</p>
-<p style="color:#666;font-size:13px;">This link expires in 30 days.</p>';
-        }
 
         $displayName = trim($row['first_name'] . ' ' . ($row['last_name'] ?? ''));
         $emailSent = sendCrmEmail($row['email'], $subject, $body, $displayName);
@@ -168,6 +150,16 @@ foreach ($contacts as $row) {
 
 $summary = "Reconsent sender: sent=$sent, failed=$failed, total=" . count($contacts);
 error_log($summary);
+
+$durationMs = (int) round(microtime(true) * 1000) - $startMs;
+recordCronRun(
+    'reconsent_sender',
+    $cronStatus,
+    "Sent: {$sent}, Failed: {$failed}, Total: " . count($contacts),
+    $durationMs,
+    $cronError,
+    $fromWeb
+);
 
 if ($isCli) {
     echo $summary . "\n";

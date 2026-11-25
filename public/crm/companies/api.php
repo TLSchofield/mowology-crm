@@ -12,6 +12,10 @@ requirePermission('clients.view');
 
 header('Content-Type: application/json');
 
+// Every action here changes a company (archive/restore/delete/link) — office only.
+// Managers hold clients.edit; crew hold clients.view only (Fable review 2026-10-12).
+requirePermission('clients.edit');
+
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
     echo json_encode(['success' => false, 'error' => 'Method not allowed']);
@@ -68,27 +72,15 @@ try {
             break;
 
         case 'delete':
-            // Check for related records that would block deletion
-            $quoteCount = $db->prepare("SELECT COUNT(*) FROM quotes WHERE company_id = ?");
-            $quoteCount->execute([$companyId]);
-            $qc = (int)$quoteCount->fetchColumn();
-
-            $jobCount = $db->prepare("SELECT COUNT(*) FROM job_plans WHERE company_id = ?");
-            $jobCount->execute([$companyId]);
-            $jc = (int)$jobCount->fetchColumn();
-
-            $invoiceCount = $db->prepare("SELECT COUNT(*) FROM invoices WHERE company_id = ?");
-            $invoiceCount->execute([$companyId]);
-            $ic = (int)$invoiceCount->fetchColumn();
-
-            if ($qc > 0 || $jc > 0 || $ic > 0) {
-                $refs = [];
-                if ($qc) $refs[] = "{$qc} quote(s)";
-                if ($jc) $refs[] = "{$jc} job plan(s)";
-                if ($ic) $refs[] = "{$ic} invoice(s)";
+            // A company with any quote, job plan or invoice is archived, never deleted
+            // (invoices.company_id cascades on delete).
+            require_once APP_ROOT . '/Modules/Contacts/Services/CompanyDeleteGuard.php';
+            $guard    = new CompanyDeleteGuard($db);
+            $blockers = $guard->blockers([$companyId]);
+            if ($blockers) {
                 echo json_encode([
                     'success' => false,
-                    'error' => "Cannot delete: company has " . implode(', ', $refs) . ". Archive it instead."
+                    'error' => 'Cannot delete: company has ' . $guard->describe($blockers) . '. Archive it instead.'
                 ]);
                 break;
             }

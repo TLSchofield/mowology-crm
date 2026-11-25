@@ -27,6 +27,14 @@ if (!$debug_enabled) {
     return;
 }
 
+// The ?debug=1 / debug_panel cookie toggle has no gate of its own — any
+// authenticated user of any role could self-enable this and see query counts,
+// memory usage, and session internals. Restrict to admin/manager.
+$debug_user_role = isset($user) ? ($user['role'] ?? '') : '';
+if (!in_array($debug_user_role, ['admin', 'manager'], true)) {
+    return;
+}
+
 // Collect debug data
 $debug_data = [
     'page' => $_SERVER['PHP_SELF'] ?? 'unknown',

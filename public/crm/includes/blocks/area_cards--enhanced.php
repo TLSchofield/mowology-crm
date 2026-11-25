@@ -1,4 +1,5 @@
 <?php
+require_once APP_ROOT . '/Core/Csp.php'; // nonce for this block's inline script (Fable #22)
 /**
  * Enhanced Area Cards Block Renderer — Animated region grid
  *
@@ -72,7 +73,7 @@ if (empty($areas)) {
 .mw-area-card__cta:hover { letter-spacing:0.03em; }
 </style>
 
-<script>
+<script<?= MwCsp::attr() ?>>
 (function() {
   var section = document.getElementById('<?= h($uid) ?>');
   if (!section) return;

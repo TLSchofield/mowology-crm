@@ -1,0 +1,7 @@
+# Cron web-shims. Each shim is admin-gated in PHP via _guard.php (or its own
+# isAdmin/role check). This file is defense-in-depth: it blocks direct web
+# access to include-only partials (anything starting with "_", e.g. _guard.php)
+# which are require()d by the shims and never meant to be served on their own.
+<FilesMatch "^_">
+    Deny from all
+</FilesMatch>

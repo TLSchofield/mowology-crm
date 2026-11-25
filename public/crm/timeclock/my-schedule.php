@@ -64,8 +64,12 @@ $trackingEnabled  = (bool)($trackRow['tracking_on'] ?? false);
 $needsNativeApp = $trackingEnabled
                && !in_array($user['role'], ['admin']);
 
-// All jobs for today (any crew) — used for GPS proximity so ANY crew near a property can clock in
-$allJobsToday = $isToday ? getAllJobsForDate($viewDate) : [];
+// All jobs for today (any crew) — used for GPS proximity so ANY crew near a property can clock in.
+// Only when the company lets crew see other crews' jobs (CrewViewScope, 2026-10-14): otherwise their
+// addresses and GPS are not sent to this phone at all (Codex review).
+require_once APP_ROOT . '/Modules/Schedule/Services/CrewViewScope.php';
+$seesOthers   = CrewViewScope::seesOtherCrews((string)($user['role'] ?? ''), CrewViewScope::setting($db));
+$allJobsToday = ($isToday && $seesOthers) ? getAllJobsForDate($viewDate) : [];
 // Filter out jobs already in the user's assigned list and completed ones
 $proximityJobs = [];
 $assignedJobIds = array_column($jobs, 'id');
@@ -77,7 +81,14 @@ foreach ($allJobsToday as $aj) {
 
 $pageTitle = 'My Schedule';
 $activePage = 'timeclock';
+// The Android crew app's start URL is this page (capacitor.config.ts). The crew's real
+// home is the pre-shift flow (app-launch.php → homebase.php → schedule), which already
+// skips straight to the schedule when they are clocked in. Send native WebViews there
+// before anything renders; browsers (office, desktop) keep this page. Mirrors the
+// inverse check at the top of app-launch.php. APK 1.3.4 moves the start URL itself.
+$extraHead = '<script>(function(){var n=!!(window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform());if(n){document.cookie="mw_native=1; path=/; max-age=31536000; SameSite=Lax; Secure";window.location.replace("/crm/app-launch.php");}})();</script>';
 ?>
+<?php $crewPage = true; // crew screen — slim vendor set inside the app (appstack_head.php) ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
 <!-- ═══ Mobile/Tablet: In-Page Clock Section (no JS dependency) ═══ -->
@@ -149,6 +160,12 @@ $activePage = 'timeclock';
         <?php endif; ?>
     </div>
 </div>
+
+<?php
+// Salt & snow route stops are listed only while a run is on (SnowRunGate): the strip with Start / End run.
+$snowRunBanner = ['date' => $viewDate];
+include dirname(__DIR__) . '/includes/snow-run-banner.php';
+?>
 
 <!-- Day Stats -->
 <div class="mw-schedule-stats mb-4">
@@ -473,16 +490,30 @@ $activePage = 'timeclock';
 
     // ── API Calls ──
 
+    // job-timer.php POSTs carry the CSRF token; a stale one (cached page) is refreshed from
+    // get-csrf.php and the call retried once. Resolves to the fetch Response (2026-10-12).
+    function jobTimerFetch(body, retried) {
+        return fetch('/crm/api/job-timer.php', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
+            body: JSON.stringify(body)
+        }).then(function(r) {
+            if (r.status !== 403 || retried) return r;
+            return r.clone().json().then(function(d) {
+                if (!d || d.code !== 'CSRF_INVALID') return r;
+                return fetch('/crm/api/get-csrf.php', { credentials: 'same-origin', cache: 'no-store' })
+                    .then(function(t) { return t.json(); })
+                    .then(function(t) { if (t && t.token) window.MW_CSRF_TOKEN = t.token; return jobTimerFetch(body, true); });
+            }, function() { return r; });
+        });
+    }
+
     window.startJob = function(jobId, autoStarted) {
         var body = { action: 'start', visit_id: jobId, auto_started: !!autoStarted };
         if (currentLat !== null) { body.lat = currentLat; body.lng = currentLng; }
 
-        fetch('/crm/api/job-timer.php', {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body)
-        })
+        jobTimerFetch(body)
         .then(function(r) { return r.json(); })
         .then(function(data) {
             if (data.success) {
@@ -502,12 +533,7 @@ $activePage = 'timeclock';
         var body = { action: 'stop', visit_id: jobId, complete_visit: true };
         if (currentLat !== null) { body.lat = currentLat; body.lng = currentLng; }
 
-        fetch('/crm/api/job-timer.php', {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body)
-        })
+        jobTimerFetch(body)
         .then(function(r) { return r.json(); })
         .then(function(data) {
             if (data.success) {
@@ -525,12 +551,7 @@ $activePage = 'timeclock';
         var body = { action: 'pause', visit_id: jobId };
         if (currentLat !== null) { body.lat = currentLat; body.lng = currentLng; }
 
-        fetch('/crm/api/job-timer.php', {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body)
-        })
+        jobTimerFetch(body)
         .then(function(r) { return r.json(); })
         .then(function(data) {
             if (data.success) {
@@ -594,6 +615,133 @@ function mwInjectFlatlineCSS() {
         }
     }
 
+    // Mobile clock-in/out buttons — request logic (CSRF refresh-and-retry,
+    // GPS lookup) lives once in time-clock-widget.js's window.MwTimeClock
+    // API and is reused here instead of being duplicated.
+    function mwClockPost(action, lat, lng, callback) {
+        if (window.MwTimeClock && window.MwTimeClock.post) {
+            window.MwTimeClock.post(action, lat, lng, callback);
+            return;
+        }
+        // Fallback if the topbar widget script hasn't loaded for some reason.
+        fetch('/crm/api/time-clock.php', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
+            body: JSON.stringify({ action: action, lat: lat, lng: lng })
+        })
+        .then(function(r) { return r.json().then(function(data) { return { status: r.status, data: data }; }); })
+        .then(function(res) { callback(res.status, res.data); })
+        .catch(function() { callback(0, null); });
+    }
+
+    // callback(lat, lng, err) — err is null on success; otherwise an Error whose
+    // .code (from capacitor-bridge.js) is LOCATION_OFF, PERMISSION or NO_FIX.
+    function mwGetGPS(callback) {
+        // Native bridge first: its own chain is bounded (10 s fresh + 8 s cached) and
+        // reports WHY it failed. The topbar widget's getGPS wraps the same call in a
+        // hard timer and drops the error code, so it is only the non-native fallback.
+        if (window.MwNative && window.MwNative.geo) {
+            var settled = false;
+            var guard = setTimeout(function() {
+                if (!settled) { settled = true; callback(null, null, mwGpsError('NO_FIX')); }
+            }, 22000);
+            window.MwNative.geo.getCurrentPosition()
+                .then(function(pos) {
+                    if (settled) return; settled = true; clearTimeout(guard);
+                    callback(pos.lat, pos.lng, null);
+                })
+                .catch(function(err) {
+                    if (settled) return; settled = true; clearTimeout(guard);
+                    callback(null, null, err && err.code ? err : mwGpsError('NO_FIX'));
+                });
+        } else if (window.MwTimeClock && window.MwTimeClock.getGPS) {
+            window.MwTimeClock.getGPS(function(lat, lng) {
+                callback(lat, lng, (lat === null || lng === null) ? mwGpsError('NO_FIX') : null);
+            });
+        } else if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                function(pos) { callback(pos.coords.latitude, pos.coords.longitude, null); },
+                function(e) { callback(null, null, mwGpsError(e && e.code === 1 ? 'PERMISSION' : 'NO_FIX')); },
+                { timeout: 10000, maximumAge: 300000 }
+            );
+        } else {
+            callback(null, null, mwGpsError('NO_FIX'));
+        }
+    }
+
+    function mwGpsError(code) {
+        var e = new Error(code);
+        e.code = code;
+        return e;
+    }
+
+    // Replaces alert(): says what actually failed and offers the fix that matches.
+    // No confirm()/alert() — the Android WebView swallows them (see clock-out note below).
+    function mwShowLocationNotice(err, retryFn) {
+        var section = document.getElementById('mobileClockSection');
+        if (!section) return;
+        mwHideLocationNotice();
+        var code = (err && err.code) || 'NO_FIX';
+        var text, fixLabel, fixFn;
+        if (code === 'LOCATION_OFF') {
+            text = 'Location is switched off on this device. Settings \u2192 Location \u2192 turn it on, then try again.';
+            fixLabel = 'Open settings';
+            fixFn = function() {
+                if (window.MwNative && window.MwNative.geo && window.MwNative.geo.openLocationSettings) {
+                    window.MwNative.geo.openLocationSettings().catch(function() {});
+                } else if (window.MwNative && window.MwNative.openAppSettings) {
+                    window.MwNative.openAppSettings();
+                }
+            };
+        } else if (code === 'PERMISSION') {
+            text = 'The app is not allowed to use location. Allow it in the app\'s settings, then try again.';
+            fixLabel = 'Open app settings';
+            fixFn = function() {
+                if (window.MwNative && window.MwNative.openAppSettings) window.MwNative.openAppSettings();
+            };
+        } else {
+            text = 'Couldn\'t get a GPS fix. Move into the open, away from the dash, and try again.';
+            fixLabel = null;
+            fixFn = null;
+        }
+        var box = document.createElement('div');
+        box.id = 'mwLocationNotice';
+        box.className = 'alert alert-warning mt-2 mb-0';
+        box.setAttribute('role', 'alert');
+        var p = document.createElement('div');
+        p.textContent = text;
+        box.appendChild(p);
+        var row = document.createElement('div');
+        row.className = 'mt-2';
+        var retry = document.createElement('button');
+        retry.type = 'button';
+        retry.className = 'btn btn-sm btn-success mr-2';
+        retry.textContent = 'Try again';
+        retry.addEventListener('click', function() { mwHideLocationNotice(); retryFn(); });
+        row.appendChild(retry);
+        if (fixLabel && fixFn && window.MwNative) {
+            var fix = document.createElement('button');
+            fix.type = 'button';
+            fix.className = 'btn btn-sm btn-outline-secondary';
+            fix.textContent = fixLabel;
+            fix.addEventListener('click', fixFn);
+            row.appendChild(fix);
+        }
+        box.appendChild(row);
+        section.appendChild(box);
+    }
+
+    function mwHideLocationNotice() {
+        var old = document.getElementById('mwLocationNotice');
+        if (old && old.parentNode) old.parentNode.removeChild(old);
+    }
+
+    // The server refuses a clock action without coordinates when GPS is required.
+    function mwIsLocationRefusal(data) {
+        return !!(data && data.error && /GPS fix|location/i.test(data.error));
+    }
+
     // Mobile clock-in button
     var btnIn = document.getElementById('mobileClockIn');
     if (btnIn) {
@@ -601,17 +749,15 @@ function mwInjectFlatlineCSS() {
             btnIn.disabled = true;
             btnIn.textContent = 'Clocking in...';
 
-            // Get GPS first, then clock in
-            var lat = null, lng = null;
-            function doClockIn() {
-                fetch('/crm/api/time-clock.php', {
-                    method: 'POST',
-                    credentials: 'same-origin',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'clock_in', lat: lat, lng: lng })
-                })
-                .then(function(r) { return r.json(); })
-                .then(function(data) {
+            var resetIn = function() { btnIn.disabled = false; btnIn.textContent = 'Clock In'; };
+            var retryIn = function() { btnIn.click(); };
+            mwGetGPS(function(lat, lng, gpsErr) {
+                mwClockPost('clock_in', lat, lng, function(status, data) {
+                    if (data === null) {
+                        alert('Network error — please try again');
+                        resetIn();
+                        return;
+                    }
                     if (data.success) {
                         // Flatline animation — clock section + day stats card vanish before reload
                         mwInjectFlatlineCSS();
@@ -622,81 +768,61 @@ function mwInjectFlatlineCSS() {
 
                         targets.forEach(function(el) { el.classList.add('mw-flatline-out'); });
                         setTimeout(function() { location.reload(); }, 3200);
+                    } else if (gpsErr && mwIsLocationRefusal(data)) {
+                        mwShowLocationNotice(gpsErr, retryIn);
+                        resetIn();
                     } else {
                         alert(data.error || 'Clock in failed');
-                        btnIn.disabled = false;
-                        btnIn.textContent = 'Clock In';
+                        resetIn();
                     }
-                })
-                .catch(function() {
-                    alert('Network error — please try again');
-                    btnIn.disabled = false;
-                    btnIn.textContent = 'Clock In';
                 });
-            }
-
-            if (window.MwNative && window.MwNative.geo) {
-                window.MwNative.geo.getCurrentPosition()
-                    .then(function(pos) { lat = pos.lat; lng = pos.lng; doClockIn(); })
-                    .catch(function() { doClockIn(); });
-            } else if (navigator.geolocation) {
-                navigator.geolocation.getCurrentPosition(
-                    function(pos) { lat = pos.coords.latitude; lng = pos.coords.longitude; doClockIn(); },
-                    function() { doClockIn(); },
-                    { timeout: 5000, maximumAge: 60000 }
-                );
-            } else {
-                doClockIn();
-            }
+            });
         });
     }
 
     // Mobile clock-out button
+    // Do NOT use confirm() — Android WebView silently returns false, blocking
+    // all clock-outs from this button. Use a tap-twice inline confirmation instead.
     var btnOut = document.getElementById('mobileClockOut');
     if (btnOut) {
         btnOut.addEventListener('click', function() {
-            if (!confirm('Clock out now?')) return;
+            if (btnOut.dataset.confirming === '1') {
+                btnOut.dataset.confirming = '0';
+            } else {
+                btnOut.dataset.confirming = '1';
+                btnOut.textContent = 'Confirm?';
+                setTimeout(function() {
+                    if (btnOut.dataset.confirming === '1') {
+                        btnOut.dataset.confirming = '0';
+                        btnOut.textContent = 'Clock Out';
+                    }
+                }, 3000);
+                return;
+            }
+
             btnOut.disabled = true;
             btnOut.textContent = 'Clocking out...';
 
-            var lat = null, lng = null;
-            function doClockOut() {
-                fetch('/crm/api/time-clock.php', {
-                    method: 'POST',
-                    credentials: 'same-origin',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'clock_out', lat: lat, lng: lng })
-                })
-                .then(function(r) { return r.json(); })
-                .then(function(data) {
+            var resetOut = function() { btnOut.disabled = false; btnOut.textContent = 'Clock Out'; };
+            var retryOut = function() { btnOut.dataset.confirming = '1'; btnOut.click(); };
+            mwGetGPS(function(lat, lng, gpsErr) {
+                mwClockPost('clock_out', lat, lng, function(status, data) {
+                    if (data === null) {
+                        alert('Network error — please try again');
+                        resetOut();
+                        return;
+                    }
                     if (data.success) {
                         location.reload();
+                    } else if (gpsErr && mwIsLocationRefusal(data)) {
+                        mwShowLocationNotice(gpsErr, retryOut);
+                        resetOut();
                     } else {
                         alert(data.error || 'Clock out failed');
-                        btnOut.disabled = false;
-                        btnOut.textContent = 'Clock Out';
+                        resetOut();
                     }
-                })
-                .catch(function() {
-                    alert('Network error — please try again');
-                    btnOut.disabled = false;
-                    btnOut.textContent = 'Clock Out';
                 });
-            }
-
-            if (window.MwNative && window.MwNative.geo) {
-                window.MwNative.geo.getCurrentPosition()
-                    .then(function(pos) { lat = pos.lat; lng = pos.lng; doClockOut(); })
-                    .catch(function() { doClockOut(); });
-            } else if (navigator.geolocation) {
-                navigator.geolocation.getCurrentPosition(
-                    function(pos) { lat = pos.coords.latitude; lng = pos.coords.longitude; doClockOut(); },
-                    function() { doClockOut(); },
-                    { timeout: 5000, maximumAge: 60000 }
-                );
-            } else {
-                doClockOut();
-            }
+            });
         });
     }
 })();
@@ -709,7 +835,11 @@ function mwInjectFlatlineCSS() {
     'use strict';
 
     // In native Capacitor, the background GPS plugin in time-clock-widget.js
-    // handles tracking natively — no need for this browser-based backup.
+    // handles tracking natively. NOTE: capacitor-bridge.js (which sets
+    // window.MwNative) loads in the footer — AFTER this inline script — so this
+    // one-shot check usually can't see it yet. We therefore keep this browser
+    // watcher as a fallback but make sendGPS() defer at send-time (when MwNative
+    // is available) so it never competes with / double-counts native pings.
     if (window.MwNative && window.MwNative.geo) return;
 
     var SEND_INTERVAL = 30000; // 30 seconds
@@ -718,6 +848,9 @@ function mwInjectFlatlineCSS() {
     var latestPos = null;
 
     function sendGPS() {
+        // If the native background plugin is actively tracking, let it own the
+        // pings — don't fire the foreground browser ping on top of it.
+        if (window.MwNative && window.MwNative.geo && window.MwNative.geo.watchId) return;
         if (!latestPos) return;
         fetch('/crm/api/crew-location.php', {
             method: 'POST',
@@ -794,23 +927,101 @@ function mwInjectFlatlineCSS() {
     <div class="mw-native-gate-card">
         <div class="mw-native-gate-logo">Mowology</div>
         <h2 class="mw-native-gate-heading">Use the Crew App</h2>
-        <p class="mw-native-gate-body">For reliable GPS tracking and schedule updates, you need to open Mowology in the Android app — not your browser.</p>
-        <a href="/crm/downloads/mowology-crew.apk" class="mw-native-gate-btn" download>
+        <p class="mw-native-gate-body">For reliable GPS tracking and schedule updates, open Mowology in the Android app — not your browser.</p>
+
+        <!-- Primary action: launch the installed app via Android intent.
+             Falls back to the APK download if the app isn't installed.
+             Package name = Capacitor appId (ca.mowology.crm). -->
+        <a id="mw-native-gate-open" href="intent://mowology.ca/crm/timeclock/my-schedule.php#Intent;scheme=https;package=ca.mowology.crm;S.browser_fallback_url=https%3A%2F%2Fmowology.ca%2Fcrm%2Fdownloads%2Fmowology-crew.apk;end" class="mw-native-gate-btn">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:8px;vertical-align:middle"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            Already installed? Open the App
+        </a>
+
+        <div class="mw-native-gate-divider"><span>Don't have it yet?</span></div>
+
+        <a id="mw-native-gate-download" href="/crm/downloads/mowology-crew.apk" class="mw-native-gate-btn mw-native-gate-btn-secondary" download>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:8px;vertical-align:middle"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             Download Mowology Crew App
         </a>
-        <p class="mw-native-gate-sub">Already installed? Open it from your home screen and log back in.</p>
+        <div id="mw-native-gate-downloading" class="mw-native-gate-downloading">
+            APK downloading — open your <strong>Downloads</strong> app to install it.
+            <a id="mw-native-gate-open-downloads" href="intent://downloads#Intent;scheme=file;package=com.android.documentsui;end" class="mw-native-gate-btn mw-native-gate-btn-secondary">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:8px;vertical-align:middle"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                Open Downloads folder
+            </a>
+        </div>
     </div>
 </div>
 <script>
 (function() {
     'use strict';
-    if (window.MwNative) return;          // running inside Capacitor — no gate
     var gate = document.getElementById('mw-native-gate');
     if (!gate) return;
-    gate.style.display = 'flex';
-    // Prevent scrolling behind the overlay
-    document.body.style.overflow = 'hidden';
+
+    // Decide whether we are running INSIDE the Capacitor app. The interstitial
+    // must NEVER appear inside the app's own WebView — only in a real mobile
+    // browser (Chrome, Samsung Internet, Firefox, etc.). Any signal counts.
+    //
+    // The old check relied solely on window.MwNative, which is set by
+    // capacitor-bridge.js — but that script loads in the footer, AFTER this
+    // inline block runs, so MwNative was always undefined here and the gate
+    // showed even inside the app. We now check window.Capacitor directly (the
+    // native bridge is injected early by the OS layer) and add a UA fallback.
+    function isInApp() {
+        try {
+            if (window.Capacitor) {
+                if (typeof window.Capacitor.isNativePlatform === 'function' &&
+                    window.Capacitor.isNativePlatform()) return true;
+                if (window.Capacitor.isNative) return true;
+            }
+        } catch (e) {}
+        if (window.MwNative) return true;
+        // Any Android WebView UA contains "wv"; real browsers do not. Also match
+        // a custom token in case the native build appends one to the UA.
+        var ua = navigator.userAgent || '';
+        if (/;\s*wv\b/i.test(ua) || /\bwv\)/i.test(ua) || /CapApp|MowologyCrew/i.test(ua)) return true;
+        return false;
+    }
+
+    function hideGate() {
+        gate.style.display = 'none';
+        document.body.style.overflow = '';
+    }
+
+    function showGate() {
+        if (gate.style.display === 'flex') return; // already shown
+        gate.style.display = 'flex';
+        document.body.style.overflow = 'hidden';
+
+        // Post-download guidance: after Download is tapped the APK lands in the
+        // Downloads folder with no system prompt, so tell them what to do next.
+        var dl = document.getElementById('mw-native-gate-download');
+        var note = document.getElementById('mw-native-gate-downloading');
+        if (dl && note && !dl._mwBound) {
+            dl._mwBound = true;
+            dl.addEventListener('click', function() {
+                setTimeout(function() { note.classList.add('is-visible'); }, 400);
+            });
+        }
+    }
+
+    // Detected as in-app immediately → never show.
+    if (isInApp()) { hideGate(); return; }
+
+    // Not detected yet. The native bridge can inject a beat after this inline
+    // script runs, so don't show immediately — poll briefly. If the bridge
+    // appears we stay hidden; if the grace window passes with no bridge, we're
+    // in a real browser → show the gate. Keep listening afterwards so a late
+    // bridge still dismisses it.
+    var tries = 0;
+    var poll = setInterval(function() {
+        tries++;
+        if (isInApp()) { clearInterval(poll); hideGate(); return; }
+        if (tries >= 12) { clearInterval(poll); showGate(); } // ~1.2s grace
+    }, 100);
+
+    document.addEventListener('deviceready', function() { if (isInApp()) hideGate(); }, { once: true });
+    window.addEventListener('load', function() { if (isInApp()) hideGate(); });
 })();
 </script>
 <?php endif; ?>

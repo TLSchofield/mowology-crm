@@ -6,6 +6,8 @@ declare(strict_types=1);
  *
  * BlueMoon Web — JWT Token Endpoint
  * Issues a signed JWT for authenticated Mowology users.
+ * Two-step sign-in (2026-11-06) covers WEB sign-in only for now: this phone sign-in is unchanged, because the
+ * installed apps cannot show a code field. A later phase adds it here with an app update.
  *
  * POST /api/auth/token
  * Body (JSON): { "email": "...", "password": "..." }
@@ -57,7 +59,9 @@ if ($requestOrigin === '') {
 } elseif (in_array($requestOrigin, $allowedOrigins, true)) {
     $corsOrigin = $requestOrigin;
 } else {
-    $corsOrigin = $allowedOrigins[0]; // fallback to first allowed origin for dev
+    // Unknown origin: no CORS header at all (Fable audit 2026-10-12). It used to echo
+    // http://localhost:5173 — harmless to browsers elsewhere, but a needless grant.
+    $corsOrigin = null;
 }
 
 if ($corsOrigin !== null) {
@@ -86,128 +90,65 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 $raw = file_get_contents('php://input');
 $body = json_decode($raw ?: '{}', true);
 
-$email    = isset($body['email'])    ? strtolower(trim((string)$body['email']))    : '';
-$password = isset($body['password']) ? (string)$body['password']                  : '';
-$audience = isset($body['audience']) ? strtolower(trim((string)$body['audience'])) : 'web';
+$credential = isset($body['email'])    ? strtolower(trim((string)$body['email']))    : '';
+$password   = isset($body['password']) ? (string)$body['password']                  : '';
+$audience   = isset($body['audience']) ? strtolower(trim((string)$body['audience'])) : 'web';
 // Valid audiences: 'web' (BlueMoon), 'mobile' (iOS/Android)
 $audience = in_array($audience, ['web', 'mobile'], true) ? $audience : 'web';
 
-if ($email === '' || $password === '') {
+if ($credential === '' || $password === '') {
     http_response_code(400);
-    echo json_encode(['error' => 'Email and password are required']);
+    echo json_encode(['error' => 'Email (or username) and password are required']);
     exit;
 }
 
-// ── Rate limiting ──────────────────────────────────────────────────────────
+// ── Sign in ────────────────────────────────────────────────────────────────
+// The credential check and the token live in PhoneSignIn (2026-11-11), shared with the ittai.ca sign-in
+// directory. Same checks, same order, same answers as before; the token now also names its business (biz).
 require_once APP_ROOT . '/Core/Auth/auth.php';
+require_once APP_ROOT . '/Core/Auth/PhoneSignIn.php';
 
 $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
 
-if (isLoginRateLimited($email, $ip)) {
+try {
+    $db = getDB();
+} catch (Throwable $e) {
+    // As before: with no database the throttle could not be read, and it fails closed.
+    error_log('isLoginRateLimited() error — refusing login: ' . $e->getMessage());
     http_response_code(429);
     echo json_encode(['error' => 'Too many login attempts. Try again in 10 minutes.']);
     exit;
 }
 
-// ── Credential validation ──────────────────────────────────────────────────
-try {
-    $db = getDB();
+$result = PhoneSignIn::attempt($db, Tenant::key(), $credential, $password, $audience, $ip);
 
-    $stmt = $db->prepare("
-        SELECT id, email, password_hash, full_name, role, is_active
-        FROM users
-        WHERE LOWER(email) = ?
-        LIMIT 1
-    ");
-    $stmt->execute([$email]);
-    $user = $stmt->fetch(PDO::FETCH_ASSOC);
-
-    // Check active — treat NULL/missing is_active as active (matches web login behaviour)
-    if ($user && isset($user['is_active']) && (int)$user['is_active'] === 0) {
-        $user = false; // explicitly deactivated
-    }
-
-} catch (Throwable $e) {
-    error_log('[BlueMoon/token] DB error: ' . $e->getMessage());
-    http_response_code(500);
-    echo json_encode(['error' => 'Server error. Please try again.']);
-    exit;
-}
-
-if (!$user || !isset($user['password_hash']) || !password_verify($password, (string)$user['password_hash'])) {
-    recordFailedLogin($email, $ip);
-    http_response_code(401);
-    echo json_encode(['error' => 'Invalid credentials']);
-    exit;
-}
-
-// ── Success — clear rate limit, log activity ───────────────────────────────
-clearLoginAttempts($email, $ip);
-
-try {
-    $db->prepare("UPDATE users SET last_login = NOW() WHERE id = ? LIMIT 1")
-       ->execute([(int)$user['id']]);
-
-    $loginAction = $audience === 'mobile' ? 'iOS app login' : 'BlueMoon web login';
-    $db->prepare("
-        INSERT INTO activity_log (user_id, client_id, action, details, ip_address)
-        VALUES (?, NULL, ?, ?, ?)
-    ")->execute([(int)$user['id'], $loginAction, 'JWT issued', $ip]);
-
-} catch (Throwable $e) {
-    // Non-fatal — log but continue
-    error_log('[BlueMoon/token] Post-auth logging error: ' . $e->getMessage());
-}
-
-// ── Build JWT (hand-rolled, no dependency) ─────────────────────────────────
-$secret = defined('BLUEMOON_JWT_SECRET') ? BLUEMOON_JWT_SECRET : JWT_SECRET_FALLBACK();
-
-$header  = base64url_encode(json_encode(['alg' => 'HS256', 'typ' => 'JWT']));
-$now     = time();
-$aud = $audience === 'mobile' ? 'ios' : 'bluemoon';
-$payload = base64url_encode(json_encode([
-    'iss'   => 'mowology',
-    'aud'   => $aud,
-    'sub'   => (string)$user['id'],
-    'email' => (string)$user['email'],
-    'name'  => (string)($user['full_name'] ?? ''),
-    'role'  => (string)($user['role'] ?? 'user'),
-    'iat'   => $now,
-    'exp'   => $now + (8 * 3600),   // 8-hour expiry
-]));
-
-$signature = base64url_encode(
-    hash_hmac('sha256', $header . '.' . $payload, $secret, true)
-);
-
-$token = $header . '.' . $payload . '.' . $signature;
-
-// ── Respond ────────────────────────────────────────────────────────────────
-http_response_code(200);
-echo json_encode([
-    'token' => $token,
-    'user'  => [
-        'id'    => (int)$user['id'],
-        'email' => (string)$user['email'],
-        'name'  => (string)($user['full_name'] ?? ''),
-        'role'  => (string)($user['role'] ?? 'user'),
-    ],
-    'expires_in' => 8 * 3600,
-]);
-
-// ── Helpers ────────────────────────────────────────────────────────────────
-
-function base64url_encode(string $data): string {
-    return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
-}
-
-/**
- * Fallback secret derivation if BLUEMOON_JWT_SECRET not set in secrets.php.
- * Uses a deterministic site-specific value — NOT cryptographically ideal.
- * Add BLUEMOON_JWT_SECRET to secrets.php for production.
- */
-function JWT_SECRET_FALLBACK(): string {
-    // Combines DB_PASS with a fixed salt — unique per install but stable
-    $base = defined('DB_PASS') ? DB_PASS : 'bluemoon_fallback';
-    return hash('sha256', $base . '_bluemoon_jwt_v1');
+switch ($result['status']) {
+    case 'ok':
+        http_response_code(200);
+        echo json_encode([
+            'token'      => $result['token'],
+            'user'       => $result['user'],
+            'expires_in' => $result['expires_in'],
+        ]);
+        exit;
+    case 'rate_limited':
+        http_response_code(429);
+        echo json_encode(['error' => 'Too many login attempts. Try again in 10 minutes.']);
+        exit;
+    case 'invalid':
+        http_response_code(401);
+        echo json_encode(['error' => 'Invalid credentials']);
+        exit;
+    case 'web_only':
+        http_response_code(403);
+        echo json_encode(['error' => 'This login works on the website only.']);
+        exit;
+    case 'not_configured':
+        http_response_code(500);
+        echo json_encode(['error' => 'Sign-in is not configured on the server', 'code' => 'jwt_secret_missing']);
+        exit;
+    default:   // 'error'
+        http_response_code(500);
+        echo json_encode(['error' => 'Server error. Please try again.']);
+        exit;
 }

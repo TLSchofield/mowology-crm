@@ -27,6 +27,8 @@ require_once CRM_INCLUDES . '/cms-functions.php';
 header('Content-Type: application/json');
 
 requireLogin();
+// Same permission as save-page.php (Fable review 2026-10-12): any login is not enough to change the public site.
+requirePermission('marketing.edit');
 $user = getCurrentUser();
 
 // Access control
@@ -76,6 +78,10 @@ foreach ($config as $key => $value) {
         }
     }
 }
+
+// Allow-listed HTML only (Fable review 2026-10-12): no script, on* handlers or javascript: URLs.
+require_once APP_ROOT . '/Modules/CMS/Services/CmsHtmlSanitizer.php';
+$config = CmsHtmlSanitizer::cleanConfig($config);
 
 // Build visibility JSON
 $visibilityJson = $isVisible ? null : json_encode(['hidden' => true]);

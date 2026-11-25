@@ -64,6 +64,9 @@ $moduleMap = [
     'settings'  => 'Settings',
     'schedule'  => 'Schedule',    // Mobile iOS schedule API (JWT-authenticated)
     'expenses'  => 'Expenses',    // Mobile iOS receipts/expenses API (JWT-authenticated)
+    'device'    => 'Device',      // Mobile iOS push-notification device token registration (JWT-authenticated)
+    'sales'     => 'Sales',       // Mobile iOS Sam (sales head) card: sales-head-mobile (JWT-authenticated)
+    'tasks'     => 'Tasks',       // Mobile iOS Add → Task: tasks-mobile (JWT-authenticated)
 ];
 
 if (!isset($moduleMap[$module])) {
@@ -156,10 +159,14 @@ $actionAliases = [
         'jobs'               => 'jobs',        // Mobile jobs history (JWT) — GET paginated visit list
         'quotes'             => 'quotes',      // Mobile quotes (JWT, admin only)
         'invoices'           => 'invoices',    // Mobile invoices (JWT, admin only)
+        'invoice'            => 'invoice',     // Mobile invoice-a-visit: preview/create/send (JWT, all crew)
         'job-photo'          => 'job-photo',   // Mobile before/after photo upload (JWT)
         'crew-trails'        => 'crew-trails', // Mobile crew GPS trail playback (JWT)
         'visit-flag'         => 'visit-flag',  // Mobile visit endorsement heart toggle (JWT)
         'quiz'               => 'quiz',        // Mobile pre-shift quiz (JWT)
+        'recommendation'     => 'recommendation', // Crew service recommendations (JWT or session)
+        'plant-id'           => 'plant-id',    // "What is this plant?" (JWT) — identify / confirm on a visit's property
+        'client-note'        => 'client-note', // Crew "Add a note" on a client without a visit today (JWT, clients.view)
     ],
 ];
 

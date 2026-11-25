@@ -12,6 +12,11 @@ header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: SAMEORIGIN');
 
 require_once dirname(__DIR__) . '/app_config/config.php';
+require_once APP_ROOT . '/Services/PortalBrand.php';
+require_once APP_ROOT . '/Core/Csp.php';
+require_once APP_ROOT . '/Core/Uploads.php';
+MwCsp::send(); // nonce CSP for the customer portal (Fable #22, 2026-10-12)
+header('Referrer-Policy: no-referrer'); // the link's token never travels in a Referer (Codex 2026-10-15)
 
 $db    = getDB();
 $error = '';
@@ -53,7 +58,8 @@ if (!$error) {
 
     if (!$visit) {
         $error = 'Visit record not found.';
-    } elseif ($visit['proof_complete'] != 1 && empty($visit['pdf_path'])) {
+    } elseif ($visit['proof_complete'] != 1 && (empty($visit['pdf_path']) || ($visit['status'] ?? '') !== 'completed')) {
+        // A PDF alone isn't enough: a draft made before the visit was finished must not show it as done (Codex 2026-10-15).
         $error = 'This visit report is not yet available. Please check back after your scheduled service date.';
     } else {
         // Token check: must match quote access token and not be expired
@@ -74,6 +80,7 @@ if (!$error) {
 $photos    = [];
 $notes     = [];
 $checklist = [];
+$plantCare = [];
 $confBox   = [];
 
 if (!$error && $visit) {
@@ -82,7 +89,7 @@ if (!$error && $visit) {
     // Photos (public)
     $stmt = $db->prepare("
         SELECT id, photo_type, filename, caption FROM visit_photos
-        WHERE visit_id = ? ORDER BY photo_type, uploaded_at
+        WHERE visit_id = ? AND deleted_at IS NULL ORDER BY photo_type, uploaded_at
     ");
     $stmt->execute([$visitId]);
     $photos = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -96,6 +103,10 @@ if (!$error && $visit) {
     $notes = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     $checklist = !empty($visit['checklist_json'])      ? json_decode($visit['checklist_json'], true)      : [];
+    $checklist = is_array($checklist) ? $checklist : [];
+    // Lines tied to the property's plants (PlantWorkService keys) get their own "Plant care" card.
+    $plantCare = array_values(array_filter($checklist, fn($i) => is_array($i) && !empty($i['key'])));
+    $checklist = array_values(array_filter($checklist, fn($i) => is_array($i) && empty($i['key'])));
     $confBox   = !empty($visit['confidence_box_json']) ? json_decode($visit['confidence_box_json'], true) : [];
     $materials = !empty($visit['materials_json'])      ? json_decode($visit['materials_json'], true)      : [];
 
@@ -138,13 +149,26 @@ $address    = $visit ? implode(', ', array_filter([
 $hasPdf  = $visit && !empty($visit['pdf_path']);
 $pdfUrl  = $hasPdf ? $visit['pdf_path'] : '';
 
+// What this client may see for contract work (Settings → Client Portal): the visit length —
+// duration and the arrive/depart pair it can be worked out from — is hidden unless switched on.
+$clientSees = ['report' => true, 'length' => true];
+if ($visit) {
+    require_once APP_ROOT . '/Modules/Jobs/Services/ClientVisibilityService.php';
+    $clientSees = (new ClientVisibilityService($db))->forVisit((int)$visitId);
+    // Report switched off for this client (Settings → Client Portal): nothing here either, as visit-report.php.
+    if (!$clientSees['report']) {
+        $visit = null;
+        $error = 'This service report isn\'t available online. Please contact us if you need details of this visit.';
+    }
+}
+
 $duration = '';
-if ($visit && $visit['started_at'] && $visit['completed_at']) {
+if ($visit && $clientSees['length'] && $visit['started_at'] && $visit['completed_at']) {
     $mins     = (int)round((strtotime($visit['completed_at']) - strtotime($visit['started_at'])) / 60);
     $duration = ($mins >= 60 ? floor($mins/60).'h ' : '') . ($mins % 60) . 'm';
 }
 
-$siteUrl = defined('SITE_URL') ? SITE_URL : 'https://mowology.ca';
+$siteUrl = PortalBrand::homeUrl();
 $year    = date('Y');
 
 $serviceLabel = [
@@ -163,14 +187,14 @@ $serviceLabel = [
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Proof of Work — Mowology Landscaping</title>
+  <title>Proof of Work — <?= htmlspecialchars(PortalBrand::displayName()) ?></title>
   <meta name="robots" content="noindex,nofollow">
   <link rel="stylesheet" href="/customer/portal.css">
 </head>
 <body>
 
 <header class="portal-header">
-  <div class="portal-logo-text">Mowo<span>logy</span></div>
+  <div class="portal-logo-text"><?= PortalBrand::logoHtml() ?></div>
   <div class="portal-header-divider"></div>
   <span class="portal-header-label">Service Report</span>
   <?php if ($clientName): ?>
@@ -185,7 +209,7 @@ $serviceLabel = [
     <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="color:#cdddd6;margin:0 auto 16px;display:block"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
     <h2>Report Unavailable</h2>
     <p><?php echo htmlspecialchars($error); ?></p>
-    <p style="margin-top:12px;"><a href="<?php echo htmlspecialchars($siteUrl); ?>">← Return to Mowology.ca</a></p>
+    <p style="margin-top:12px;"><a href="<?php echo htmlspecialchars($siteUrl); ?>">← Return to <?php echo htmlspecialchars(PortalBrand::websiteLabel()); ?></a></p>
   </div>
 <?php else: ?>
 
@@ -205,13 +229,15 @@ $serviceLabel = [
 
     <!-- Stat Trio -->
     <div class="portal-stat-trio">
+      <?php if ($clientSees['length']): ?>
       <div class="portal-stat-box">
         <div class="portal-stat-val"><?php echo htmlspecialchars($duration ?: '—'); ?></div>
         <div class="portal-stat-lbl">Duration</div>
       </div>
+      <?php endif; ?>
       <div class="portal-stat-box">
         <div class="portal-stat-val"><?php echo $visit['distance_m'] ? number_format($visit['distance_m']/1000, 2).' km' : '—'; ?></div>
-        <div class="portal-stat-lbl">Area Covered</div>
+        <div class="portal-stat-lbl">Distance walked</div>
       </div>
       <div class="portal-stat-box">
         <div class="portal-stat-val"><?php echo htmlspecialchars((string)($visit['actual_crew_count'] ?? 1)); ?></div>
@@ -256,6 +282,28 @@ $serviceLabel = [
   </div>
   <?php endif; ?>
 
+  <!-- Plant care (checklist lines keyed to the property's plants) -->
+  <?php if (!empty($plantCare)): ?>
+  <div class="portal-info-card">
+    <div class="portal-info-card-header">Plant Care</div>
+    <div class="portal-info-card-body">
+      <?php foreach ($plantCare as $item): ?>
+      <div class="portal-check-item">
+        <span class="portal-check-icon<?php echo !empty($item['checked']) ? '' : ' pending'; ?>">
+          <?php echo !empty($item['checked']) ? '✓' : '○'; ?>
+        </span>
+        <div>
+          <div style="font-size:0.875rem;"><?php echo htmlspecialchars($item['item'] ?? ''); ?></div>
+          <?php if (!empty($item['note'])): ?>
+            <div style="font-size:0.75rem;color:var(--p-text-muted);margin-top:2px;"><?php echo htmlspecialchars($item['note']); ?></div>
+          <?php endif; ?>
+        </div>
+      </div>
+      <?php endforeach; ?>
+    </div>
+  </div>
+  <?php endif; ?>
+
   <!-- Photos -->
   <?php if (!empty($photos)): ?>
   <div class="portal-info-card">
@@ -264,11 +312,11 @@ $serviceLabel = [
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;">
         <?php foreach ($photos as $ph): ?>
         <div>
-          <a href="/uploads/photos/<?php echo htmlspecialchars($ph['filename']); ?>" target="_blank">
-            <img src="/uploads/photos/<?php echo htmlspecialchars($ph['filename']); ?>"
+          <a href="<?php echo htmlspecialchars(uploadsUrl('photos')); ?>/<?php echo htmlspecialchars($ph['filename']); ?>" target="_blank">
+            <img src="<?php echo htmlspecialchars(uploadsUrl('photos')); ?>/<?php echo htmlspecialchars($ph['filename']); ?>"
                  alt="<?php echo htmlspecialchars($ph['photo_type']); ?>"
                  style="width:100%;height:100px;object-fit:cover;border-radius:var(--p-radius-sm);border:1px solid var(--p-border);display:block;"
-                 onerror="this.parentElement.parentElement.style.display='none'">
+                 data-mw-hide-on-error="2">
           </a>
           <div style="font-size:0.65rem;font-weight:700;text-transform:uppercase;color:var(--p-green);margin-top:4px;letter-spacing:0.04em;"><?php echo htmlspecialchars($ph['photo_type']); ?></div>
           <?php if (!empty($ph['caption'])): ?>
@@ -335,16 +383,16 @@ $serviceLabel = [
   <!-- Fertilizer Bundle Card -->
   <?php if (!empty($visit['is_prepaid_bundle'])): ?>
   <?php
-    $siteUrlClean  = defined('SITE_URL') ? rtrim(SITE_URL, '/') : 'https://mowology.ca';
+    $siteUrlClean  = rtrim(PortalBrand::appUrl(), '/');
     $totalApps     = count($fertAllVisits);
     $completedApps = (int)($visit['bundle_applications_used'] ?? 0);
     $nextAppDate   = null;
     foreach ($fertAllVisits as $av) {
         if ($av['status'] === 'scheduled') { $nextAppDate = $av['scheduled_date']; break; }
     }
-    $arrTime  = !empty($visit['started_at'])   ? date('g:ia', strtotime($visit['started_at']))   : '';
-    $depTime  = !empty($visit['completed_at']) ? date('g:ia', strtotime($visit['completed_at'])) : '';
-    $durMins  = (int)($visit['actual_duration_minutes'] ?? 0);
+    $arrTime  = ($clientSees['length'] && !empty($visit['started_at']))   ? date('g:ia', strtotime($visit['started_at']))   : '';
+    $depTime  = ($clientSees['length'] && !empty($visit['completed_at'])) ? date('g:ia', strtotime($visit['completed_at'])) : '';
+    $durMins  = $clientSees['length'] ? (int)($visit['actual_duration_minutes'] ?? 0) : 0;
     $durStr   = $durMins >= 60 ? floor($durMins/60) . 'h ' . ($durMins%60) . 'm' : ($durMins > 0 ? $durMins . 'min' : '');
     $iconUrl  = '';
     if ($fertProduct && !empty($fertProduct['icon_base_path'])) {
@@ -356,7 +404,7 @@ $serviceLabel = [
     <div class="portal-info-card-body">
       <div style="display:flex;align-items:center;gap:16px;margin-bottom:14px;">
         <?php if ($iconUrl): ?>
-          <img src="<?php echo htmlspecialchars($iconUrl); ?>" alt="" style="width:52px;height:52px;object-fit:contain;" onerror="this.style.display='none'">
+          <img src="<?php echo htmlspecialchars($iconUrl); ?>" alt="" style="width:52px;height:52px;object-fit:contain;" data-mw-hide-on-error="0">
         <?php endif; ?>
         <div>
           <div style="font-size:0.95rem;font-weight:700;color:var(--p-forest);"><?php echo htmlspecialchars($visit['plan_title'] ?: 'Fertilizer Program'); ?></div>
@@ -437,12 +485,12 @@ $serviceLabel = [
 <?php endif; ?>
 
   <div class="portal-footer">
-    <a href="<?php echo htmlspecialchars($siteUrl); ?>">Mowology Landscaping</a> &middot;
-    Questions? <a href="tel:7788469273">(778) 846-9273</a> &middot;
-    <a href="mailto:office@mowology.ca">office@mowology.ca</a><br>
-    &copy; <?php echo $year; ?> Mowology Landscaping. All rights reserved.
+    <a href="<?php echo htmlspecialchars($siteUrl); ?>"><?= htmlspecialchars(PortalBrand::displayName()) ?></a>
+    <?php if (PortalBrand::questionsHtml() !== ''): ?>&middot; <?= PortalBrand::questionsHtml() ?><?php endif; ?><br>
+    &copy; <?php echo $year; ?> <?= htmlspecialchars(PortalBrand::displayName()) ?>. All rights reserved.
   </div>
 
 </div>
+<script src="/assets/js/mw-csp-actions.js"></script>
 </body>
 </html>

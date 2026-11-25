@@ -1,0 +1,48 @@
+<!-- @dsCard group="AI Office" height=260 subtitle="Six + One · hover or tab to a side" -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+<style>
+body{margin:0;background:var(--surface);color:var(--text);font-family:Inter,system-ui,sans-serif}
+.wrap{display:flex;align-items:center;gap:24px;padding:16px 24px}
+.hex text{font-family:Inter,system-ui,sans-serif}
+.hex a{outline:none}
+.hex a:focus-visible .hit{stroke:var(--focus);stroke-opacity:.18}
+.seg,.spk line,.ring{transition:opacity .15s ease,stroke-width .15s ease,stroke .15s ease}
+@media (prefers-reduced-motion: reduce){.seg,.spk line,.ring{transition:none}}
+.hex:has(a.side:hover,a.side:focus-visible) .seg{opacity:.25}
+.hex a.side:hover .seg,.hex a.side:focus-visible .seg{opacity:1;stroke-width:5}
+.hex:has(.k-yui:hover,.k-yui:focus-visible) .p-yui,.hex:has(.k-sam:hover,.k-sam:focus-visible) .p-sam,.hex:has(.k-pen:hover,.k-pen:focus-visible) .p-pen,.hex:has(.k-ott:hover,.k-ott:focus-visible) .p-ott,.hex:has(.k-mia:hover,.k-mia:focus-visible) .p-mia,.hex:has(.k-ada:hover,.k-ada:focus-visible) .p-ada{stroke:var(--text);stroke-width:1.5}
+.hex:has(.k-cha:hover,.k-cha:focus-visible) .spk line{stroke:var(--text);stroke-width:1.5}
+.hex:has(.k-cha:hover,.k-cha:focus-visible) .ring{stroke-width:2.5}
+.counts{display:flex;flex-direction:column;gap:8px;font-size:13px;line-height:20px}
+.counts div{display:flex;align-items:center;gap:8px}
+.counts b{font-weight:600}
+</style>
+</head>
+<body>
+<div class="wrap">
+<svg class="hex" width="232" height="204" viewBox="0 0 232 204" role="group" aria-label="AI office" style="overflow:visible">
+<g class="spk" stroke-width="1" style="stroke:var(--line)">
+<line class="p-yui" x1="116" y1="62" x2="116" y2="50"/><line class="p-sam" x1="150.64" y1="82" x2="161.03" y2="76"/><line class="p-pen" x1="150.64" y1="122" x2="161.03" y2="128"/><line class="p-ott" x1="116" y1="142" x2="116" y2="154"/><line class="p-mia" x1="81.36" y1="122" x2="70.97" y2="128"/><line class="p-ada" x1="81.36" y1="82" x2="70.97" y2="76"/>
+</g>
+<a href="#" class="side k-yui" aria-label="Yui, Communications, working: triaged 11 messages. Opens Yui's workspace."><path class="hit" d="M80.93 41.25 A12 12 0 0 1 86.93 39.65 L145.07 39.65 A12 12 0 0 1 151.07 41.25" fill="none" stroke="transparent" stroke-width="28"/><path class="seg" pathLength="100" stroke-dasharray="84.44 15.56" stroke-dashoffset="-7.78" fill="none" stroke-width="3" stroke-linecap="round" style="stroke:var(--state-working)" d="M80.93 41.25 A12 12 0 0 1 86.93 39.65 L145.07 39.65 A12 12 0 0 1 151.07 41.25"/><svg x="95" y="16" width="12" height="12" viewBox="0 0 16 16" style="color:var(--state-working)" aria-hidden="true"><path d="M8 1.8a6.2 6.2 0 1 1 0 12.4a6.2 6.2 0 1 1 0-12.4zM8 4.8V8l2.2 1.4" fill="none" stroke="currentColor" stroke-width="2"/></svg><text x="111" y="22" dominant-baseline="central" font-size="12" font-weight="500" style="fill:var(--text)">Yui</text></a>
+<a href="#" class="side k-sam" aria-label="Sam, Sales, waiting for approval. Opens Sam's workspace."><path class="hit" d="M151.07 41.25 A12 12 0 0 1 155.46 45.65 L184.54 96 A12 12 0 0 1 186.14 102" fill="none" stroke="transparent" stroke-width="28"/><path class="seg" pathLength="100" stroke-dasharray="84.44 15.56" stroke-dashoffset="-7.78" fill="none" stroke-width="3" stroke-linecap="round" style="stroke:var(--state-approval)" d="M151.07 41.25 A12 12 0 0 1 155.46 45.65 L184.54 96 A12 12 0 0 1 186.14 102"/><svg x="176" y="52" width="12" height="12" viewBox="0 0 16 16" style="color:var(--state-approval)" aria-hidden="true"><path d="M8 1.5 15 14H1z" fill="currentColor"/></svg><text x="192" y="58" dominant-baseline="central" font-size="12" font-weight="500" style="fill:var(--text)">Sam</text></a>
+<a href="#" class="side k-pen" aria-label="Penny, Finance, waiting for approval. Opens Penny's workspace."><path class="hit" d="M186.14 102 A12 12 0 0 1 184.54 108 L155.46 158.35 A12 12 0 0 1 151.07 162.75" fill="none" stroke="transparent" stroke-width="28"/><path class="seg" pathLength="100" stroke-dasharray="84.44 15.56" stroke-dashoffset="-7.78" fill="none" stroke-width="3" stroke-linecap="round" style="stroke:var(--state-approval)" d="M186.14 102 A12 12 0 0 1 184.54 108 L155.46 158.35 A12 12 0 0 1 151.07 162.75"/><svg x="176" y="142" width="12" height="12" viewBox="0 0 16 16" style="color:var(--state-approval)" aria-hidden="true"><path d="M8 1.5 15 14H1z" fill="currentColor"/></svg><text x="192" y="148" dominant-baseline="central" font-size="12" font-weight="500" style="fill:var(--text)">Penny</text></a>
+<a href="#" class="side k-ott" aria-label="Otto, Operations, waiting for approval. Opens Otto's workspace."><path class="hit" d="M151.07 162.75 A12 12 0 0 1 145.07 164.35 L86.93 164.35 A12 12 0 0 1 80.93 162.75" fill="none" stroke="transparent" stroke-width="28"/><path class="seg" pathLength="100" stroke-dasharray="84.44 15.56" stroke-dashoffset="-7.78" fill="none" stroke-width="3" stroke-linecap="round" style="stroke:var(--state-approval)" d="M151.07 162.75 A12 12 0 0 1 145.07 164.35 L86.93 164.35 A12 12 0 0 1 80.93 162.75"/><svg x="93" y="178" width="12" height="12" viewBox="0 0 16 16" style="color:var(--state-approval)" aria-hidden="true"><path d="M8 1.5 15 14H1z" fill="currentColor"/></svg><text x="109" y="184" dominant-baseline="central" font-size="12" font-weight="500" style="fill:var(--text)">Otto</text></a>
+<a href="#" class="side k-mia" aria-label="Mia, Marketing, idle. Opens Mia's workspace."><path class="hit" d="M80.93 162.75 A12 12 0 0 1 76.54 158.35 L47.46 108 A12 12 0 0 1 45.86 102" fill="none" stroke="transparent" stroke-width="28"/><path class="seg" pathLength="100" stroke-dasharray="0.01 8.434" stroke-dashoffset="-7.78" fill="none" stroke-width="3" stroke-linecap="round" style="stroke:var(--state-idle)" d="M80.93 162.75 A12 12 0 0 1 76.54 158.35 L47.46 108 A12 12 0 0 1 45.86 102"/><svg x="10" y="142" width="12" height="12" viewBox="0 0 16 16" style="color:var(--state-idle)" aria-hidden="true"><path d="M8 2a6 6 0 1 1 0 12a6 6 0 1 1 0-12z" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="2.6 2.1"/></svg><text x="26" y="148" dominant-baseline="central" font-size="12" font-weight="500" style="fill:var(--text)">Mia</text></a>
+<a href="#" class="side k-ada" aria-label="Ada, Technology, blocked. Opens Ada's workspace."><path class="hit" d="M45.86 102 A12 12 0 0 1 47.46 96 L76.54 45.65 A12 12 0 0 1 80.93 41.25" fill="none" stroke="transparent" stroke-width="28"/><path class="seg" pathLength="100" stroke-dasharray="84.44 15.56" stroke-dashoffset="-7.78" fill="none" stroke-width="3" stroke-linecap="round" style="stroke:var(--state-blocked)" d="M45.86 102 A12 12 0 0 1 47.46 96 L76.54 45.65 A12 12 0 0 1 80.93 41.25"/><svg x="10" y="52" width="12" height="12" viewBox="0 0 16 16" style="color:var(--state-blocked)" aria-hidden="true"><path d="M5.1 1h5.8L15 5.1v5.8L10.9 15H5.1L1 10.9V5.1z" fill="currentColor"/><path d="M4.6 8h6.8" stroke-width="2.2" style="stroke:var(--surface)"/></svg><text x="26" y="58" dominant-baseline="central" font-size="12" font-weight="500" style="fill:var(--text)">Ada</text></a>
+<a href="#" class="k-cha" aria-label="Charlie, Chief of Staff, working: 27 items in flow. Opens the Chief of Staff workspace."><circle cx="116" cy="102" r="34" style="fill:var(--surface)"/><circle class="ring" cx="116" cy="102" r="34" fill="none" stroke-width="1.5" style="stroke:var(--state-working)"/><svg x="86" y="89" width="10" height="10" viewBox="0 0 16 16" style="color:var(--state-working)" aria-hidden="true"><path d="M8 1.8a6.2 6.2 0 1 1 0 12.4a6.2 6.2 0 1 1 0-12.4zM8 4.8V8l2.2 1.4" fill="none" stroke="currentColor" stroke-width="2"/></svg><text x="100" y="94" dominant-baseline="central" font-size="12" font-weight="600" style="fill:var(--text)">Charlie</text><text x="116" y="111" text-anchor="middle" dominant-baseline="central" font-size="12" style="fill:var(--meta);font-variant-numeric:tabular-nums">27 in flow</text></a>
+</svg>
+<div class="counts" role="list" aria-label="Office summary">
+<div role="listitem"><svg width="12" height="12" viewBox="0 0 16 16" style="color:var(--state-approval)" aria-hidden="true"><path d="M8 1.5 15 14H1z" fill="currentColor"/></svg><span><b>3</b> need approval</span></div>
+<div role="listitem"><svg width="12" height="12" viewBox="0 0 16 16" style="color:var(--state-working)" aria-hidden="true"><path d="M8 1.8a6.2 6.2 0 1 1 0 12.4a6.2 6.2 0 1 1 0-12.4zM8 4.8V8l2.2 1.4" fill="none" stroke="currentColor" stroke-width="2"/></svg><span><b>2</b> working</span></div>
+<div role="listitem"><svg width="12" height="12" viewBox="0 0 16 16" style="color:var(--state-blocked)" aria-hidden="true"><path d="M5.1 1h5.8L15 5.1v5.8L10.9 15H5.1L1 10.9V5.1z" fill="currentColor"/><path d="M4.6 8h6.8" stroke-width="2.2" style="stroke:var(--surface)"/></svg><span><b>1</b> blocked</span></div>
+<div role="listitem"><svg width="12" height="12" viewBox="0 0 16 16" style="color:var(--state-idle)" aria-hidden="true"><path d="M8 2a6 6 0 1 1 0 12a6 6 0 1 1 0-12z" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="2.6 2.1"/></svg><span><b>1</b> idle</span></div>
+</div>
+</div>
+<script>document.querySelectorAll('a[href="#"]').forEach(function(a){a.addEventListener('click',function(e){e.preventDefault();});});</script>
+</body>
+</html>

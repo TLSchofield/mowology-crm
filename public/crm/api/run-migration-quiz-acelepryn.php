@@ -24,6 +24,8 @@ if (php_sapi_name() === 'cli') {
     require_once dirname(__DIR__) . '/../app_config/config.php';
 } else {
     requireLogin();
+    require_once APP_ROOT . '/Core/MigrationRunnerGuard.php';
+    migrationRunnerGuard(); // admin only; GET shows a confirm button, the run needs POST + CSRF (2026-10-12)
     if (getCurrentUser()['role'] !== 'admin') {
         http_response_code(403);
         echo json_encode(['error' => 'Admin only']);

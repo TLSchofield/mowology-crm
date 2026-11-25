@@ -55,6 +55,26 @@ class BillToResolverTest extends TestCase
         $this->assertSame('Strata Plan VR15/40 C/O FirstService Residential', $name);
     }
 
+    public function testEntityWithPmFirmPrefersPmFirmOverCompany(): void
+    {
+        // PM-managed strata: the management firm is the C/O, not the plan company.
+        $name = $this->resolver()->composeBillToName([
+            'property_billing_entity' => 'Strata Plan VR15/40',
+            'pm_firm_name'            => 'FirstService Residential',
+            'company_name'            => 'Generic Company Inc',
+        ]);
+        $this->assertSame('Strata Plan VR15/40 C/O FirstService Residential', $name);
+    }
+
+    public function testEntityWithPmFirmButNoCompany(): void
+    {
+        $name = $this->resolver()->composeBillToName([
+            'property_billing_entity' => 'Strata Plan VR15/40',
+            'pm_firm_name'            => 'FirstService Residential',
+        ]);
+        $this->assertSame('Strata Plan VR15/40 C/O FirstService Residential', $name);
+    }
+
     public function testContractTitleActsAsEntityOnlyWhenCompanyPresent(): void
     {
         // With a company → contract title becomes the entity, rendered C/O.

@@ -1,0 +1,77 @@
+/* =====================================================
+   Terms of Service — public page (mirrors privacy.css layout)
+   ===================================================== */
+
+.terms-hero {
+    background: var(--color-surface-alt, #f0f4f2);
+    padding: 56px 0 40px;
+    border-bottom: 1px solid var(--color-border, #e0e8e4);
+}
+.terms-hero h1 {
+    font-size: clamp(1.75rem, 4vw, 2.5rem);
+    font-weight: 700;
+    color: var(--color-heading, #1a2e26);
+    margin-bottom: 8px;
+}
+.terms-hero .terms-updated {
+    font-size: .85rem;
+    color: var(--color-text-muted, #6b7280);
+}
+
+.terms-layout {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    gap: 48px;
+    padding: 48px 0 80px;
+}
+@media (max-width: 800px) {
+    .terms-layout { grid-template-columns: 1fr; gap: 24px; }
+    .terms-toc { position: static; }
+}
+
+.terms-toc {
+    position: sticky;
+    top: 96px;
+    align-self: start;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: .85rem;
+}
+.terms-toc-title {
+    font-weight: 700;
+    color: var(--color-heading, #1a2e26);
+    margin-bottom: 4px;
+}
+.terms-toc a {
+    color: var(--color-text-muted, #6b7280);
+    text-decoration: none;
+}
+.terms-toc a:hover { color: var(--mowology-green, #2D8659); }
+
+.terms-section { margin-bottom: 36px; }
+.terms-section h2 {
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: var(--color-heading, #1a2e26);
+    margin-bottom: 12px;
+}
+.terms-section p,
+.terms-section li {
+    font-size: .925rem;
+    line-height: 1.7;
+    color: var(--color-text, #374151);
+    margin-bottom: .75rem;
+}
+.terms-section ul { padding-left: 1.25rem; margin-bottom: .75rem; }
+
+.terms-contact-card {
+    background: var(--color-surface-alt, #f0f4f2);
+    border: 1px solid var(--color-border, #e0e8e4);
+    border-radius: 8px;
+    padding: 20px 24px;
+    margin-top: 16px;
+    font-size: .9rem;
+    line-height: 1.7;
+}
+.terms-contact-card a { color: var(--mowology-green, #2D8659); }

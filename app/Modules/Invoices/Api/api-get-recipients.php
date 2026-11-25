@@ -25,6 +25,7 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 require_once PUBLIC_ROOT . '/includes/functions.php';
 require_once CRM_INCLUDES . '/invoice-routing.php';
 
@@ -67,93 +68,13 @@ if (!$propertyId && !$companyId && !$clientId) {
 }
 
 try {
-    $recipients = [];
-
-    // ── Client/Account model path: recipients are the account's people ──
-    // Pull from client_contacts so an account is invoiceable without a property
-    // (e.g. a strata billed via its council member / property manager).
-    if ($clientId) {
-        $db = getDB();
-        try {
-            // Resolve from the account's own people AND, when the account is
-            // managed by a firm (e.g. a strata managed by a PM company), the
-            // managing firm's people too — so invoices route to the manager's
-            // accounts contact. Manager contacts are listed first.
-            $ccStmt = $db->prepare("
-                SELECT con.id                                     AS contact_id,
-                       CONCAT(con.first_name, ' ', con.last_name) AS contact_name,
-                       con.email, con.mobile, con.receive_sms,
-                       cc.role         AS contact_role,
-                       cc.is_primary, cc.receives_invoices,
-                       (cc.client_id <> ?) AS via_manager
-                FROM client_contacts cc
-                JOIN contacts con ON con.id = cc.contact_id
-                WHERE cc.client_id = ?
-                   OR cc.client_id = (SELECT managed_by_client_id FROM clients WHERE id = ?)
-                ORDER BY via_manager DESC, cc.receives_invoices DESC, cc.is_primary DESC, con.first_name
-            ");
-            $ccStmt->execute([$clientId, $clientId, $clientId]);
-            $seenContact = [];
-            foreach ($ccStmt->fetchAll(PDO::FETCH_ASSOC) as $cc) {
-                if (empty($cc['email'])) {
-                    continue; // can't send an invoice without an email
-                }
-                if (isset($seenContact[(int)$cc['contact_id']])) {
-                    continue; // a person linked to both account and manager — once
-                }
-                $seenContact[(int)$cc['contact_id']] = true;
-                $recipients[] = [
-                    'contact_id'    => (int)$cc['contact_id'],
-                    'contact_name'  => $cc['contact_name'] . (!empty($cc['via_manager']) ? ' (Manager)' : ''),
-                    'contact_role'  => $cc['contact_role'] ?: 'primary_recipient',
-                    'email_address' => $cc['email'],
-                    'receive_sms'   => (bool)$cc['receive_sms'],
-                    'phone'         => $cc['mobile'] ?? null,
-                    'preselect'     => (bool)$cc['receives_invoices'],
-                ];
-            }
-        } catch (PDOException $e) {
-            // clients/client_contacts absent (pre-Phase-1) — fall through to legacy.
-        }
+    try {
+        $recipients = InvoiceRouting::resolveInvoiceRecipients($propertyId, $clientId, $companyId, $contactId);
+    } catch (InvoiceRecipientsLoadException $e) {
+        http_response_code(500);
+        echo json_encode(['success' => false, 'error' => 'Unable to load invoice recipients. Please try again.']);
+        exit;
     }
-
-    if (empty($recipients) && $companyId && $propertyId) {
-        // Legacy path: company-based routing (needs a property).
-        $recipients = determineInvoiceRecipients($propertyId, $companyId);
-    }
-
-    // Fallback: load the property's site contact directly (contacts-based plans)
-    if (empty($recipients) && $propertyId) {
-        $db = getDB();
-        // Try property's site_contact_id, then the passed contact_id
-        $fallbackStmt = $db->prepare("
-            SELECT con.id as contact_id,
-                   CONCAT(con.first_name, ' ', con.last_name) as contact_name,
-                   con.email,
-                   con.mobile,
-                   con.receive_sms
-            FROM properties p
-            JOIN contacts con ON con.id = COALESCE(p.site_contact_id, ?)
-            WHERE p.id = ?
-            LIMIT 1
-        ");
-        $fallbackStmt->execute([$contactId ?: 0, $propertyId]);
-        $contact = $fallbackStmt->fetch(PDO::FETCH_ASSOC);
-
-        if ($contact && $contact['email']) {
-            $recipients = [[
-                'contact_id'   => $contact['contact_id'],
-                'contact_name' => $contact['contact_name'],
-                'contact_role' => 'primary_recipient',
-                'email_address'=> $contact['email'],
-                'receive_sms'  => (bool)$contact['receive_sms'],
-                'phone'        => $contact['mobile'] ?? null,
-            ]];
-        }
-    }
-
-    // Determine recipients
-    // (already set above)
 
     // Return JSON response
     http_response_code(200);
@@ -169,7 +90,7 @@ try {
     header('Content-Type: application/json');
     echo json_encode([
         'success' => false,
-        'error' => htmlspecialchars($e->getMessage())
+        'error' => htmlspecialchars(ApiResponse::message($e, 'api-get-recipients'))
     ]);
 }
 ?>

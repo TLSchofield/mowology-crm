@@ -45,8 +45,10 @@
   --mw-color-accent:     var(--mw-lime);
   --mw-color-success:    #16A34A;      /* green-600 */
   --mw-color-success-bg: #DCFCE7;      /* green-100 */
-  --mw-color-warning:    #D97706;      /* amber-600 */
-  --mw-color-warning-bg: #FEF3C7;      /* amber-100 */
+  --mw-color-warning:    #7C2D12;      /* rust — no yellow in the CRM (Tim 2026-10-13); 8.3:1 on its bg */
+  --mw-color-warning-bg: #FBEFE8;      /* rust tint */
+  --mw-color-warning-line: #E8B9A0;    /* rust border */
+  --mw-color-warning-mid:  #C2551F;    /* rust accent: bars, dots, left borders (not text) */
   --mw-color-danger:     #DC2626;      /* red-600 */
   --mw-color-danger-bg:  #FEE2E2;      /* red-100 */
   --mw-color-info:       #2563EB;      /* blue-600 */

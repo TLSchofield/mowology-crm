@@ -34,6 +34,9 @@ class CRMErrorHandler
     private array $errors = [];
     private string $sessionId;
 
+    /** Request-scoped error store — read by DebugPanel at footer render time. */
+    private static array $requestErrors = [];
+
     /**
      * Initialize error handler
      * @param string $pageName - Name of the page/endpoint
@@ -104,6 +107,21 @@ class CRMErrorHandler
             $logMessage .= "Context: " . json_encode($context, JSON_PRETTY_PRINT) . "\n";
         }
 
+        // Store in request-scoped debug array (read by DebugPanel at footer render time).
+        // _severity/_type hints are injected by handleError()/handleException() so the panel
+        // shows the precise PHP error type rather than the generic 'CRM Error' fallback.
+        $panelContext = $context;
+        unset($panelContext['_severity'], $panelContext['_type']);
+        self::$requestErrors[] = [
+            'severity' => $context['_severity'] ?? ($exception ? 'exception' : 'error'),
+            'type'     => $context['_type'] ?? ($exception ? get_class($exception) : 'CRM Error'),
+            'message'  => $message,
+            'file'     => $exception ? $exception->getFile() : ($context['file'] ?? ''),
+            'line'     => $exception ? $exception->getLine() : ($context['line'] ?? 0),
+            'trace'    => $exception ? $exception->getTraceAsString() : null,
+            'context'  => $panelContext,
+        ];
+
         // Log to PHP error log
         error_log($logMessage);
 
@@ -157,10 +175,12 @@ class CRMErrorHandler
         ];
 
         $type = $errorTypes[$errno] ?? 'Unknown';
+
+        // Pass severity hint via context so logError() can set the right panel severity
         $this->logError(
             "{$type}: {$errstr}",
             null,
-            ['file' => $errfile, 'line' => $errline]
+            ['file' => $errfile, 'line' => $errline, '_severity' => self::toSeverityClass($errno), '_type' => $type]
         );
 
         return true;
@@ -173,7 +193,8 @@ class CRMErrorHandler
     {
         $this->logError(
             'Uncaught exception: ' . $exception->getMessage(),
-            $exception
+            $exception,
+            ['_severity' => 'exception', '_type' => get_class($exception)]
         );
     }
 
@@ -372,6 +393,37 @@ class CRMErrorHandler
             }
         }
         return 'unauthenticated';
+    }
+
+    /**
+     * All PHP errors/exceptions captured during this request.
+     * Called by DebugPanel at footer render time.
+     */
+    public static function getRequestErrors(): array
+    {
+        return self::$requestErrors;
+    }
+
+    public static function hasRequestErrors(): bool
+    {
+        return !empty(self::$requestErrors);
+    }
+
+    /**
+     * Map PHP error constants to a panel severity class.
+     */
+    private static function toSeverityClass(int $errno): string
+    {
+        if (in_array($errno, [E_ERROR, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR, E_RECOVERABLE_ERROR, E_PARSE], true)) {
+            return 'error';
+        }
+        if (in_array($errno, [E_WARNING, E_CORE_WARNING, E_COMPILE_WARNING, E_USER_WARNING], true)) {
+            return 'warning';
+        }
+        if (in_array($errno, [E_DEPRECATED, E_USER_DEPRECATED], true)) {
+            return 'deprecated';
+        }
+        return 'notice';
     }
 
     /**

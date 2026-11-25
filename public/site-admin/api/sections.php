@@ -30,6 +30,11 @@ require_once dirname(__DIR__, 2) . '/app/Modules/CMS/Services/CmsSectionFunction
 $siteId = (int)CMS_SITE_ID;
 $action = $_REQUEST['action'] ?? '';
 
+// Everything but 'list' changes the site: POST + CSRF + an editing role (Fable review 2026-10-12).
+if ($action !== 'list') {
+    requireSiteWrite(true);
+}
+
 try {
     switch ($action) {
 
@@ -107,7 +112,13 @@ try {
             echo json_encode(['ok' => false, 'error' => 'Unknown action: ' . $action]);
     }
 
-} catch (\Throwable $e) {
+} catch (\InvalidArgumentException $e) {
+    // Our own validation messages — safe to show.
     http_response_code(422);
     echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+} catch (\Throwable $e) {
+    // Anything else may carry SQL or paths — log it, show a generic line (Fable review 2026-10-12).
+    error_log('site-admin sections.php: ' . get_class($e) . ': ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
+    http_response_code(500);
+    echo json_encode(['ok' => false, 'error' => 'Could not save — please try again.']);
 }

@@ -23,7 +23,9 @@ $mobilePageTitles = [
     'profitability' => 'Profitability',
     'leaderboard'   => 'Leaderboard',
     'schedule'      => 'Schedule',
-    'timeclock'     => 'My Schedule',
+    'home'          => 'Home Base',
+    'account'       => 'Account',
+    'search'        => 'Search',
     'team'          => 'Team',
     'map'           => 'Territory Map',
     'products'      => 'Products',
@@ -49,20 +51,20 @@ $initials   = strtoupper(substr($userParts[0], 0, 1) . (isset($userParts[1]) ? s
 $_mobileUserRole = $user['role'] ?? 'user';
 $_isCrew = ($_mobileUserRole === 'user');
 
-// Bottom nav items — keep tight: just the 4 most used
-// Crew members see Driver Portal instead of Clients
+// Bottom nav — the one crew bar, on every screen (AppStack pages here; schedule.php's own
+// .mw-mc-bottombar and homebase.php mirror the same five tabs in the same order):
+//   Home · Schedule · Receipts · Timesheet · Account
 $bottomNav = [
-    ['key' => 'schedule',  'label' => 'Schedule', 'href' => '/crm/jobs/schedule.php',
+    ['key' => 'home',      'label' => 'Home',      'href' => '/crm/homebase.php',
+     'icon' => '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>'],
+    ['key' => 'schedule',  'label' => 'Schedule',  'href' => '/crm/jobs/schedule.php',
      'icon' => '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>'],
-    $_isCrew
-        ? ['key' => 'driver',    'label' => 'Portal',   'href' => '/crm/driver-portal.php',
-           'icon' => '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>']
-        : ['key' => 'clients',   'label' => 'Clients',  'href' => '/crm/clients_appstack.php',
-           'icon' => '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>'],
-    ['key' => 'expenses',  'label' => 'Receipt',  'href' => '/crm/expenses_appstack.php?mode=quick&return=' . urlencode($_SERVER['REQUEST_URI'] ?? '/crm/dashboard_appstack.php'),
+    ['key' => 'expenses',  'label' => 'Receipts',  'href' => '/crm/expenses_appstack.php?mode=quick&return=' . urlencode($_SERVER['REQUEST_URI'] ?? '/crm/homebase.php'),
      'icon' => '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>'],
-    ['key' => '__menu__',  'label' => 'Menu',     'href' => '#',
-     'icon' => '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>'],
+    ['key' => 'timeclock', 'label' => 'Timesheet', 'href' => '/crm/timeclock/my-timesheet.php',
+     'icon' => '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>'],
+    ['key' => '__menu__',  'label' => 'Account',   'href' => '#',
+     'icon' => '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>'],
 ];
 
 // Menu grid items (all nav sections shown in the slide-up)
@@ -94,37 +96,38 @@ $menuItems = [
     // Admin only — handled separately below as file-picker button
 ];
 
-// Add Driver Portal tile for non-crew (admin/office) users. Crew already have
-// it in the bottom bar (line 59), so showing it again in the grid is noise.
-if (!$_isCrew) {
-    $menuItems[] = ['key' => 'driver', 'label' => 'Driver', 'href' => '/crm/driver-portal.php',
-        'icon' => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>'];
-}
+// Vehicle log for everyone — the bottom bar no longer carries it (it now mirrors the iOS tabs).
+$menuItems[] = ['key' => 'driver', 'label' => 'Vehicle log', 'href' => '/crm/driver-portal.php',
+    'icon' => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>'];
+
 ?>
 
-<!-- ── Mobile Top Bar ── -->
+<!-- ── Mobile Top Bar — Home Base look: forest band, title + date, clock chip, search ── -->
 <div class="mw-mobile-topbar">
     <div class="mw-mobile-topbar-left">
-        <div class="mw-mobile-topbar-logo">M</div>
-        <span class="mw-mobile-topbar-title"><?php echo htmlspecialchars($mobileTitle); ?></span>
+        <div class="mw-mobile-topbar-logo" aria-hidden="true">M</div>
+        <div class="mw-mobile-topbar-text">
+            <span class="mw-mobile-topbar-title"><?php echo htmlspecialchars($mobileTitle); ?></span>
+            <span class="mw-mobile-topbar-sub"><?php echo htmlspecialchars(date('l, F j')); ?></span>
+        </div>
     </div>
     <div class="mw-mobile-topbar-right">
         <!-- Reuse existing clock widget from appstack_topbar — JS targets #clockWidget -->
         <div class="mw-clock-widget" id="mwMobileClockWidget"></div>
-        <button type="button" class="mw-mobile-search-btn" data-spotlight-open aria-label="Search">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        </button>
+        <a href="/crm/search.php" class="mw-mobile-search-btn" aria-label="Search">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        </a>
     </div>
 </div>
 
 <!-- ── Mobile Bottom Bar ── -->
 <div class="mw-mobile-bottombar">
     <?php foreach ($bottomNav as $btn):
-        $isActive = ($btn['key'] === $activePage || ($btn['key'] === 'expenses' && $activePage === 'expenses'));
+        $isActive = ($btn['key'] === $activePage || ($btn['key'] === '__menu__' && $activePage === 'account'));
         $isMenu   = $btn['key'] === '__menu__';
         $cls      = 'mw-mobile-nav-btn' . ($isActive ? ' mw-mobile-nav-active' : '');
         if ($isMenu): ?>
-        <button type="button" class="<?php echo $cls; ?>" id="mwMobileMenuBtnBottom" aria-label="Menu">
+        <button type="button" class="<?php echo $cls; ?>" id="mwMobileMenuBtnBottom" aria-label="Account and menu">
             <?php echo $btn['icon']; ?>
             <span><?php echo $btn['label']; ?></span>
         </button>
@@ -165,6 +168,31 @@ if (!$_isCrew) {
             </button>
         </div>
 
+        <?php if (!empty($itShell)):
+            // Ittai design: the same head blocks as the desktop sidebar, from the same shared list
+            // (nav-items.php — so the phone menu now respects permissions too). Not prefetched: the
+            // prefetch below only reads .mw-mobile-menu-item links, and ~50 pages would flood the host.
+            require_once __DIR__ . '/nav-items.php';
+            foreach (mwIttaiNavBlocks($navItems, (array)$user, (string)$activePage) as $__b): ?>
+        <div class="it-mb-block">
+            <div class="it-sb-strip<?php echo $__b['here'] ? ' is-here' : ''; ?>" data-head="<?php echo $__b['slug']; ?>">
+                <button type="button" class="it-sb-toggle" aria-expanded="true" aria-controls="it-mb-<?php echo $__b['slug']; ?>">
+                    <span class="it-sb-face"><img src="/crm/img/heads/<?php echo $__b['slug']; ?>.jpg" alt="" width="36" height="36" loading="lazy"><span class="it-sb-kanji" aria-hidden="true"><?php echo $__b['kanji']; ?></span></span>
+                    <span class="it-sb-who"><span class="it-sb-name"><?php echo $__b['name']; ?></span><span class="it-sb-role"><?php echo $__b['role']; ?></span>
+                        <span class="it-sb-means"><span lang="ja"><?php echo $__b['kanji']; ?></span> <?php echo $__b['means']; ?></span></span>
+                    <svg class="it-sb-chev" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+            </div>
+            <ul class="it-mb-items" id="it-mb-<?php echo $__b['slug']; ?>">
+                <?php foreach ($__b['items'] as $__it): $__on = $activePage === $__it['key']; ?>
+                <li><a class="it-mb-link<?php echo $__on ? ' is-active' : ''; ?>" href="<?php echo $__it['href']; ?>"<?php echo $__on ? ' aria-current="page"' : ''; ?>>
+                    <i data-feather="<?php echo htmlspecialchars($__it['icon']); ?>" aria-hidden="true"></i><span><?php echo htmlspecialchars($__it['label']); ?></span>
+                    <?php if (!empty($__it['badge']) && (int)$__it['badge'] > 0): ?><span class="it-mb-badge"><?php echo (int)$__it['badge']; ?></span><?php endif; ?>
+                </a></li>
+                <?php endforeach; ?>
+            </ul>
+        </div>
+        <?php endforeach; else: ?>
         <!-- Nav grid -->
         <div class="mw-mobile-menu-grid">
             <?php foreach ($menuItems as $item):
@@ -179,6 +207,7 @@ if (!$_isCrew) {
             </a>
             <?php endforeach; ?>
         </div>
+        <?php endif; ?>
 
         <?php if ($_mobileUserRole === 'admin'): ?>
         <!-- Admin quick action: import plant card photo -->
@@ -196,7 +225,7 @@ if (!$_isCrew) {
         <div class="mw-mobile-menu-actions">
             <a href="/crm/profile.php" class="mw-mobile-menu-action">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-                Profile
+                Account
             </a>
             <a href="/crm/settings.php" class="mw-mobile-menu-action">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -287,9 +316,10 @@ if (!$_isCrew) {
 
     sheet.addEventListener('touchmove', function(e) {
         var dy = e.touches[0].clientY - touchStartY;
-        // Only drag-to-dismiss when sheet is scrolled to the very top and
-        // the finger is moving downward. Otherwise let normal scroll happen.
-        if (touchStartScroll <= 0 && dy > 0) {
+        // Only drag-to-dismiss when sheet is scrolled to the very top and the finger has
+        // clearly moved downward. A finger wobbles a few px during a tap; preventDefault on
+        // that wobble makes iOS Safari drop the click, so every tap in the sheet felt frozen.
+        if (touchStartScroll <= 0 && dy > 8) {
             sheet.classList.add('mw-sheet-dragging');
             var clamped = Math.max(0, dy);
             sheet.style.transform = 'translateY(' + clamped + 'px)';

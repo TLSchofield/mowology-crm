@@ -18,6 +18,10 @@ for ($__i = 0; $__i < 5; $__i++) {
 unset($__dir, $__i);
 
 require_once PUBLIC_ROOT . '/app_config/config.php';
+require_once APP_ROOT . '/Services/PortalBrand.php';
+require_once APP_ROOT . '/Core/Csp.php';
+require_once APP_ROOT . '/Core/Uploads.php';
+MwCsp::send(); // nonce CSP for the customer portal (Fable #22, 2026-10-12)
 
 // Cap for safety — a zip of 500 photos can be ~300MB
 const MAX_PHOTOS = 500;
@@ -25,10 +29,10 @@ const MAX_PHOTOS = 500;
 function sendError(string $msg, int $code = 400): void {
     http_response_code($code);
     header('Content-Type: text/html; charset=utf-8');
-    echo '<!doctype html><meta charset=utf-8><title>Mowology</title>'
+    echo '<!doctype html><meta charset=utf-8><title>' . htmlspecialchars(PortalBrand::name()) . '</title>'
        . '<body style="font-family:system-ui;padding:40px;text-align:center;">'
        . '<h2>Cannot download photos</h2><p>' . htmlspecialchars($msg) . '</p>'
-       . '<p><a href="javascript:history.back()">Go back</a></p></body>';
+       . '<p><a href="/">Go back</a></p></body>';
     exit;
 }
 
@@ -36,7 +40,8 @@ $token = trim($_GET['token'] ?? '');
 if ($token === '') sendError('No token provided.');
 
 $db = getDB();
-$stmt = $db->prepare("SELECT id, first_name, last_name FROM contacts WHERE portal_token = ? LIMIT 1");
+require_once APP_ROOT . '/Modules/Contacts/Services/PortalTokenService.php'; // 365-day portal links (audit #14)
+$stmt = $db->prepare("SELECT id, first_name, last_name FROM contacts WHERE portal_token = ?" . PortalTokenService::liveSql($db) . " LIMIT 1");
 $stmt->execute([$token]);
 $contact = $stmt->fetch(PDO::FETCH_ASSOC);
 if (!$contact) sendError('This download link is invalid.', 404);
@@ -64,7 +69,7 @@ if (empty($photos)) {
 }
 
 if (!class_exists('ZipArchive')) {
-    sendError('Server cannot create zip files. Please contact us at office@mowology.ca.');
+    sendError('Server cannot create zip files. Please ' . PortalBrand::callPhrase() . '.');
 }
 
 // Build the zip in a temp file
@@ -81,10 +86,12 @@ foreach ($photos as $ph) {
     $sourcePath = null;
     $candidates = [
         $ph['view_path'] ? PUBLIC_ROOT . $ph['view_path'] : null,
-        PUBLIC_ROOT . '/uploads/photos/' . $ph['filename'],
+        uploadsDir('photos') . '/' . $ph['filename'],
     ];
     foreach ($candidates as $candidate) {
-        if ($candidate && is_file($candidate) && is_readable($candidate)) {
+        // Only a file really inside this business's photos (realpath, folder boundary): a stored path can
+        // never pull another business's file, or anything else, into the zip (Codex 2026-10-23).
+        if ($candidate && is_file($candidate) && is_readable($candidate) && uploadsInside($candidate, 'photos')) {
             $sourcePath = $candidate;
             break;
         }
@@ -101,12 +108,13 @@ foreach ($photos as $ph) {
 }
 
 // README
-$readme = "Mowology Landscaping — Photo Archive\n"
+$readmeContact = implode(' · ', array_filter([PortalBrand::email(), PortalBrand::phone()]));
+$readme = PortalBrand::displayName() . " — Photo Archive\n"
         . "Client: " . trim(($contact['first_name'] ?? '') . ' ' . ($contact['last_name'] ?? '')) . "\n"
         . "Generated: " . date('Y-m-d H:i') . "\n"
         . "Total photos: {$addedCount}\n\n"
         . "Folders are named by visit date. Files inside are labelled with photo type.\n"
-        . "Questions? office@mowology.ca · (778) 846-9273\n";
+        . ($readmeContact !== '' ? "Questions? " . $readmeContact . "\n" : '');
 $zip->addFromString('README.txt', $readme);
 
 $zip->close();
@@ -118,8 +126,8 @@ if ($addedCount === 0) {
 
 // Stream the zip
 $displayName = trim(($contact['first_name'] ?? '') . '_' . ($contact['last_name'] ?? ''));
-$displayName = preg_replace('/[^a-zA-Z0-9_-]+/', '_', $displayName) ?: 'mowology';
-$zipName = 'mowology_photos_' . $displayName . '_' . date('Ymd') . '.zip';
+$displayName = preg_replace('/[^a-zA-Z0-9_-]+/', '_', $displayName) ?: 'client';
+$zipName = 'photos_' . $displayName . '_' . date('Ymd') . '.zip';
 
 header('Content-Type: application/zip');
 header('Content-Disposition: attachment; filename="' . $zipName . '"');

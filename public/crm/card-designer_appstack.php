@@ -462,7 +462,7 @@ const CARD_DEFS = {
       'sq-ft':         { label:'Sq Ft',               icon:'expand', desc:'Property square footage',      colorable:false },
       'last-visit':    { label:'Last Visit',          icon:'cal',    desc:'Previous service date',        colorable:false },
       'photos':        { label:'Service Blocks',       icon:'cam',    desc:'Per-service: photos, notes & buttons for each job', colorable:false },
-      'clock-in':      { label:'Clock In Button',     icon:'login',  desc:'Start job timer',              colorable:true  },
+      'clock-in':      { label:'Start Button',         icon:'login',  desc:'Start job timer',              colorable:true  },
       'complete-job':  { label:'Complete Job Button', icon:'check',  desc:'Mark job complete',            colorable:false },
       'go-btn':        { label:'Go Button',           icon:'nav',    desc:'Opens navigation to job address', colorable:true },
       'profit-bar':    { label:'Profit Bar',          icon:'trend',  desc:'Job profitability indicator',  colorable:false },
@@ -521,7 +521,7 @@ function btnContent(id) {
   const c = p.color || null;
   switch (id) {
     case 'clock-in':
-      return `<div class="cdx-p-btn cdx-p-btn-g" style="flex:1${c ? ';background:' + c : ''}">Clock In</div>`;
+      return `<div class="cdx-p-btn cdx-p-btn-g" style="flex:1${c ? ';background:' + c : ''}">Start</div>`;
     case 'complete-job':
       return `<div class="cdx-p-btn cdx-p-btn-d" style="flex:1">Complete Job</div>`;
     case 'go-btn': {
@@ -789,7 +789,7 @@ function getStopPreview(id) {
       </div>`;
       const notesRow = `<div class="cdx-p-svc-notes">Site notes for this job…</div>`;
       const btnsRow  = `<div class="cdx-p-btns" style="padding-bottom:10px">
-        <div class="cdx-p-btn cdx-p-btn-g" style="flex:1">Clock In</div>
+        <div class="cdx-p-btn cdx-p-btn-g" style="flex:1">Start</div>
         <div class="cdx-p-btn cdx-p-btn-d" style="flex:1">Complete Job</div>
       </div>`;
       // Mock product icons — coloured squares simulate real icon_set images

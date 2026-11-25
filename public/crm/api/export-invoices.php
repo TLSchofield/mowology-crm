@@ -16,6 +16,7 @@ unset($__dir, $__i);
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 require_once PUBLIC_ROOT . '/crm/includes/functions.php';
+require_once APP_ROOT . '/Core/Csv.php';   // csvPut(): formula-safe cells (audit #18)
 requireLogin();
 requirePermission('billing.view');
 session_write_close();
@@ -23,11 +24,13 @@ session_write_close();
 $db = getDB();
 
 $stmt = $db->query("
-    SELECT i.invoice_number, i.status, i.total, i.amount_paid, i.balance_due,
+    SELECT i.invoice_number, i.status,
+           i.subtotal, i.tax_rate, i.tax_amount, i.gst_number,
+           i.total, i.amount_paid, i.balance_due,
            i.issue_date, i.due_date, i.paid_at, i.payment_method,
            i.created_at,
            COALESCE(CONCAT(pc.first_name,' ',pc.last_name), c.company_name, 'N/A') AS client_name,
-           p.address, p.city
+           p.address, p.city, p.province
     FROM invoices i
     LEFT JOIN properties p ON i.property_id = p.id
     LEFT JOIN contacts pc ON p.site_contact_id = pc.id
@@ -42,17 +45,34 @@ header('Content-Disposition: attachment; filename="invoices-' . date('Y-m-d') . 
 $out = fopen('php://output', 'w');
 fwrite($out, "\xEF\xBB\xBF");
 
-fputcsv($out, ['Invoice #', 'Client', 'Status', 'Total', 'Paid', 'Balance Due',
-               'Address', 'City', 'Issue Date', 'Due Date', 'Paid At',
-               'Payment Method', 'Created']);
+csvPut($out, [
+    'Invoice #', 'Client', 'Status',
+    'Subtotal', 'GST Rate (%)', 'GST Amount', 'GST Reg #',
+    'Total', 'Paid', 'Balance Due',
+    'Address', 'City', 'Province',
+    'Issue Date', 'Due Date', 'Paid At', 'Payment Method', 'Created'
+]);
 
 foreach ($rows as $r) {
-    fputcsv($out, [
-        $r['invoice_number'], $r['client_name'], $r['status'],
-        number_format((float)$r['total'], 2), number_format((float)$r['amount_paid'], 2),
+    csvPut($out, [
+        $r['invoice_number'],
+        $r['client_name'],
+        $r['status'],
+        number_format((float)$r['subtotal'], 2),
+        number_format((float)($r['tax_rate'] ?? 0.05) * 100, 2),
+        number_format((float)$r['tax_amount'], 2),
+        $r['gst_number'] ?? '',
+        number_format((float)$r['total'], 2),
+        number_format((float)$r['amount_paid'], 2),
         number_format((float)$r['balance_due'], 2),
-        $r['address'], $r['city'],
-        $r['issue_date'], $r['due_date'], $r['paid_at'], $r['payment_method'], $r['created_at'],
+        $r['address'],
+        $r['city'],
+        $r['province'] ?? '',
+        $r['issue_date'],
+        $r['due_date'],
+        $r['paid_at'],
+        $r['payment_method'],
+        $r['created_at'],
     ]);
 }
 fclose($out);

@@ -1,0 +1,342 @@
+/**
+ * Otto — the operations head's card on the dashboard (public/crm/includes/otto-card.php).
+ *
+ * Loads Otto's suggestions and questions from /crm/api/otto.php?mode=suggestions and lets
+ * the owner act on each one. Nothing changes until he clicks: a weather move asks the
+ * weather guard for a slot first and shows it before moving; a clock-out or a duration
+ * is shown in an editable field first. Nothing here messages a crew member.
+ */
+(function () {
+    'use strict';
+    var API = '/crm/api/otto.php';
+    var list, qs;
+
+    function esc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+    }
+
+    function get(params) {
+        return fetch(API + '?' + params, { credentials: 'same-origin', cache: 'no-store' })
+            .then(function (r) { return r.json(); });
+    }
+
+    function post(body) {
+        body.csrf_token = window.MW_CSRF_TOKEN || '';
+        return fetch(API, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
+            body: JSON.stringify(body)
+        }).then(function (r) { return r.json(); });
+    }
+
+    // ── Suggestions ──────────────────────────────────────────────────────────
+
+    function controls(it) {
+        var p = it.propose || {};
+        switch (it.kind) {
+            case 'weather':
+                var moveFirst = p.lean === 'move';
+                return '<div class="mw-otto-btns">' +
+                    '<button type="button" class="' + (moveFirst ? 'is-main' : '') + '" data-do="slot">Move it</button>' +
+                    '<button type="button" class="' + (p.lean === 'keep' ? 'is-main' : '') + '" data-do="keep">Keep it</button>' +
+                    '</div><div class="mw-otto-slot" hidden></div>';
+            case 'clock_out':
+                return '<div class="mw-otto-btns">' +
+                    '<label class="mw-otto-field">Clock-out <input type="datetime-local" name="clock_out" min="' + esc(p.clock_in || '') +
+                    '" value="' + esc(p.clock_out || p.clock_in || '') + '"></label>' +
+                    '<button type="button" class="is-main" data-do="apply">Use this time</button>' +
+                    '<button type="button" data-do="dismiss">Leave it</button></div>';
+            case 'job_timer':
+            case 'no_time':
+                return '<div class="mw-otto-btns">' +
+                    '<label class="mw-otto-field"><input type="number" name="minutes" min="1" max="720" step="5" value="' + esc(p.minutes || '') + '"> min</label>' +
+                    '<button type="button" class="is-main" data-do="apply">' + (it.kind === 'job_timer' ? 'Fix the timer' : 'Save the time') + '</button>' +
+                    '<button type="button" data-do="dismiss">Leave it</button></div>';
+            case 'bylaw':
+                return '<div class="mw-otto-btns">' +
+                    (p.problem === 'ban' ? '' :
+                        '<label class="mw-otto-field">Start <input type="time" name="time" value="' + esc(p.allowed_start || '') + '"></label>' +
+                        '<button type="button" class="is-main" data-do="retime">Use this time</button>') +
+                    (p.blower ? '<button type="button"' + (p.problem === 'ban' ? ' class="is-main"' : '') + ' data-do="note">Rake/vac instead — tell the crew</button>' : '') +
+                    '<button type="button" data-do="dismiss">Leave it</button></div>';
+            case 'west_end':
+                return '<div class="mw-otto-btns">' +
+                    '<button type="button" class="is-main" data-do="note">Add a crew note</button>' +
+                    '<button type="button" data-do="dismiss">Leave it</button></div>';
+            case 'truck_range':
+                return '<div class="mw-otto-btns">' +
+                    '<button type="button" class="is-main" data-do="ack">I\'ll rework the day</button>' +
+                    '<button type="button" data-do="dismiss">It\'s fine</button></div>';
+            case 'maintenance':
+                return '<div class="mw-otto-btns">' +
+                    '<button type="button" class="is-main" data-do="task">Make a task</button>' +
+                    '<button type="button" data-do="done">Already done</button>' +
+                    '<button type="button" data-do="dismiss">Leave it</button></div>';
+            case 'pack_fading':
+                return '<div class="mw-otto-btns">' +
+                    '<button type="button" class="is-main" data-do="retire">Retire the pack</button>' +
+                    '<button type="button" data-do="dismiss">Keep using it</button></div>';
+            case 'training_gap':
+                return '<div class="mw-otto-btns">' +
+                    '<button type="button" class="is-main" data-do="task">Make me a task</button>' +
+                    (p.shadowed ? '<button type="button" data-do="shadow">Fine, they\'re shadowing</button>' : '') +
+                    '<button type="button" data-do="dismiss">Not now</button></div>';
+            case 'training_quality':
+            case 'safety_refresher':
+                return '<div class="mw-otto-btns">' +
+                    '<button type="button" class="is-main" data-do="task">Make me a task</button>' +
+                    '<button type="button" data-do="dismiss">Not now</button></div>';
+            case 'training_topic':
+                return '<div class="mw-otto-btns">' +
+                    '<button type="button" class="is-main" data-do="task">Add to the crew meeting</button>' +
+                    '<button type="button" data-do="dismiss">Not now</button></div>';
+            case 'unscheduled':
+            case 'extra_work':
+                return unscheduledControls(p);
+            case 'visit_date':
+                return '<div class="mw-otto-btns">' +
+                    '<button type="button" class="is-main" data-do="move_date">Move it to ' + esc(p.to_label || p.to || '') + '</button>' +
+                    '<button type="button" data-do="dismiss">Leave it</button></div>';
+            case 'duration':
+                return '<div class="mw-otto-btns">' +
+                    '<label class="mw-otto-field">Plan length <input type="number" name="minutes" min="5" max="600" step="5" value="' + esc(p.minutes || '') + '"> min</label>' +
+                    '<button type="button" class="is-main" data-do="apply">Update the plan</button>' +
+                    '<button type="button" data-do="keep">Keep ' + esc(p.planned ? p.planned + ' min' : 'it') + '</button></div>';
+            case 'silent':
+                return '<div class="mw-otto-btns">' +
+                    '<button type="button" class="is-main" data-do="real">It\'s a problem — I\'ll call</button>' +
+                    '<button type="button" data-do="fine">It\'s fine</button></div>';
+            case 'pin_off':
+                return '<div class="mw-otto-btns">' +
+                    '<button type="button" class="is-main" data-do="move_pin">Move the pin there</button>' +
+                    '<button type="button" data-do="dismiss">The pin is right</button></div>';
+            case 'default_border':
+                return '<div class="mw-otto-btns">' +
+                    '<a class="mw-otto-btnlink is-main" href="' + esc(it.url) + '">Draw it</a>' +
+                    '<button type="button" data-do="keep">It\'s fine as it is</button></div>';
+            case 'no_pin':
+                return '<div class="mw-otto-btns">' +
+                    '<a class="mw-otto-btnlink is-main" href="' + esc(it.url) + '">Find it on the map</a>' +
+                    '<button type="button" data-do="dismiss">Not now</button></div>';
+            case 'border_overlap':
+                return '<div class="mw-otto-btns">' +
+                    '<a class="mw-otto-btnlink is-main" href="' + esc(it.url) + '">Redraw</a>' +
+                    '<button type="button" data-do="dismiss">They share a lot — fine</button></div>';
+        }
+        // Any kind the server sends its own buttons for (supplier forms, 2026-10-10) — no JS change
+        // needed when Otto learns something new.
+        if (Array.isArray(p.buttons) && p.buttons.length) {
+            var lines = Array.isArray(p.answers) && p.answers.length
+                ? '<small class="mw-otto-detail">' + p.answers.map(esc).join('<br>') + '</small>' : '';   // existing style: brand.css is shared
+            return lines + '<div class="mw-otto-btns">' + p.buttons.map(function (b) {
+                return '<button type="button"' + (b.main ? ' class="is-main"' : '') + ' data-do="' + esc(b.choice) + '">' + esc(b.label) + '</button>';
+            }).join('') + '</div>';
+        }
+        return '';
+    }
+
+    var ONE_OFF_SERVICES = ['Hedge Trimming', 'Cleanup', 'Garden Care', 'Lawn Cut', 'Pruning', 'Other'];
+
+    /**
+     * Crew at a property with nothing scheduled (or far longer than the scheduled visit): times, which
+     * plan (or a one-off — the default for extra work), then add / invoice / link, or not work /
+     * "it was all the lawn cut".
+     */
+    function unscheduledControls(p) {
+        var plans = p.plans || [];
+        var extra = !!p.extra;
+        var oneoffFirst = extra || !plans.length;
+        var opts = plans.map(function (pl) {
+            return '<option value="' + pl.id + '">' + esc(pl.number + ' · ' + (pl.title || pl.service_type) + (pl.recurring ? ' (recurring)' : '')) + '</option>';
+        }).join('') + '<option value="oneoff"' + (oneoffFirst ? ' selected' : '') + '>A one-off job</option>';
+        var svc = ONE_OFF_SERVICES.map(function (s) { return '<option>' + esc(s) + '</option>'; }).join('');
+        var links = (p.invoices || []).map(function (inv) {
+            return '<button type="button" data-do="link" data-invoice="' + inv.id + '">Already billed — ' + esc(inv.number) + '</button>';
+        }).join('');
+        return '<div class="mw-otto-btns mw-otto-unsched">' +
+            '<label class="mw-otto-field">From <input type="time" name="start" value="' + esc(p.start || '') + '"></label>' +
+            '<label class="mw-otto-field">to <input type="time" name="end" value="' + esc(p.end || '') + '"></label>' +
+            '<label class="mw-otto-field">On <select name="plan_id">' + opts + '</select></label>' +
+            '<span class="mw-otto-oneoff"' + (oneoffFirst ? '' : ' hidden') + '>' +
+            '<label class="mw-otto-field"><select name="service_type">' + svc + '</select></label>' +
+            '<label class="mw-otto-field"><input type="text" name="title" placeholder="What was done (e.g. yew hedge reduction)" maxlength="120"></label></span>' +
+            '</div><div class="mw-otto-btns">' +
+            '<button type="button" class="is-main" data-do="add">' + (extra ? 'Add the extra work as a visit' : 'Add the visit') + '</button>' +
+            '<button type="button" data-do="add_invoice">Add + create invoice</button>' + links +
+            (extra ? '<button type="button" data-do="all_scheduled">It was all the ' + esc(p.scheduled_label || 'visit') + '</button>'
+                   : '<button type="button" data-do="not_work">Not work</button>') + '</div>';
+    }
+
+    function item(it) {
+        var el = document.createElement('div');
+        el.className = 'mw-otto-item is-p' + it.priority;
+        el.dataset.id = it.id;
+        el.dataset.kind = it.kind;
+        el.innerHTML = '<p>' + esc(it.text) + '</p>' +
+            (it.detail ? '<small class="mw-otto-detail">' + esc(it.detail) + '</small>' : '') +
+            controls(it) +
+            (it.url ? '<a class="mw-otto-open" href="' + esc(it.url) + '">Open</a>' : '') +
+            '<div class="mw-otto-msg" hidden></div>';
+        el.addEventListener('click', function (e) {
+            var b = e.target.closest('button[data-do]');
+            if (b) act(el, it, b.getAttribute('data-do'), b);
+        });
+        el.addEventListener('change', function (e) {
+            if (e.target.name !== 'plan_id') return;
+            var o = el.querySelector('.mw-otto-oneoff');
+            if (o) o.hidden = e.target.value !== 'oneoff';
+        });
+        return el;
+    }
+
+    function say(el, text, bad) {
+        var m = el.querySelector('.mw-otto-msg');
+        m.hidden = false;
+        m.textContent = text;
+        m.classList.toggle('is-bad', !!bad);
+    }
+
+    function done(el, text) {
+        el.classList.add('is-done');
+        el.innerHTML = '<p class="mw-otto-done">' + esc(text) + '</p>';
+        setTimeout(function () {
+            var host = el.parentNode;
+            el.remove();
+            if (host && !host.querySelector('.mw-otto-item')) host.innerHTML = '<div class="mw-otto-empty">All caught up. Nothing needs you.</div>';
+        }, 2600);
+    }
+
+    function decide(el, body, btn) {
+        if (btn) btn.disabled = true;
+        body.mode = 'decide';
+        body.suggestion_id = parseInt(el.dataset.id, 10);
+        return post(body).then(function (r) {
+            if (r.ok && r.redirect) { done(el, r.message); setTimeout(function () { window.location.href = r.redirect; }, 900); return; }
+            if (r.ok) done(el, r.message);
+            else { say(el, r.message || r.error || 'That didn\'t work.', true); if (btn) btn.disabled = false; }
+        }).catch(function () { say(el, 'No connection. Try again.', true); if (btn) btn.disabled = false; });
+    }
+
+    function act(el, it, what, btn) {
+        if (what === 'slot') return findSlot(el, it, btn);
+        if (what === 'move') {
+            var d = el.querySelector('input[name="date"]').value;
+            var t = el.querySelector('input[name="time"]').value;
+            if (!d) return say(el, 'Pick a date first.', true);
+            return decide(el, { choice: 'move', date: d, time: t }, btn);
+        }
+        if (what === 'retime') {
+            var tm = el.querySelector('input[name="time"]');
+            if (!tm || !tm.value) return say(el, 'Pick a start time first.', true);
+            return decide(el, { choice: 'retime', time: tm.value }, btn);
+        }
+        if (what === 'cancel') { el.querySelector('.mw-otto-slot').hidden = true; return; }
+        if (what === 'apply') {
+            var body = { choice: 'apply' };
+            var co = el.querySelector('input[name="clock_out"]');
+            var mi = el.querySelector('input[name="minutes"]');
+            if (co) { if (!co.value) return say(el, 'Set the clock-out time first.', true); body.clock_out = co.value.replace('T', ' '); }
+            if (mi) { if (!mi.value) return say(el, 'Give the minutes first.', true); body.minutes = parseInt(mi.value, 10); }
+            return decide(el, body, btn);
+        }
+        if (what === 'add' || what === 'add_invoice' || what === 'link') {
+            var st = el.querySelector('input[name="start"]').value;
+            var en = el.querySelector('input[name="end"]').value;
+            if (!st || !en || en <= st) return say(el, 'Set when they started and finished.', true);
+            var plan = el.querySelector('select[name="plan_id"]').value;
+            var b2 = { start: st, end: en, then: what === 'add_invoice' ? 'invoice' : (what === 'link' ? 'link' : 'none') };
+            if (plan === 'oneoff') {
+                b2.choice = 'oneoff';
+                b2.service_type = el.querySelector('select[name="service_type"]').value;
+                b2.title = el.querySelector('input[name="title"]').value;
+            } else {
+                b2.choice = 'add_visit';
+                b2.plan_id = parseInt(plan, 10);
+            }
+            if (what === 'link') b2.invoice_id = parseInt(btn.getAttribute('data-invoice'), 10);
+            return decide(el, b2, btn);
+        }
+        if (what === 'move_date') return decide(el, { choice: 'move' }, btn);
+        if (what === 'move_pin') return decide(el, { choice: 'move_pin' }, btn);
+        return decide(el, { choice: what }, btn);
+    }
+
+    function findSlot(el, it, btn) {
+        btn.disabled = true;
+        var box = el.querySelector('.mw-otto-slot');
+        box.hidden = false;
+        box.innerHTML = '<small>Looking for a dry slot…</small>';
+        get('mode=find_slot&visit_id=' + encodeURIComponent(it.key.split(':').pop())).then(function (r) {
+            btn.disabled = false;
+            var s = (r && r.slot) || null;
+            box.innerHTML = '<small>' + (s ? 'The next dry slot I can find:' : 'I couldn\'t find a dry slot in the next few days. Pick one:') + '</small>' +
+                '<div class="mw-otto-btns">' +
+                '<input type="date" name="date" value="' + esc(s ? s.date : '') + '">' +
+                '<input type="time" name="time" value="' + esc(s ? s.time_start : '08:00') + '">' +
+                '<button type="button" class="is-main" data-do="move">Move it there</button>' +
+                '<button type="button" data-do="cancel">Cancel</button></div>';
+        }).catch(function () { btn.disabled = false; box.innerHTML = '<small>No connection. Try again.</small>'; });
+    }
+
+    // ── Questions ────────────────────────────────────────────────────────────
+
+    var ANSWER_LABELS = {
+        keep: 'Keep it going', move: 'Move it', depends: 'It depends',
+        yes: 'Yes, wait an hour', no: 'No, keep flagging'
+    };
+
+    function questions(list2) {
+        if (!list2 || !list2.length) { qs.hidden = true; return; }
+        qs.hidden = false;
+        qs.innerHTML = '<div class="mw-otto-qhead"><b>Otto has ' + (list2.length === 1 ? 'a question' : list2.length + ' questions') + '</b></div>' +
+            list2.map(function (q) {
+                return '<div class="mw-otto-q" data-id="' + q.id + '"><p>' + esc(q.question) + '</p><div class="mw-otto-btns">' +
+                    q.answers.map(function (a) { return '<button type="button" data-a="' + esc(a) + '">' + esc(ANSWER_LABELS[a] || a) + '</button>'; }).join('') +
+                    '</div></div>';
+            }).join('');
+    }
+
+    function onQuestion(e) {
+        var b = e.target.closest('button[data-a]');
+        if (!b) return;
+        var q = b.closest('.mw-otto-q');
+        b.disabled = true;
+        post({ mode: 'answer', question_id: parseInt(q.dataset.id, 10), answer: b.getAttribute('data-a') }).then(function (r) {
+            q.innerHTML = '<p class="mw-otto-done">' + esc(r.ok ? r.message : (r.message || r.error || 'That didn\'t work.')) + '</p>';
+            setTimeout(function () { q.remove(); if (!qs.querySelector('.mw-otto-q')) qs.hidden = true; }, 2600);
+        }).catch(function () { b.disabled = false; });
+    }
+
+    function load() {
+        get('mode=suggestions').then(function (r) {
+            if (!r || !r.ok) { list.innerHTML = '<div class="mw-otto-empty">' + esc((r && r.error) || 'Otto couldn\'t load.') + '</div>'; return; }
+            list.innerHTML = '';
+            if (!r.items.length) list.innerHTML = '<div class="mw-otto-empty">All caught up. Nothing needs you.</div>';
+            r.items.slice(0, 8).forEach(function (it) { list.appendChild(item(it)); });
+            if (r.items.length > 8) {
+                var more = document.createElement('div');
+                more.className = 'mw-otto-empty';
+                more.textContent = (r.items.length - 8) + ' more after these.';
+                list.appendChild(more);
+            }
+            questions(r.questions);
+        }).catch(function () { list.innerHTML = '<div class="mw-otto-empty">Otto couldn\'t load. Refresh to try again.</div>'; });
+    }
+
+    // The review page (/crm/ops/otto-review.php) renders the same items with the same buttons.
+    window.MwOtto = { item: item, get: get, post: post, esc: esc };
+
+    function init() {
+        list = document.getElementById('mw-otto-list');
+        qs = document.getElementById('mw-otto-qs');
+        if (!list) return;
+        if (qs) qs.addEventListener('click', onQuestion);
+        load();
+    }
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+    else init();
+})();

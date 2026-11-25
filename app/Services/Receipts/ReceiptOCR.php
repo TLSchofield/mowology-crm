@@ -127,25 +127,14 @@ function extractTextFromImage(string $filePath): array
     ]);
 
     // Make the API call with Bearer token
-    $context = stream_context_create([
-        'http' => [
-            'method'  => 'POST',
-            'header'  => "Content-Type: application/json\r\n"
-                       . "Authorization: Bearer " . $accessToken . "\r\n",
-            'content' => $requestBody,
-            'timeout' => 30,
-        ],
-    ]);
-
-    $response = @file_get_contents($apiUrl, false, $context);
+    [$response, $httpErr] = receiptOcrHttpPost($apiUrl, ['Content-Type: application/json', 'Authorization: Bearer ' . $accessToken], $requestBody, 30);
 
     if ($response === false) {
-        $err = error_get_last();
         return [
             'success'      => false,
             'text'         => null,
             'raw_response' => null,
-            'error'        => 'Vision API request failed: ' . ($err['message'] ?? 'Unknown error'),
+            'error'        => 'Vision API request failed: ' . $httpErr,
         ];
     }
 
@@ -201,6 +190,61 @@ function extractTextFromImage(string $filePath): array
         'raw_response' => $decoded,
         'error'        => null,
     ];
+}
+
+
+/**
+ * Text of a scanned PDF (no text layer) through Google Vision's files:annotate, which reads PDF pages directly
+ * (2026-11-06). The cron's PHP has no Imagick, so emailed scans could never be turned into an image: nine
+ * emailed receipts sat with no text. First $pages pages (Vision's inline limit is 5). Same result shape as
+ * extractTextFromImage(); raw_response holds the first page in images:annotate shape, so the parser can rebuild
+ * rows from its word boxes as it does for photos.
+ */
+function extractTextFromPdf(string $filePath, int $pages = 2): array
+{
+    $fail = static fn(string $why, $raw = null) => ['success' => false, 'text' => null, 'raw_response' => $raw, 'error' => $why];
+    if (!defined('GOOGLE_VISION_CREDENTIALS') || empty(GOOGLE_VISION_CREDENTIALS)) return $fail('Vision credentials not configured');
+    $credPath = GOOGLE_VISION_CREDENTIALS;
+    if (!file_exists($credPath) || !is_readable($credPath)) {
+        $alt = (defined('PUBLIC_ROOT') ? PUBLIC_ROOT : ($_SERVER['DOCUMENT_ROOT'] ?? '')) . '/app_config/' . basename($credPath);
+        if (!is_readable($alt)) return $fail('Vision credentials file not found');
+        $credPath = $alt;
+    }
+    if (!is_readable($filePath)) return $fail('PDF not found or not readable');
+    $bytes = file_get_contents($filePath);
+    if ($bytes === false || strncmp($bytes, '%PDF', 4) !== 0) return $fail('Not a PDF');
+    $tok = getVisionAccessToken($credPath);
+    if (!$tok['success']) return $fail('Auth failed: ' . $tok['error']);
+
+    $body = json_encode(['requests' => [[
+        'inputConfig' => ['content' => base64_encode($bytes), 'mimeType' => 'application/pdf'],
+        'features'    => [['type' => 'DOCUMENT_TEXT_DETECTION']],
+        'pages'       => range(1, max(1, min(5, $pages))),
+        'imageContext' => ['languageHints' => ['en']],
+    ]]]);
+    [$res, $err] = receiptOcrHttpPost('https://vision.googleapis.com/v1/files:annotate',
+        ['Content-Type: application/json', 'Authorization: Bearer ' . $tok['token']], (string)$body, 45);
+    if ($res === false) return $fail('Vision API request failed: ' . $err);
+    $d = json_decode((string)$res, true);
+    if (!is_array($d)) return $fail('Failed to decode Vision API response');
+    if (isset($d['error'])) return $fail('Vision API error: ' . ($d['error']['message'] ?? 'Unknown'), $d);
+    return visionPdfResponseText($d);
+}
+
+/** files:annotate's answer → the pages' text joined, and page 1 in images:annotate shape. PURE. */
+function visionPdfResponseText(array $d): array
+{
+    $pageResponses = $d['responses'][0]['responses'] ?? [];
+    $text = '';
+    $first = null;
+    foreach ($pageResponses as $pr) {
+        if (!is_array($pr) || isset($pr['error'])) continue;
+        $t = (string)($pr['fullTextAnnotation']['text'] ?? '');
+        if ($t === '') continue;
+        $first = $first ?? $pr;
+        $text .= ($text === '' ? '' : "\n") . $t;
+    }
+    return ['success' => true, 'text' => $text, 'raw_response' => $first ? ['responses' => [$first]] : null, 'error' => null];
 }
 
 
@@ -286,19 +330,9 @@ function getVisionAccessToken(string $credPath): array
         'assertion'  => $jwt,
     ]);
 
-    $context = stream_context_create([
-        'http' => [
-            'method'  => 'POST',
-            'header'  => "Content-Type: application/x-www-form-urlencoded\r\n",
-            'content' => $postData,
-            'timeout' => 15,
-        ],
-    ]);
-
-    $tokenResponse = @file_get_contents($tokenUrl, false, $context);
+    [$tokenResponse, $httpErr] = receiptOcrHttpPost($tokenUrl, ['Content-Type: application/x-www-form-urlencoded'], $postData, 15);
     if ($tokenResponse === false) {
-        $err = error_get_last();
-        return ['success' => false, 'token' => null, 'error' => 'Token exchange failed: ' . ($err['message'] ?? 'Unknown')];
+        return ['success' => false, 'token' => null, 'error' => 'Token exchange failed: ' . $httpErr];
     }
 
     $tokenData = json_decode($tokenResponse, true);
@@ -420,6 +454,29 @@ function calculateFieldConfidences(array $parsed, array $wordConfidences): array
 /**
  * Base64 URL-safe encode (no padding, URL-safe alphabet).
  */
+/**
+ * POST over https: curl when PHP has it, else a stream (2026-10-19). The scan cron's PHP CLI has no https
+ * stream wrapper ("no suitable wrapper could be found"), so every scheduled scan read nothing since
+ * Oct 7 while the same call worked from the web. @return array{0: string|false, 1: string} [body, error]
+ */
+function receiptOcrHttpPost(string $url, array $headers, string $body, int $timeout): array
+{
+    if (function_exists('curl_init')) {
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_POSTFIELDS => $body, CURLOPT_HTTPHEADER => $headers,
+                                CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => $timeout, CURLOPT_CONNECTTIMEOUT => 10]);
+        $res = curl_exec($ch);
+        $err = $res === false ? 'curl: ' . curl_error($ch) : '';
+        curl_close($ch);
+        return [$res, $err];
+    }
+    $ctx = stream_context_create(['http' => ['method' => 'POST', 'header' => implode("\r\n", $headers) . "\r\n", 'content' => $body,
+                                              'timeout' => $timeout, 'ignore_errors' => true]]);
+    $res = @file_get_contents($url, false, $ctx);
+    if ($res === false) { $e = error_get_last(); return [false, (string)($e['message'] ?? 'Unknown error')]; }
+    return [$res, ''];
+}
+
 function base64UrlEncode(string $data): string
 {
     return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');

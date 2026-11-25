@@ -61,9 +61,32 @@
     var cards = null;           // lazily captured
     var cardText = null;        // cached normalized text per card
 
+    // What a card says, minus anything marked data-nosearch (the service-history grid: its day
+    // numbers, weekday letters and legend would make "15" or "done" match every card).
+    function searchableText(el) {
+        if (!el.querySelector('[data-nosearch]')) return el.textContent;
+        var copy = el.cloneNode(true);
+        Array.prototype.forEach.call(copy.querySelectorAll('[data-nosearch]'), function (n) {
+            n.parentNode.removeChild(n);
+        });
+        return copy.textContent;
+    }
+
     function rebuildCardIndex() {
         cards = Array.prototype.slice.call(container.querySelectorAll('.mw-mc-card'));
-        cardText = cards.map(function (el) { return normalize(el.textContent); });
+        cardText = cards.map(function (el) { return normalize(searchableText(el)); });
+    }
+
+    // A section heading ("Completed") with every card under it filtered out is just noise.
+    function syncSectionLabels() {
+        var labels = container.querySelectorAll('.mw-mc-section-label');
+        Array.prototype.forEach.call(labels, function (label) {
+            var anyVisible = false;
+            for (var n = label.nextElementSibling; n && !n.classList.contains('mw-mc-section-label'); n = n.nextElementSibling) {
+                if (n.classList.contains('mw-mc-card') && n.style.display !== 'none') { anyVisible = true; break; }
+            }
+            label.style.display = anyVisible ? '' : 'none';
+        });
     }
 
     function applyFilter(query) {
@@ -76,6 +99,7 @@
             cards[i].style.display = hit ? '' : 'none';
             if (hit) shown++;
         }
+        syncSectionLabels();
 
         // Update the count label. When q is empty we say nothing so the
         // screen reader isn't spammed on page load.

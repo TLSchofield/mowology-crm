@@ -18,6 +18,7 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 require_once CRM_INCLUDES . '/functions.php';
 
 header('Content-Type: application/json');
@@ -96,6 +97,6 @@ try {
 } catch (Exception $e) {
     error_log("Note save error: " . $e->getMessage());
     http_response_code(500);
-    echo json_encode(['success' => false, 'error' => 'Server error: ' . $e->getMessage()]);
+    echo json_encode(['success' => false, 'error' => 'Server error: ' . ApiResponse::message($e, 'handle-note-save')]);
 }
 ?>

@@ -47,8 +47,12 @@ $plansStmt = $db->prepare("
 $plansStmt->execute([$propertyId]);
 $plans = $plansStmt->fetchAll(PDO::FETCH_ASSOC);
 
-$lat = $property['latitude']  ?? $property['lat'] ?? 49.2827;
-$lng = $property['longitude'] ?? $property['lng'] ?? -123.1207;
+// Real coordinates only: if the property has none, the map geocodes its address
+// instead of opening on a made-up downtown Vancouver point.
+$lat = (float)($property['latitude']  ?? $property['lat'] ?? 0);
+$lng = (float)($property['longitude'] ?? $property['lng'] ?? 0);
+$hasCoords = ($lat != 0.0 && $lng != 0.0);
+$geocodeAddress = trim(($property['address'] ?? '') . ' ' . ($property['city'] ?? ''));
 
 // Support return_to parameter for back navigation (prevent open redirect)
 $returnTo = '';
@@ -62,8 +66,9 @@ if (!empty($_GET['return_to'])) {
 $pageTitle  = 'Zone Editor — ' . htmlspecialchars($property['address'] ?? 'Property');
 $activePage = 'jobs';
 $mapsApiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
-$extraHead  = '<script src="/crm/js/map-draw/map-draw-tool.js"></script>'
-            . '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($mapsApiKey, ENT_QUOTES, 'UTF-8') . '&libraries=drawing,geometry&callback=initZoneEditor" async defer></script>';
+$mdtVer     = @filemtime(dirname(__DIR__) . '/js/map-draw/map-draw-tool.js') ?: '1';
+$extraHead  = '<script src="/crm/js/map-draw/map-draw-tool.js?v=' . $mdtVer . '"></script>'
+            . '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($mapsApiKey, ENT_QUOTES, 'UTF-8') . '&libraries=geometry&callback=initZoneEditor" async defer></script>';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
@@ -186,7 +191,7 @@ $extraHead  = '<script src="/crm/js/map-draw/map-draw-tool.js"></script>'
         <div class="d-flex align-items-center justify-content-between mt-2">
             <p class="text-muted small mb-0">
                 <i data-feather="info" class="me-1"></i>
-                Yellow = arrival border. Coloured = work zones. Hover a zone to see its name.
+                Yellow = arrival border. Coloured = work zones. Drag a node to fine-tune a saved zone (auto-saves).
             </p>
             <div id="tileCacheStatus" class="mw-tile-status" style="display:none;"></div>
         </div>
@@ -196,7 +201,8 @@ $extraHead  = '<script src="/crm/js/map-draw/map-draw-tool.js"></script>'
 
 <script>
 const PROPERTY_ID  = <?= (int)$propertyId ?>;
-const MAP_CENTER   = { lat: <?= (float)$lat ?>, lng: <?= (float)$lng ?> };
+const MAP_CENTER   = <?= $hasCoords ? '{ lat: ' . (float)$lat . ', lng: ' . (float)$lng . ' }' : 'null' ?>;
+const MAP_ADDRESS  = <?= json_encode($geocodeAddress) ?>;
 const CSRF_TOKEN   = '<?= htmlspecialchars(generateCSRFToken()) ?>';
 const GEOFENCE_API = '/crm/api/geofence.php';
 
@@ -214,6 +220,7 @@ function initZoneEditor() {
     tool = new MapDrawTool({
         mapContainer: 'zone-map',
         center:       MAP_CENTER,
+        address:      MAP_ADDRESS,
         zoom:         20,
         marker:       true,
         onReady: function () {
@@ -221,6 +228,13 @@ function initZoneEditor() {
             const b2 = document.getElementById('btn-draw-zone');
             if (b1) b1.disabled = false;
             if (b2) b2.disabled = false;
+
+            // Property label pinned to top-left of the map
+            const addrChip = document.createElement('div');
+            addrChip.style.cssText = 'background:#fff;padding:4px 10px;border-radius:20px;box-shadow:0 1px 4px rgba(0,0,0,.35);font-size:12px;font-weight:600;color:#1a1a1a;margin:8px;white-space:nowrap;pointer-events:none;';
+            addrChip.textContent = <?= json_encode($property['address'] ?? 'Property #' . $propertyId) ?>;
+            tool.getMap().controls[google.maps.ControlPosition.TOP_LEFT].push(addrChip);
+
             loadZones();
             if (typeof feather !== 'undefined') feather.replace();
         },
@@ -234,7 +248,26 @@ function loadZones() {
         zoneList = zones || [];
         const coordArrays = [];
         zoneList.forEach(function (z) { addZoneOverlay(z); coordArrays.push(z.ring); });
-        if (coordArrays.length) tool.fitAll(coordArrays);
+        // Fit to the zones, but ignore any ring more than 2 km from the property
+        // (a stray or mis-saved zone would zoom the map out over the whole city).
+        let fitArrays = coordArrays;
+        if (MAP_CENTER) {
+            fitArrays = coordArrays.filter(function (ring) {
+                return ring.some(function (pt) {
+                    const la = Array.isArray(pt) ? pt[0] : pt.lat;
+                    const lo = Array.isArray(pt) ? pt[1] : pt.lng;
+                    const dLat = (la - MAP_CENTER.lat) * 111000;
+                    const dLng = (lo - MAP_CENTER.lng) * 111000 * Math.cos(MAP_CENTER.lat * Math.PI / 180);
+                    return Math.sqrt(dLat * dLat + dLng * dLng) < 2000;
+                });
+            });
+        }
+        if (fitArrays.length) {
+            tool.fitAll(fitArrays);
+            google.maps.event.addListenerOnce(tool._map, 'idle', function () {
+                if (tool._map.getZoom() > 20) tool._map.setZoom(20);
+            });
+        }
         renderZoneList(zoneList);
     });
 }
@@ -248,9 +281,28 @@ function addZoneOverlay(z) {
         color:       color,
         strokeColor: color,
         fillOpacity: isArrival ? 0.08 : 0.18,
-        weight:      isArrival ? 3 : 2
+        weight:      isArrival ? 3 : 2,
+        editable:    true
     });
-    if (overlay) zoneOverlays[z.id] = overlay;
+    if (overlay) {
+        zoneOverlays[z.id] = overlay;
+        // Vertices are draggable — persist geometry changes (debounced in the engine).
+        tool.bindZoneEdit(overlay, function (coords) { saveZoneEdit(z.id, coords); });
+    }
+}
+
+// Persist a node drag/insert/remove on an already-saved zone.
+function saveZoneEdit(id, coords) {
+    if (!coords || coords.length < 3) return;
+    MapDrawTool.updateZone(GEOFENCE_API, {
+        csrfToken:  CSRF_TOKEN,
+        geofenceId: id,
+        coords:     coords
+    }).then(function (data) {
+        if (!data || !data.success) { console.warn('Zone update failed:', data); return; }
+        const z = zoneList.find(function (zz) { return zz.id === id; });
+        if (z) z.ring = MapDrawTool.ringFromCoords(coords);
+    }).catch(function (err) { console.warn('Zone update error:', err); });
 }
 
 function startDrawArrivalBorder() {

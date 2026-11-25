@@ -297,17 +297,28 @@ class RulesEngine
                 return (float)$tx['amount'] < (float)$rule['condition_value'];
         }
 
+        // Also compare with all spaces removed, so a rule written with spaces
+        // ("point of sale") still matches descriptions whose word boundaries were
+        // lost during PDF extraction (EBCDIC reflow → "pointofsale chv43016").
+        $haystackNs = str_replace(' ', '', $haystack);
+        $valueNs    = str_replace(' ', '', $value);
+
         // String matching — PHP 7.4 compatible
         switch ($operator) {
             case 'contains':
                 // Empty condition_value = match all (default fallback rule)
-                return $value === '' || strpos($haystack, $value) !== false;
+                return $value === ''
+                    || strpos($haystack, $value) !== false
+                    || ($valueNs !== '' && strpos($haystackNs, $valueNs) !== false);
             case 'equals':
-                return $haystack === $value;
+                return $haystack === $value || $haystackNs === $valueNs;
             case 'starts_with':
-                return substr($haystack, 0, strlen($value)) === $value;
+                return substr($haystack, 0, strlen($value)) === $value
+                    || ($valueNs !== '' && substr($haystackNs, 0, strlen($valueNs)) === $valueNs);
             case 'ends_with':
-                return $value === '' || substr($haystack, -strlen($value)) === $value;
+                return $value === ''
+                    || substr($haystack, -strlen($value)) === $value
+                    || ($valueNs !== '' && substr($haystackNs, -strlen($valueNs)) === $valueNs);
         }
 
         return false;
@@ -332,16 +343,50 @@ class RulesEngine
         return trim($s);
     }
 
+    private function monthLocked(string $date): bool
+    {
+        $t = strtotime($date);
+        if (!$t) return false;
+        try {
+            $s = $this->db->prepare("SELECT status FROM accounting_periods WHERE year = ? AND month = ? LIMIT 1");
+            $s->execute([(int)date('Y', $t), (int)date('n', $t)]);
+            return $s->fetchColumn() === 'locked';
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
     /**
      * Update a transaction's account and mark as auto-categorized.
      */
     private function applyRule(int $txId, int $ruleId, int $accountId): void
     {
-        $this->db->prepare("
-            UPDATE accounting_transactions
-            SET account_id = ?, rule_id = ?, is_auto_categorized = 1
-            WHERE id = ?
-        ")->execute([$accountId, $ruleId, $txId]);
+        // Codex review 2026-10-14: a rule re-run (force) rewrote lines in locked months and left
+        // posted lines' journal entries behind. Locked month → leave it. Already journaled → move it
+        // the one way a bank line moves (BankLineMoveService: the row and its entry together).
+        $s = $this->db->prepare("SELECT transaction_date, account_id FROM accounting_transactions WHERE id = ?");
+        $s->execute([$txId]);
+        $tx = $s->fetch(PDO::FETCH_ASSOC);
+        if (!$tx) return;
+        if ($this->monthLocked((string)$tx['transaction_date'])) return;
+        if ((int)$tx['account_id'] === $accountId) {
+            $this->db->prepare("UPDATE accounting_transactions SET rule_id = ?, is_auto_categorized = 1 WHERE id = ?")->execute([$ruleId, $txId]);
+            return;
+        }
+        $j = $this->db->prepare("SELECT COUNT(*) FROM journal_entries WHERE source_type = 'bank_import' AND source_id = ? AND reversed_by_entry_id IS NULL");
+        $j->execute([$txId]);
+        if ((int)$j->fetchColumn() > 0) {
+            require_once __DIR__ . '/BankLineMoveService.php';
+            $res = (new BankLineMoveService($this->db))->move($txId, $accountId, 0, 'penny');
+            if (empty($res['ok'])) { error_log("[RulesEngine] rule {$ruleId} on line {$txId}: " . ($res['message'] ?? 'not moved')); return; }
+            $this->db->prepare("UPDATE accounting_transactions SET rule_id = ?, is_auto_categorized = 1 WHERE id = ?")->execute([$ruleId, $txId]);
+        } else {
+            $this->db->prepare("
+                UPDATE accounting_transactions
+                SET account_id = ?, rule_id = ?, is_auto_categorized = 1
+                WHERE id = ?
+            ")->execute([$accountId, $ruleId, $txId]);
+        }
 
         // Increment rule match stats
         $this->db->prepare("

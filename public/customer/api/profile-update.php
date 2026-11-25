@@ -27,6 +27,7 @@ for ($__i = 0; $__i < 5; $__i++) {
 unset($__dir, $__i);
 
 require_once PUBLIC_ROOT . '/app_config/config.php';
+require_once APP_ROOT . '/Services/PortalBrand.php';
 
 try {
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -37,8 +38,12 @@ try {
     if ($token === '') throw new Exception('Missing token');
 
     $db = getDB();
+    require_once APP_ROOT . '/Modules/Contacts/Services/PortalTokenService.php';
+    require_once APP_ROOT . '/Modules/Contacts/Services/PortalEmailChangeService.php';
 
-    $stmt = $db->prepare("SELECT id, email FROM contacts WHERE portal_token = ? LIMIT 1");
+    $stmt = $db->prepare("SELECT id, first_name, last_name, email, phone, mobile, preferred_contact_method,
+                                 receive_marketing, receive_sms
+                          FROM contacts WHERE portal_token = ?" . PortalTokenService::liveSql($db) . " LIMIT 1");
     $stmt->execute([$token]);
     $contact = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$contact) throw new Exception('Client not found');
@@ -67,6 +72,22 @@ try {
     if ($mobile !== '' && strlen($mobileDigits) < 7) {
         throw new Exception('Mobile number looks too short.');
     }
+
+    // An email change is never applied from the portal link alone (security review #14): it waits
+    // for the NEW address to confirm, and the OLD address is told. Blanking the email is ignored.
+    $ip = (string)($_SERVER['REMOTE_ADDR'] ?? '');
+    $emailPending = false;
+    $oldEmail = (string)($contact['email'] ?? '');
+    if (PortalEmailChangeService::needsConfirmation($oldEmail, $email)) {
+        $changes = new PortalEmailChangeService($db);
+        if (!$changes->ready()) {
+            throw new Exception('To change your email address, please ' . PortalBrand::callPhrase() . '.');
+        }
+        $base = PortalBrand::appUrl();
+        $changes->request((int)$contact['id'], $oldEmail !== '' ? $oldEmail : null, $email, (string)($contact['first_name'] ?? ''), $ip, $base);
+        $emailPending = true;
+    }
+    $email = $oldEmail;   // the stored email only changes through PortalEmailChangeService::confirm()
 
     $receiveMarketing = !empty($_POST['receive_marketing']) ? 1 : 0;
     $receiveSms       = !empty($_POST['receive_sms']) ? 1 : 0;
@@ -103,7 +124,17 @@ try {
         $upd->execute($params);
     }
 
-    echo json_encode(['success' => true]);
+    // Trail for every change (Fable review 2026-10-12) — the token is permanent, so an email/phone
+    // change made with it must be visible to the office afterwards.
+    require_once APP_ROOT . '/Modules/Contacts/Services/PortalProfileAudit.php';
+    PortalProfileAudit::record($db, (int)$contact['id'], PortalProfileAudit::diff($contact, [
+        'first_name' => $firstName, 'last_name' => $lastName, 'email' => $email, 'phone' => $phone,
+        'mobile' => $mobile, 'preferred_contact_method' => $preferred,
+        'receive_marketing' => $receiveMarketing, 'receive_sms' => $receiveSms,
+    ]), $ip, (string)($_SERVER['HTTP_USER_AGENT'] ?? ''));
+
+    echo json_encode(['success' => true, 'email_pending' => $emailPending,
+                      'message' => $emailPending ? 'Saved. We sent a link to your new email address — your email changes once you click it.' : null]);
 
 } catch (Throwable $e) {
     http_response_code(400);

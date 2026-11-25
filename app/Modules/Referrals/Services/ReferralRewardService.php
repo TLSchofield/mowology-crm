@@ -20,6 +20,7 @@
  */
 
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 
 if (!defined('APP_ROOT')) {
     $__dir = __FILE__;
@@ -34,6 +35,9 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once APP_ROOT . '/Services/Messaging/MessagingService.php';
+require_once APP_ROOT . '/Services/Messaging/TemplateRenderer.php';
+require_once APP_ROOT . '/Modules/Consent/Services/CaslRules.php';
+require_once __DIR__ . '/ReferralRules.php';
 
 class ReferralRewardService
 {
@@ -71,10 +75,40 @@ class ReferralRewardService
                 return;
             }
 
-            // Find a pending referral where this contact was the referred party
-            $referral = self::findPendingReferralForContact((int)$contact['id'], $db);
+            // Find a pending referral where this contact was the referred party.
+            // Falls back to email match because referred_contact_id is not set at
+            // quote-request time (the person is not yet a contact). When matched
+            // by email, referred_contact_id is written so future lookups hit the
+            // fast path.
+            $referral = self::findPendingReferralForContact(
+                (int)$contact['id'],
+                trim((string)($contact['email'] ?? '')),
+                $db
+            );
             if (!$referral) {
                 return;
+            }
+
+            // A referral counts for a different, new person, once (Fable review 2026-10-12).
+            $earlier = $db->prepare("
+                SELECT COUNT(*) FROM job_visits jv
+                JOIN job_plans jp ON jp.id = jv.plan_id
+                JOIN properties p ON p.id = jp.property_id
+                WHERE p.site_contact_id = ? AND jv.status = 'completed' AND jv.id <> ?
+            ");
+            $earlier->execute([(int)$contact['id'], $visitId]);
+            $refusal = ReferralRules::awardRefusal((int)$referral['referrer_contact_id'], (int)$contact['id'], (int)$earlier->fetchColumn());
+            if ($refusal !== null) {
+                error_log("ReferralRewardService: referral #{$referral['id']} not awarded ({$refusal})");
+                return;
+            }
+
+            // Backfill referred_contact_id if this was an email-only match.
+            if (empty($referral['referred_contact_id'])) {
+                $db->prepare(
+                    "UPDATE referrals SET referred_contact_id = ? WHERE id = ?"
+                )->execute([(int)$contact['id'], (int)$referral['id']]);
+                $referral['referred_contact_id'] = (int)$contact['id'];
             }
 
             // Suggest or look up the reward product
@@ -152,6 +186,37 @@ class ReferralRewardService
                 return; // Unknown or expired code
             }
 
+            // Not yourself, not an existing client, not someone already referred (Fable review 2026-10-12).
+            $referrer = self::getContact((int)$link['contact_id'], $db) ?? [];
+            $email = ReferralRules::normEmail($quoteData['email'] ?? '');
+            $alreadyClient = false;
+            $alreadyReferred = false;
+            if ($email !== '') {
+                $c = $db->prepare("
+                    SELECT COUNT(*) FROM contacts c
+                    JOIN properties p ON p.site_contact_id = c.id
+                    JOIN job_plans jp ON jp.property_id = p.id
+                    JOIN job_visits jv ON jv.plan_id = jp.id
+                    WHERE c.email = ? AND jv.status = 'completed'
+                ");
+                $c->execute([$email]);
+                $alreadyClient = (int)$c->fetchColumn() > 0;
+                $r = $db->prepare("SELECT COUNT(*) FROM referrals WHERE referred_email = ?");
+                $r->execute([$email]);
+                $alreadyReferred = (int)$r->fetchColumn() > 0;
+            }
+            $phoneRaw = trim((string)($quoteData['phone'] ?? ''));
+            if (!$alreadyReferred && $phoneRaw !== '') {
+                $r = $db->prepare("SELECT COUNT(*) FROM referrals WHERE referred_phone = ?");
+                $r->execute([substr($phoneRaw, 0, 30)]);
+                $alreadyReferred = (int)$r->fetchColumn() > 0;
+            }
+            $refusal = ReferralRules::inboundRefusal($referrer, ['email' => $email, 'phone' => $phoneRaw], $alreadyClient, $alreadyReferred);
+            if ($refusal !== null) {
+                error_log("ReferralRewardService::recordInboundReferral not recorded (code={$code}): {$refusal}");
+                return;
+            }
+
             // Insert referral record
             $db->prepare("
                 INSERT INTO referrals
@@ -214,14 +279,19 @@ class ReferralRewardService
             if (!$contact || empty($contact['email'])) {
                 return false;
             }
+            // An invite to refer is commercial (CASL): consent at send time, then the footer below.
+            if (!canSendMarketing(['id' => $contactId, 'email' => $contact['email']], 'email')) {
+                error_log("ReferralRewardService::sendInviteEmail: contact #{$contactId} has no marketing consent — not sent");
+                return false;
+            }
 
             $link = self::getOrCreateLink($contactId, $db);
             $code = $link['referral_code'];
-            $url  = 'https://mowology.ca/quote?referral_code=' . $code;
+            $url  = _idSiteUrl() . '/quote?referral_code=' . $code;
 
             // Resolve the reward product name for the email
             $product = self::resolveRewardProduct($contactId, $db);
-            $productName = $product ? htmlspecialchars($product['name'], ENT_QUOTES, 'UTF-8') : 'a complimentary service';
+            $productName = $product ? htmlspecialchars($product['name'], ENT_QUOTES, 'UTF-8') : 'service';
 
             $firstName   = htmlspecialchars($contact['first_name'] ?? 'Valued Customer', ENT_QUOTES, 'UTF-8');
             $urlSafe     = htmlspecialchars($url, ENT_QUOTES, 'UTF-8');
@@ -233,10 +303,10 @@ class ReferralRewardService
               <!-- Header -->
               <div style="background:#1A5F4A;border-radius:10px 10px 0 0;padding:28px 32px;">
                 <h1 style="color:#fff;margin:0;font-size:22px;font-weight:700;letter-spacing:-0.3px;">
-                  Share Mowology — Earn a Free Service
+                  A free ' . $productName . ' for a referral
                 </h1>
                 <p style="color:#b2d8c9;margin:8px 0 0;font-size:14px;">
-                  Your personal referral link is inside
+                  Your link is below
                 </p>
               </div>
 
@@ -247,12 +317,12 @@ class ReferralRewardService
                   Hi ' . $firstName . ',
                 </p>
                 <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 16px;">
-                  You&rsquo;re one of our favourite clients, so we want to offer you something special.
-                  Refer a neighbour, friend, or family member to Mowology and when they complete
-                  their first service, <strong>you&rsquo;ll receive ' . $productName . ' — on us.</strong>
+                  Most of our new clients come from someone like you mentioning us to a neighbour.
+                  We&rsquo;d like to make that worth your while.
                 </p>
                 <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 24px;">
-                  All they need to do is book through your personal link below:
+                  Send your link to anyone who might want us. When they finish their first visit,
+                  <strong>we book you in for a free ' . $productName . '.</strong>
                 </p>
 
                 <!-- CTA button -->
@@ -260,20 +330,20 @@ class ReferralRewardService
                   <a href="' . $urlSafe . '"
                      style="display:inline-block;padding:16px 36px;background:#2D8659;color:#fff;
                             text-decoration:none;border-radius:8px;font-weight:700;font-size:16px;">
-                    Share Your Referral Link
+                    Share your link
                   </a>
                 </p>
 
                 <p style="text-align:center;color:#6B7280;font-size:13px;margin:0 0 28px;">
-                  Or share your code: <strong style="color:#2D8659;font-size:16px;letter-spacing:1px;">' . $codeSafe . '</strong>
+                  Or give them your code: <strong style="color:#2D8659;font-size:16px;letter-spacing:1px;">' . $codeSafe . '</strong>
                 </p>
 
                 <div style="background:#f0f9f5;border:1px solid #b7dfc9;border-radius:8px;padding:16px 20px;margin:0 0 24px;">
                   <p style="color:#1A5F4A;font-size:14px;font-weight:700;margin:0 0 8px;">How it works</p>
                   <ol style="color:#374151;font-size:14px;line-height:1.8;margin:0;padding-left:20px;">
-                    <li>Share your link or code with anyone you know</li>
-                    <li>They book and complete their first Mowology service</li>
-                    <li>We contact you to schedule your free ' . $productName . '</li>
+                    <li>Share the link or the code.</li>
+                    <li>They book and we complete their first visit.</li>
+                    <li>We call you to schedule your free ' . $productName . '.</li>
                   </ol>
                 </div>
 
@@ -284,19 +354,21 @@ class ReferralRewardService
                 </p>
               </div>
 
-              <!-- Footer -->
-              <p style="text-align:center;color:#9CA3AF;font-size:12px;margin:20px 0 0;">
-                &copy; Mowology Landscaping &mdash; Greater Vancouver, BC
-              </p>
-
             </div>';
+
+            // Sender, postal address and unsubscribe — or nothing goes.
+            $html = CaslRules::composeHtml($html, generateUnsubscribeUrl((string)$contact['email']), emailCompanyDetails());
+            if ($html === null) {
+                error_log("ReferralRewardService::sendInviteEmail: no postal address/unsubscribe for the footer — not sent");
+                return false;
+            }
 
             $result = sendEmail(
                 $contact['email'],
-                'Refer a friend, earn a free service — your Mowology link inside',
+                'Your ' . _idFromName() . ' referral link, and what it earns you',
                 $html,
                 null,
-                'Mowology'
+                ''
             );
 
             if ($result['success'] ?? false) {
@@ -344,8 +416,9 @@ class ReferralRewardService
         return $row ?: null;
     }
 
-    private static function findPendingReferralForContact(int $contactId, PDO $db): ?array
+    private static function findPendingReferralForContact(int $contactId, string $email, PDO $db): ?array
     {
+        // Primary: match on referred_contact_id (set after first match).
         $stmt = $db->prepare("
             SELECT * FROM referrals
             WHERE referred_contact_id = ? AND status = 'pending'
@@ -353,6 +426,21 @@ class ReferralRewardService
             LIMIT 1
         ");
         $stmt->execute([$contactId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row) return $row;
+
+        // Fallback: referred_contact_id was never written (quote-request path
+        // does not have a contact_id yet). Match on email instead.
+        if ($email === '') return null;
+        $stmt = $db->prepare("
+            SELECT * FROM referrals
+            WHERE referred_contact_id IS NULL
+              AND referred_email = ?
+              AND status = 'pending'
+            ORDER BY created_at DESC
+            LIMIT 1
+        ");
+        $stmt->execute([$email]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         return $row ?: null;
     }
@@ -373,7 +461,7 @@ class ReferralRewardService
         $pinnedId = (int)trim($pinStmt->fetchColumn() ?? '');
 
         if ($pinnedId > 0) {
-            $p = $db->prepare("SELECT id, name, base_price FROM products WHERE id = ? AND is_active = 1 LIMIT 1");
+            $p = $db->prepare("SELECT id, name, base_price FROM products WHERE id = ? AND active = 1 AND COALESCE(is_archived, 0) = 0 LIMIT 1");
             $p->execute([$pinnedId]);
             $row = $p->fetch(PDO::FETCH_ASSOC);
             if ($row) {
@@ -394,7 +482,7 @@ class ReferralRewardService
         $usedIds = $usedStmt->fetchAll(PDO::FETCH_COLUMN);
 
         // Get all active products, excluding ones they've already received
-        $allStmt = $db->query("SELECT id, name, base_price FROM products WHERE is_active = 1 ORDER BY base_price DESC");
+        $allStmt = $db->query("SELECT id, name, base_price FROM products WHERE active = 1 AND COALESCE(is_archived, 0) = 0 ORDER BY base_price DESC");
         $all = $allStmt->fetchAll(PDO::FETCH_ASSOC);
 
         // Return first untried product (highest value)
@@ -443,7 +531,7 @@ class ReferralRewardService
         $firstName   = htmlspecialchars($referrer['first_name'] ?? 'Valued Client', ENT_QUOTES, 'UTF-8');
         $productName = $product
             ? htmlspecialchars($product['name'], ENT_QUOTES, 'UTF-8')
-            : 'a complimentary service';
+            : 'service';
 
         $html = '
         <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#f7faf8;padding:24px 0;">
@@ -451,10 +539,10 @@ class ReferralRewardService
           <!-- Header -->
           <div style="background:#1A5F4A;border-radius:10px 10px 0 0;padding:28px 32px;">
             <h1 style="color:#fff;margin:0;font-size:22px;font-weight:700;letter-spacing:-0.3px;">
-              Your referral came through! &#127881;
+              Your referral came through
             </h1>
             <p style="color:#b2d8c9;margin:8px 0 0;font-size:14px;">
-              You&rsquo;ve earned your reward
+              A free ' . $productName . ' is yours
             </p>
           </div>
 
@@ -465,8 +553,8 @@ class ReferralRewardService
               Hi ' . $firstName . ',
             </p>
             <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 24px;">
-              Great news — the person you referred has completed their first Mowology service!
-              As a thank you, <strong>we&rsquo;re booking you in for ' . $productName . ' — completely on us.</strong>
+              The person you referred has had their first visit. As promised,
+              <strong>we&rsquo;re booking you in for a free ' . $productName . '.</strong>
             </p>
 
             <div style="background:#f0f9f5;border:1px solid #b7dfc9;border-radius:8px;padding:20px 24px;margin:0 0 24px;text-align:center;">
@@ -476,8 +564,8 @@ class ReferralRewardService
             </div>
 
             <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 24px;">
-              We&rsquo;ll be in touch shortly to schedule your free service at a time that works for you.
-              No action needed on your part — just sit back and enjoy!
+              We&rsquo;ll call to find a date that suits you. Nothing to do on your side.
+              Thank you for the referral.
             </p>
 
             <hr style="border:none;border-top:1px solid #f0f0f0;margin:24px 0;">
@@ -487,18 +575,19 @@ class ReferralRewardService
             </p>
           </div>
 
-          <p style="text-align:center;color:#9CA3AF;font-size:12px;margin:20px 0 0;">
-            &copy; Mowology Landscaping &mdash; Greater Vancouver, BC
-          </p>
-
         </div>';
+
+        // A notice of a reward the referrer already earned is transactional (it delivers a benefit
+        // they are entitled to), so it is not consent-gated — but it still names the sender, the
+        // postal address and an unsubscribe link (Fable review 2026-10-12; Tim to confirm).
+        $html = wrapInBrandedEmail($html, generateUnsubscribeUrl((string)$referrer['email']));
 
         sendEmail(
             $referrer['email'],
-            "You've earned a free {$productName} — thanks for the referral!",
+            "Your referral came through: a free {$productName} is yours",
             $html,
             null,
-            'Mowology'
+            ''
         );
     }
 }

@@ -39,6 +39,16 @@ declare(strict_types=1);
 header('Content-Type: application/json');
 header('Cache-Control: no-store');
 
+// A business on its own address may carry app-version.<key>.json beside the shared file (AppVersionFeed, 2026-11-03).
+if (!defined('APP_ROOT')) {
+    $__dir = __DIR__;
+    for ($__i = 0; $__i < 6; $__i++) { $__dir = dirname($__dir); if (is_file($__dir . '/app/Core/paths.php')) { require_once $__dir . '/app/Core/paths.php'; break; } }
+    unset($__dir, $__i);
+}
+require_once APP_ROOT . '/Core/Tenant.php';
+require_once APP_ROOT . '/Modules/Technology/Services/AppVersionFeed.php';
+Tenant::boot();
+
 $versionFile = __DIR__ . '/../downloads/app-version.json';
 
 if (!is_file($versionFile)) {
@@ -60,5 +70,7 @@ if (!$json) {
 if (isset($json['version']) && !isset($json['android'])) {
     $json = ['android' => $json, 'ios' => ['version' => '1.0.0', 'min_version' => '1.0.0', 'force_update' => false]];
 }
+
+$json = AppVersionFeed::forTenant($json, dirname($versionFile), Tenant::key(), Tenant::isDefault());
 
 echo json_encode($json);

@@ -24,12 +24,18 @@ if (!defined('APP_ROOT')) {
     }
     unset($__dir, $__i);
 }
+// Under cron (CLI) nothing else defines getDB()/Database — the web shim gets them from auth.php.
+require_once APP_ROOT . '/Core/config.php';
 
 set_error_handler(function(int $severity, string $message, string $file, int $line): bool {
     throw new \ErrorException($message, 0, $severity, $file, $line);
 });
 
-$isCli = (php_sapi_name() === 'cli');
+$isCli   = (php_sapi_name() === 'cli');
+$fromWeb = !$isCli;
+$startMs = (int) round(microtime(true) * 1000);
+$cronStatus = 'success';
+$cronError  = null;
 
 if (!$isCli) {
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -63,7 +69,9 @@ $result = [
 
 try {
     $db    = getDB();
-    $pages = $db->query("SELECT id, title FROM cms_pages ORDER BY id ASC")->fetchAll(PDO::FETCH_ASSOC);
+    // cms_getPageCompletionScore() scores a page ROW (title, slug, meta fields + its blocks);
+    // passing only the id threw a TypeError for every page, silently, every night.
+    $pages = $db->query("SELECT id, title, slug, meta_title, meta_description FROM cms_pages ORDER BY id ASC")->fetchAll(PDO::FETCH_ASSOC);
 
     $updStmt = $db->prepare("UPDATE cms_pages SET seo_score = ?, updated_at = updated_at WHERE id = ?");
 
@@ -73,7 +81,7 @@ try {
                 $result['skipped']++;
                 continue;
             }
-            $score = cms_getPageCompletionScore((int)$pg['id']);
+            $score = cms_getPageCompletionScore($pg);
             $updStmt->execute([(int)$score, (int)$pg['id']]);
             $result['updated']++;
         } catch (\Throwable $e) {
@@ -83,12 +91,29 @@ try {
 
     $result['success'] = true;
     $result['summary'] = "Updated: {$result['updated']}, Skipped: {$result['skipped']}, Errors: " . count($result['errors']);
+    if ($result['errors']) {
+        // A page that cannot be scored is a failure worth seeing, not a footnote.
+        $cronStatus = 'error';
+        $cronError  = $result['errors'][0] . (count($result['errors']) > 1 ? ' (+' . (count($result['errors']) - 1) . ' more)' : '');
+    }
 
 } catch (\Throwable $e) {
     $result['success'] = false;
     $result['error']   = $e->getMessage();
+    $cronStatus = 'error';
+    $cronError  = $e->getMessage();
     error_log('[cms_seo_recalc] Fatal: ' . $e->getMessage());
 }
+
+$durationMs = (int) round(microtime(true) * 1000) - $startMs;
+recordCronRun(
+    'cms_seo_recalc',
+    $cronStatus,
+    "Updated: {$result['updated']}, Skipped: {$result['skipped']}, Errors: " . count($result['errors'] ?? []),
+    $durationMs,
+    $cronError,
+    $fromWeb
+);
 
 if ($isCli) {
     echo json_encode($result, JSON_PRETTY_PRINT) . "\n";

@@ -110,7 +110,7 @@ class GoogleBusinessService
         if ($expiresAt) {
             $expiresTs = strtotime($expiresAt);
             if ($expiresTs > time() + 600) {
-                return SocialEncryption::decrypt($account['access_token_enc'] ?? '');
+                return SocialEncryption::requireToken($account['access_token_enc'] ?? '', 'Google access token');
             }
         }
 
@@ -119,10 +119,7 @@ class GoogleBusinessService
             throw new RuntimeException('No refresh token available — user must re-authenticate');
         }
 
-        $refreshToken = SocialEncryption::decrypt($refreshEnc);
-        if (!$refreshToken) {
-            throw new RuntimeException('Could not decrypt refresh token');
-        }
+        $refreshToken = SocialEncryption::requireToken($refreshEnc, 'Google refresh token');
 
         $tokenData = self::refreshAccessToken($refreshToken);
 
@@ -237,14 +234,16 @@ class GoogleBusinessService
         ];
 
         // Call to Action
-        if (!empty($post['cta_action']) && !empty($post['cta_url'])) {
+        // cta_type is the column name in social_posts (matches the INSERT in schedules.php)
+        $ctaType = $post['cta_type'] ?? $post['cta_action'] ?? '';
+        if (!empty($ctaType) && !empty($post['cta_url'])) {
             $ctaUrl = $post['cta_url'];
             if (!empty($post['utm_campaign'])) {
                 $sep = strpos($ctaUrl, '?') !== false ? '&' : '?';
                 $ctaUrl .= $sep . 'utm_source=gbp&utm_medium=localpost&utm_campaign=' . urlencode($post['utm_campaign']);
             }
             $body['callToAction'] = [
-                'actionType' => $post['cta_action'],
+                'actionType' => $ctaType,
                 'url'        => $ctaUrl,
             ];
         }

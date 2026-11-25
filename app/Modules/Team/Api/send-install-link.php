@@ -14,6 +14,7 @@
  *   csrf_token     string    required
  */
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 header('Content-Type: application/json');
 
 if (!defined('APP_ROOT')) {
@@ -30,6 +31,7 @@ if (!defined('APP_ROOT')) {
 
 try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+    require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
     require_once CRM_INCLUDES . '/functions.php';
     require_once APP_ROOT . '/Services/Messaging/MessagingService.php';
 
@@ -70,7 +72,7 @@ try {
     // Build message body
     $customMessage = trim($input['custom_message'] ?? '');
     if (!$customMessage) {
-        $customMessage = "Hi {$firstName}, please install the Mowology field app using the link below. Contact us if you need help.";
+        $customMessage = "Hi {$firstName}, please install the " . _idFromName() . " field app using the link below. Contact us if you need help.";
     }
 
     $results  = [];
@@ -85,7 +87,7 @@ try {
             $htmlBody = '
             <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
                 <div style="background:#1A5F4A;padding:20px 24px;border-radius:8px 8px 0 0;">
-                    <h2 style="color:#fff;margin:0;font-size:20px;">Mowology Field App</h2>
+                    <h2 style="color:#fff;margin:0;font-size:20px;">' . htmlspecialchars(_idFromName()) . ' Field App</h2>
                 </div>
                 <div style="padding:24px;background:#fff;border:1px solid #e0e0e0;border-top:none;border-radius:0 0 8px 8px;">
                     <p style="color:#333;">' . nl2br(htmlspecialchars($customMessage)) . '</p>
@@ -93,20 +95,20 @@ try {
                         <a href="' . htmlspecialchars($installUrl) . '"
                            style="display:inline-block;padding:14px 28px;background:#2D8659;color:#fff;
                                   text-decoration:none;border-radius:6px;font-weight:600;font-size:16px;">
-                            Install Mowology App
+                            Install ' . htmlspecialchars(_idFromName()) . ' App
                         </a>
                     </p>
                     <p style="color:#888;font-size:13px;">Or copy this link: ' . htmlspecialchars($installUrl) . '</p>
                     <hr style="border:none;border-top:1px solid #eee;margin:20px 0;">
                     <p style="color:#aaa;font-size:12px;margin:0;">
-                        Sent by ' . htmlspecialchars($user['full_name'] ?? 'Admin') . ' via Mowology CRM
+                        Sent by ' . htmlspecialchars($user['full_name'] ?? 'Admin') . ' via ' . htmlspecialchars(_idFromName()) . ' CRM
                     </p>
                 </div>
             </div>';
 
             $emailResult = sendEmail(
                 $emp['email'],
-                'Install the Mowology Field App',
+                'Install the ' . _idFromName() . ' Field App',
                 $htmlBody
             );
 
@@ -120,9 +122,14 @@ try {
         if (empty($emp['phone'])) {
             $results['sms'] = ['success' => false, 'error' => 'No phone number on file'];
             $anyError = true;
+        } elseif (!($results['email']['success'] ?? false)) {
+            // The text only points at the email — carriers silently drop any SMS with a link
+            // (2026-10-12 review: the old text carried the URL and was recorded as sent).
+            $results['sms'] = ['success' => false, 'error' => 'Text not sent: it points to the email, and the email was not sent'];
+            $anyError = true;
         } else {
-            // SMS must be short — strip to first sentence + URL
-            $smsBody = "Mowology App Install: {$installUrl}";
+            // Plain text, no URL, under 160 characters, office phone as the fallback (SMS rules).
+            $smsBody = _idFromName() . ': your field app install link is in your email.' . _idSmsTail('Questions? Call');
 
             $smsResult = sendSms($emp['phone'], $smsBody);
             $results['sms'] = $smsResult;
@@ -180,9 +187,13 @@ try {
 
 } catch (PDOException $e) {
     error_log('Send install link DB error: ' . $e->getMessage());
+    // The PHP error_log location on this host is unknown; this file is readable over FTP.
+    if (function_exists('_loginDebugLog')) {
+        _loginDebugLog('[send-install-link] PDO ' . $e->getCode() . ': ' . ApiResponse::message($e, 'send-install-link') . ' @ ' . basename($e->getFile()) . ':' . $e->getLine());
+    }
     http_response_code(500);
     echo json_encode(['error' => 'A database error occurred. Please try again.']);
 } catch (Exception $e) {
     http_response_code(400);
-    echo json_encode(['error' => $e->getMessage()]);
+    echo json_encode(['error' => ApiResponse::message($e, 'send-install-link')]);
 }

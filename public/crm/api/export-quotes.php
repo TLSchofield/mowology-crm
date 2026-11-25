@@ -16,6 +16,7 @@ unset($__dir, $__i);
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 require_once PUBLIC_ROOT . '/crm/includes/functions.php';
+require_once APP_ROOT . '/Core/Csv.php';   // csvPut(): formula-safe cells (audit #18)
 requireLogin();
 requirePermission('billing.view');
 session_write_close();
@@ -44,12 +45,12 @@ header('Content-Disposition: attachment; filename="quotes-' . date('Y-m-d') . '.
 $out = fopen('php://output', 'w');
 fwrite($out, "\xEF\xBB\xBF");
 
-fputcsv($out, ['Quote #', 'Client', 'Service', 'Amount', 'Status', 'Pipeline Stage',
+csvPut($out, ['Quote #', 'Client', 'Service', 'Amount', 'Status', 'Pipeline Stage',
                'Probability %', 'Expected Close', 'Source', 'Address', 'City',
                'Created', 'Sent', 'Accepted', 'Valid Until', 'Created By']);
 
 foreach ($rows as $r) {
-    fputcsv($out, [
+    csvPut($out, [
         $r['quote_number'], $r['client_name'], $r['service_type'],
         number_format((float)$r['total_amount'], 2), $r['status'], $r['pipeline_stage'],
         $r['probability'], $r['expected_close_date'], $r['deal_source'],

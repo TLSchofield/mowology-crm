@@ -32,6 +32,34 @@
   margin-bottom: 30px;
 }
 
+.slh-price {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--color-primary);
+  margin: -18px 0 24px;
+}
+
+.slh-points {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 28px;
+}
+
+.slh-points li {
+  position: relative;
+  padding-left: 26px;
+  margin-bottom: 8px;
+  color: var(--text-medium);
+}
+
+.slh-points li::before {
+  content: "\2713";
+  position: absolute;
+  left: 0;
+  color: var(--color-primary);
+  font-weight: 700;
+}
+
 .slh-trust {
   margin-top: 16px;
   font-size: 0.9rem;
@@ -299,4 +327,29 @@
   .slp-ba-pair {
     grid-template-columns: 1fr;
   }
+}
+
+/* ── Photo gallery (real job photos; see 'gallery' section type) ── */
+.slp-gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 20px;
+}
+.slp-gallery-item {
+  margin: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--mowology-light, #f4f7f5);
+}
+.slp-gallery-item img {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  display: block;
+}
+.slp-gallery-item figcaption {
+  padding: 10px 14px;
+  font-size: 0.9rem;
+  color: var(--text-muted, #556);
 }

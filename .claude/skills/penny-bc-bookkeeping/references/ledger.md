@@ -1,0 +1,189 @@
+# How Mowology's books work (verified against code, 2026-10-11)
+
+Longer history: Obsidian `30-PROJECTS/Active/Mowology-CRM/Architecture/Accounting-Ledger.md`.
+
+**e-Transfers from chequing to Tim Schofield are NOT his pay — open question.** Tim is on Wave payroll
+(2026-10-12), so wages filed from these transfers double-count his pay. They are filed to 5100 Crew
+Wages by rules 37 (learned) and 307 ("owner said so"): $49,086.89 across 33 in 2026. Possibly the
+shareholder loan payout, reimbursements, or money he passes to crew — ask Tim; don't reclassify
+until he says, and check with Steve Lim.
+
+**Payer names that differ from the client record** (Tim, 2026-10-12): Darren Cannon (darren.cannon@colliers.com) pays for Kelly Cannon; Theresa Roberge = Terry Baird
+(same client — cheques say ROBERGE, invoices say Baird); Obsidian Property = The Mix BCS4428's manager;
+KANCO cheques = Beedie Development – Kanco. VML and Laburnum pay by cheque; Dorset and Norsan by Yardi EFT.
+
+**Reading the chequing statement** (Vancity export, 2026-10-12): crew are paid by e-Transfer debits
+(Nigel Casey, Katrenna Marenych, Trevor James, Harry Grant, Himal Bam, Dmitry) alongside Wave PYRL runs;
+"Chargeback debit" + $7.50 = a returned cheque (Jul 3: $456.84, the VR1450/Colyvan amount); a cash deposit
+that equals a same-day Vancity Visa bill payment ($1,800 on Jul 31) is the owner covering the card, not
+income — ask. "sparc pay" cheques come from a strata on SparcPay (not necessarily BCS4428).
+
+**Contract prices rise 5% each March/April** (Tim, 2026-10-12): e.g. Oakridge $9,133.72 → $9,590.41,
+Laburnum $855.11 → $897.87. A payment short by exactly ~4.76% of the invoice is the old price — the
+payer missed the increase (Quay Pacific paid INV-0088/0089 at $855.11, $42.76 each still owing), not GST.
+**SparcPay = Quay Pacific** (Laburnum Heights' manager, registered Aug 27 2026) and BCS4428 (The Mix);
+remittances come from noreply@sparchub.net.
+
+**Refunds to clients are not expenses** (2026-10-12): Macdonald Realty paid 4 months on Aug 27–28 for 2
+due (incl. a 3-month "MCR ITF – 1262" cheque, $3,583.17); the 2 extra months ($2,388.78) were refunded
+Sep 18 by e-Transfer. Book the overpayment to 2160 Customer Deposits and the refund out of 2160 — never
+6900. "MCR ITF" cheques are Macdonald Realty's strata trust accounts (VR1450/VR1540, $1,194.39/month).
+
+**FY2025 is filed and closed.** Don't propose 2025 write-offs, adjustments or clean-up lists (the
+accountant's June 19 write-off question is settled — Tim, 2026-10-12). 2026 opens from the filed statements.
+
+### The filed FY2025 balance sheet is the UPDATED one (Sit Lim, June 25 2026) — 2026-10-25
+The first signed statements were replaced on June 25 2026 ("Signed FS YE2025 (Updated)"): an **$86,100 dividend**
+(T5 for 2025; Tim's T1 tax owing rose from $217 to $26,566) cleared the shareholder loan. Filed figures:
+cash $11,017 · A/R $51,948 · equipment $19,035 · **due TO shareholder $14** (due from = −14) · A/P $5,848 ·
+due to government $16,432 · income tax payable $10,454 (T2 unchanged) · loan $23,886 · share capital $1 ·
+**retained earnings $25,365** (was $111,465 before the dividend). `Fy2026OpeningService::FILED_2025` and migration
+1242 carry these. **The opening entry #3472 on production was built BEFORE the update** (1300 $86,086, RE $111,465);
+1242's note says undo and rebook, but the cash-split entry (#4551, source `fy2026_opening_split`) must be reversed
+first or the split is applied twice — so a single dated adjusting entry (Dr 3200 / Cr 1300 $86,100) is the lighter fix.
+Read the opening from the entry itself (`/crm/ledger/entry.php?id=3472`), never from a trial balance dated 2026-01-01.
+
+### A/R at Dec 31 2025 and Ricole's QuickBooks entry (Oct 13–14 2026)
+QuickBooks A/R was $51,948.47 (= the filed $51,948); about $48K was pre-2025 and stale (Dorset Realty $12.1K, Kam
+Singh $11.0K, Strata 3775 $7.4K, Dorset–Hamelin $5.3K, Vancouver Coastal Health $4.4K). Jobber showed $10,222.65
+unpaid. Ricole's email: the old balances **can be written off as bad debt in 2026**, and she would match QuickBooks'
+opening A/R to Jobber. Her journal entry "AR Dec 31, 2025" (Oct 14): Dr 5490 Bad debts **$41,725.82**, A/R −$41,725.82
+across 79 customers → QuickBooks A/R **$10,222.65 = Jobber**. Our opening A/R is already the filed $51,948, so the same
+write-off takes ours to the same $10,222.65; book it as **2026 bad-debt expense dated Jan 1 2026** (her words), not
+as a 2025 change. QuickBooks is her WORKING file, not the filed statements (its trial balance has chequing
+$754K, Undeposited Funds $1.76M, retained earnings $1.84M): compare A/R only; the year-end statements live in
+CaseWare. The only cash fact she gave: her bank accounts "tie to the Dec 31 statements" — no figure, so the $7.01
+(filed cash $11,017 vs real $11,009.99) stays a question for her.
+
+## Two representations of the same money
+
+1. **Single-entry `accounting_transactions`** — what the Accounting page, P&L, monthly trend and
+   dashboard sum. `type` is `income` / `expense` / `transfer`; reports count only income and
+   expense. Written by `AccountingService::syncFromInvoices()` / `syncFromExpenses()`, the bank
+   import, and the reconciliation services.
+2. **Double-entry journal** (`journal_entries` + `journal_lines`) — posted by `LedgerSyncService`
+   (accrual: invoice raised → DR AR / CR revenue + GST; payment → DR bank / CR AR; expense → DR
+   expense + ITC / CR funding), `JobberLedgerService` (2026 Jobber invoices and deposits) and
+   `Fy2026OpeningService`. Per `StripePayoutService` and `IncomeCleanupService` docblocks, the
+   journal **skips revenue deposits**, so the deposit double-count lived only in (1).
+   When a report disagrees, check both.
+
+## Income is recognised once — on the invoice
+
+- A paid CRM invoice has its own income row (`reference_type='invoice'`).
+- The bank deposit that paid it must become `type='transfer'` once linked (allocation rows in
+  `invoice_payment_allocations` with `transaction_id` = the deposit). Unlinked, it stays income and
+  **double-counts** — measured 2026-10-06 at ~$210K for 2026.
+- Fixes so far: Stripe payouts (`StripePayoutService` — payout → invoices + fee line on 6800 (6850 until 2026-10-13: that is Meals),
+  Stripe read-only, books only when it adds up to the cent; 79 payouts linked by 2026-10-11);
+  Penny's bank card (`BankInvoiceMatchService`); `IncomeCleanupService`; the deposit backfill
+  (`DepositBackfillService`, 2026-10-11: 32 deposits linked, 2026 income $387,762.92 → $307,000.59).
+
+## The Jobber era
+
+- **CRM cutover = 2026-02-25.** Before it the business ran on Jobber.
+- Jobber-era bank deposits are the **only** income record for that work → they stay income.
+- `jobber_payments` / `jobber_invoices` (imported 2026-10-07) say which Jobber invoice a deposit
+  paid; the backfill writes it on the bank line ("Jobber #11851 — St Faith's") and in
+  `bank_deposit_sources`, without changing income.
+- "Preauthorized credit Jobber - By Stripe" deposits are **Jobber Payments** payouts (Jobber's
+  Stripe), not the CRM's Stripe.
+
+## How customers actually pay (2026, by value)
+
+Cheques ~67% (strata / property managers: VML, Macdonald, Colyvan, VCH…), Stripe ~22% (many
+small residential payments), e-Transfer ~10%. Property managers also pay by EFT with a
+**remittance email naming the invoice numbers**: Yardi (Tribe; Dorset — forwarded to info@),
+SparcPay (strata BCS4428 via Obsidian). Remittances arrive at office@, info@ and iCloud.
+VCHA (Little Mountain Residential Care) pays by numbered cheque 2–6 weeks after the invoice, once a
+facilities coordinator approves it; VCH Accounts Payable (`VCHaccountspayable@phsa.ca`) confirms by
+email with the cheque number, invoice number and date cashed — a remittance as good as Yardi's
+(e.g. cheque 356183 for INV-2026-0371, 2026-10-05). Bank wording "COASTAL HEALTH" is a learned payer
+(2026-10-12). Don't treat VCHA as late before ~45 days. Monthly contract invoices go to
+`vcfmoinvoices@vch.ca` (the company billing email); one-off work goes to Johnly Sareno
+(`laguiar@littlemountaincare.org`), who signs it off — leave the routing as "primary contact" (Tim, 2026-10-12).
+
+## Lessons record (`head_lessons`, migration 1348, 2026-10-13)
+
+Every time a person overrides Penny, one row is written: head, subject (`vendor`, `bank_wording`,
+`invoice`, `etransfer_sender`, `service_type`), field, what she said, what was right, who, the code path
+(`source`) and when. `site_id` keeps it tenant-private. Written by `HeadLessons::record()` through
+`PennyLessons` (`expense()`, `bankLine()`, `subject()`); a failure is logged and never blocks the person.
+Recording only so far: no learner reads it yet (plan 2026-10-13 A2 will, via `countConsistent()`).
+Wired paths: `ExpenseGate` (a person changing category, payment method, job, vendor, tag or split;
+sources `penny_card`, `bank_desk`, `bank_line` skip it), Penny's card (`BookkeeperDeskService::decide`,
+against her suggestion), `BankLineMoveService::move` (not when Penny proposed the account), bank desk
+"keep", `attachExpenseMatch` / unlink, `ReceiptFundingCheck` (bank line corrects the method), Penny's
+question answers, reconciliation attach / detach / already-recorded, the deposit card, payer teaching,
+`correctManualPayment`, Jobber `linkManual` / `bookMatched`, "not a duplicate", "Keep mine" on Penny's read
+(source `receipt_keep_mine`, `PennyReadService::keep`). **The reader, not Penny:** when an approved receipt carries
+Penny's items (`line_items_source = 'penny'`) and they differ from what the reader read, one row with field
+`reader_line_items`, source `reader_corrected_by_penny` (`teachReaderFromPenny()`) — count those for "how often the
+reader needs Penny". `bank_memo_payers` has no
+person path (only `DepositBackfillService`). The 2026-10-12 mistakes are tests in
+`tests/Unit/Penny/Lessons20261012Test.php`.
+
+## The Accountant's Ledger (step 1 built 2026-10-13; plan `docs/plans/2026-10-13-accountants-ledger.md`)
+
+- **Pages:** `/crm/ledger/` (overview, journal, entry drill-down, GIFI mapping, exceptions, accountant access) + the existing
+  trial balance / balance sheet / income statement, now gated on `ledger.view` (admin, manager, accountant; crew no longer).
+- **Accountant login** (migration 1355): users.role `accountant` + RBAC role `accountant` (ledger.view, ledger.propose).
+  `ledger.post` is admin only. `AccountantFence` confines the login to the Ledger (403 elsewhere, dashboard → Ledger),
+  refuses app tokens, and writes an activity_log row per page view (`ledger.view`) or export (`ledger.export`).
+  Invite: Settings → Accountant, or `/crm/ledger/invite.php` — creates the login and shows a 72-hour set-password link
+  (password_reset_tokens); sends nothing.
+- **GIFI:** `chart_of_accounts.gifi_code / gifi_status ('suggested' | 'confirmed') / lead_group`; shared table `gifi_codes`.
+  Suggestions never count as mapped: the export is blocked until a person confirms every account with activity and the
+  totals recompute (2599 = 3499 + 3620; 9999 = the ledger's net income). Retained earnings start (3660) includes any prior
+  year's income-statement balance that no FY opening entry closed.
+- **journal_entries.entry_kind:** system | manual | aje | rje | reversal (`LedgerService::entryKindFor()` on every post).
+- **Locks:** `accounting_periods.status = 'locked'` (current state only; a re-lock overwrites closed_at). Every lock/unlock is also a row in
+  `accounting_period_locks` (migration 1356; `StatementCloseService::lockMonth` writes it); the exception report counts from the FIRST lock.
+  Late automatic postings carry `journal_entries.late_for` (the original date). FY2025's twelve months were locked 2026-10-07.
+- **Fiscal year:** `business_settings.fiscal_year_end` (MM-DD, default 12-31) via `FiscalYear` — never assume the calendar year.
+- **Step 2 (2026-10-13):** `/crm/ledger/trial-balance.php` (comparative: unadjusted, proposed [empty until step 3], AJE [entry_kind aje/rje],
+  adjusted [= the office TB], FY-1 as filed = lines to FY-1 end + that year's `fy_opening` entry, FY-2), `/crm/ledger/general-ledger.php`
+  (opening + lines + running balance = closing), `/crm/ledger/export.php` (tb/gl/journal/aging-stub/bs/is in xlsx/csv/pdf; QBO journal CSV
+  summary or detailed). Revenue/expense are signed by SECTION everywhere (a contra-revenue account reduces revenue).
+
+## Tables and columns that mislead
+
+| Column | What it really is |
+|---|---|
+| `bank_import_rows.account_id` | the **category** account (e.g. 4900 Other Services), NOT the bank account. The bank account is `bank_import_sessions.bank_account_id`. |
+| `bank_import_sessions.status = 'rolled_back'` | a cancelled import — its rows stay as history; filter them out. |
+| `invoices.payment_date` | mostly NULL; the paid date lives in `invoices.paid_at`. |
+| `accounting_transactions.amount` on a deposit | equals its **unallocated remainder** while partly allocated (`InvoiceReconciliationService::recomputeDepositRow`). |
+| `expenses.anomaly_flags` / `anomaly_score` | stored at save time; a rule change does not update old receipts — re-run through `ExpenseGate::apply()`. |
+| `bank_memo_payers` | bank wording → payer name ("VML" → Vancouver Management Ltd) that Penny's bank card reads. |
+
+## Accounts referred to by number
+
+1010 Chequing · 1020 Reserve savings · 1025 GST reserve · 1100 AR · 2160 Customer deposits ·
+2200 GST · 2400 Credit card payable · 3200 Retained earnings · 4050 Contract income ·
+4900 Other services (default revenue) · 6800 Bank charges & Stripe/card fees · 6850 Meals & Entertainment (50%) ·
+6900 Miscellaneous (default expense). Default accounts (4900, 6900) never teach bank rules.
+
+## Stripe in transit hides chequing errors (2026-10-13)
+- A card payment posts **Dr 1010** on the day the client pays (`stripe_payment` entries); the bank gets one
+  net payout 2–5 days later. So the books run **above** the bank by whatever Stripe still holds: at Oct 13,
+  $1,291.09 (payouts $165.14 + $999.88 + $88.20 pending). The raw drift (+$162.88) looked small while the books
+  were really ~$1,158 **below** the bank.
+- **Before reading 1010 drift:** subtract Stripe's pending balance + payouts not yet on the statement
+  (read-only: Stripe `balance` + `payouts` with `arrival_date`). Proposed fix: 1015 Stripe clearing
+  (`docs/plans/2026-10-13-stripe-clearing-account.md`).
+- Named in the remainder (Fable, 2026-10-13): 5 income deposits with no cash entry ($3,130.56; tx 53285, 6992,
+  7016, 28014, 51339) and 16 chequing debits on draft receipts ($1,290.12) — Part B of
+  `docs/plans/2026-10-13-ledger-silent-failures.md`.
+- `BankBalanceCheckService` reads a GST Reserves ••6827 interest line as chequing's Mar–May month-end ($8.59)
+  and can't read card (2400) balances — don't trust those months' "statement" figure.
+
+## Equipment: capital vs small tools (standard, 2026-10-19)
+Tools/Equipment receipts post to **6210 Small Tools & Equipment** (migration 1379). When posting, `CapitalItemRule`
+moves any item costing `ops_settings.capital_threshold` ($500) or more EACH, before tax, to **1500 Equipment & Tools**
+(CCA Class 8; Otto adds it to the equipment register with `cca_class` 8). A mixed receipt posts as two debit lines,
+labelled ("Capital ($500+ each): <item>", "Other items on the receipt"), taxes shared by net; a person's own split
+always wins. No lines: the pre-tax amount decides. Bank lines with no receipt in Tools → 6210 (BankDeskService).
+2026 rebooked 2026-10-19 (11 receipts) with the reason on every reversal. 1500 opened 2026 at $19,035.00 (signed FS).
+The repost runner can apply a reviewed subset (`apply($userId, $only, $why)`) — never apply its whole plan unreviewed.
+

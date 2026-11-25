@@ -264,8 +264,39 @@ $activePage = 'map';
                   <span class="badge badge-warning ml-1"><?php echo count($unscheduledProperties); ?></span>
                 <?php endif; ?>
               </button>
+              <?php if (userHasPermission('jobs.edit')): ?>
+              <button type="button" class="btn btn-sm btn-outline-secondary" id="btn-geocode-all">
+                <i data-feather="crosshair" style="width:14px;height:14px;display:inline;"></i> Missing pins
+              </button>
+              <?php endif; ?>
             </div>
           </div>
+
+          <?php
+          // Otto owns the schedule: today's strip (or ?date=), and the geocode-all tool for client
+          // properties with no pin (jobs.edit only — both render nothing otherwise).
+          $__mapDay = (isset($_GET['date']) && preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)$_GET['date'])) ? (string)$_GET['date'] : date('Y-m-d');
+          $ottoStrip = ['date' => $__mapDay];
+          include __DIR__ . '/includes/otto-schedule-strip.php';
+          if (userHasPermission('jobs.edit')):
+          ?>
+          <section class="mw-geo-all" id="mwGeoAll" data-focus="<?php echo (int)($_GET['geocode'] ?? 0); ?>" hidden>
+            <div class="mw-geo-all-hd">
+              <div>
+                <b>Find missing pins</b>
+                <span class="mw-geo-all-sub">Client properties with no map pin. Google's geocoder fills each one — only an exact
+                  rooftop or street-range match is saved; anything vaguer is left for you to place by hand.</span>
+              </div>
+              <div class="mw-geo-all-btns">
+                <button type="button" class="btn btn-sm btn-primary" id="mwGeoAllRun" disabled>Find pins</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="mwGeoAllClose">Close</button>
+              </div>
+            </div>
+            <div class="mw-geo-all-status" id="mwGeoAllStatus">Loading…</div>
+            <ol class="mw-geo-all-list" id="mwGeoAllList"></ol>
+          </section>
+          <script src="/crm/js/otto-geocode-all.js?v=<?php echo (int)@filemtime(__DIR__ . '/js/otto-geocode-all.js'); ?>" defer></script>
+          <?php endif; ?>
 
           <!-- ── Summary Stats Row ──────────────────────────── -->
           <div class="row mb-3">
@@ -323,6 +354,10 @@ $activePage = 'map';
                   <div class="mw-legend-item">
                     <span class="mw-legend-pin mw-pin-quote"></span>
                     <span>Active Quote</span>
+                  </div>
+                  <div class="mw-legend-item">
+                    <span class="mw-legend-pin" style="background:#e85d04;"></span>
+                    <span>Truck</span>
                   </div>
                 </div>
                 <div id="legend-requests">
@@ -387,7 +422,12 @@ $activePage = 'map';
                   </div>
                   <div class="form-group mb-2">
                     <label class="mw-qsched-label">Schedule for:</label>
-                    <input type="date" class="form-control form-control-sm" id="mwQschedDate">
+                    <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#mwQschedDate" aria-haspopup="true" aria-expanded="false">
+                        <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                        <span class="mw-datepicker-date" data-mw-dp-label></span>
+                        <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                    </button>
+                    <input type="date" class="form-control form-control-sm" id="mwQschedDate" hidden>
                   </div>
                   <div class="mw-qsched-msg" id="mwQschedMsg"></div>
                   <div style="display:flex;gap:8px;">
@@ -752,7 +792,7 @@ $activePage = 'map';
                   { elementType: 'labels.text.fill', stylers: [{ color: '#616161' }] },
                   { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#c9e7f2' }] },
                   { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#e8e8e8' }] },
-                  { featureType: 'park', elementType: 'geometry', stylers: [{ color: '#d4edda' }] }
+                  { featureType: 'poi.park', elementType: 'geometry', stylers: [{ color: '#d4edda' }] }
                 ]
               });
 
@@ -763,6 +803,73 @@ $activePage = 'map';
               renderPropertyMarkers();
               renderRequestMarkers();
               renderDensityOverlay();
+              startTruckLayer();
+            }
+
+            // ── Trackimo Truck Layer ───────────────────────────
+            // Polls /crm/api/truck-location.php every 30s and keeps a single
+            // marker in sync. Uses a plain Marker (no OverlayView/CSS module
+            // here). No-ops silently if no tracker is configured / no ping yet.
+            let truckMarker = null;
+            let truckInfoWindow = null;
+            const TRUCK_POLL_MS = 30000;
+            const TRUCK_STALE_S = 600; // 10 min → grey
+
+            function startTruckLayer() {
+              pollTruck();
+              setInterval(pollTruck, TRUCK_POLL_MS);
+            }
+
+            function pollTruck() {
+              fetch('/crm/api/truck-location.php', { credentials: 'same-origin' })
+                .then(r => r.json())
+                .then(data => {
+                  if (!data || !data.ok || !data.location) return;
+                  placeTruck(data.location);
+                })
+                .catch(() => { /* silently ignore — next poll retries */ });
+            }
+
+            function placeTruck(loc) {
+              if (!gmap || typeof loc.lat !== 'number' || typeof loc.lng !== 'number') return;
+              const pos = { lat: loc.lat, lng: loc.lng };
+              const isStale = (loc.age_seconds || 0) > TRUCK_STALE_S;
+              const icon = {
+                path: 'M12 0C7.58 0 4 3.58 4 8c0 5.25 8 16 8 16s8-10.75 8-16c0-4.42-3.58-8-8-8z',
+                fillColor: isStale ? '#9ca3af' : '#e85d04',
+                fillOpacity: 1,
+                scale: 1.4,
+                strokeColor: '#fff',
+                strokeWeight: 2,
+                anchor: new google.maps.Point(12, 24)
+              };
+
+              if (!truckMarker) {
+                truckMarker = new google.maps.Marker({
+                  position: pos, map: gmap, icon: icon,
+                  title: 'Truck', zIndex: 9999
+                });
+                truckInfoWindow = new google.maps.InfoWindow();
+                truckMarker.addListener('click', () => {
+                  closeAllInfoWindows();
+                  truckInfoWindow.setContent(truckBubble(loc));
+                  truckInfoWindow.open(gmap, truckMarker);
+                });
+              } else {
+                truckMarker.setPosition(pos);
+                truckMarker.setIcon(icon);
+              }
+            }
+
+            function truckBubble(loc) {
+              const ageMin = Math.round((loc.age_seconds || 0) / 60);
+              const ageLabel = ageMin < 1 ? 'just now' : ageMin + ' min ago';
+              const speed = (loc.speed_kph != null) ? Math.round(loc.speed_kph) + ' km/h' : '&mdash;';
+              const batt  = (loc.battery_pct != null) ? loc.battery_pct + '%' : '&mdash;';
+              return '<div style="font-family:sans-serif;font-size:13px;min-width:160px;line-height:1.5">' +
+                     '<strong style="color:#e85d04">&#128739; Truck</strong><br>' +
+                     '<span style="color:#666">Last seen ' + ageLabel + '</span><br>' +
+                     'Speed: ' + speed + '<br>Battery: ' + batt + '</div>';
             }
 
             // ── Property Markers (pins layer) ──────────────────
@@ -1109,6 +1216,8 @@ $activePage = 'map';
                 String(tomorrow.getDate()).padStart(2, '0');
               const dateInput = document.getElementById('mwQschedDate');
               dateInput.value = tStr;
+              dateInput.dispatchEvent(new Event('input', { bubbles: true }));
+              dateInput.dispatchEvent(new Event('change', { bubbles: true }));
               dateInput.min = new Date().toISOString().split('T')[0];
 
               document.getElementById('mwQschedOverlay').style.display = 'flex';
@@ -1135,7 +1244,7 @@ $activePage = 'map';
               fetch('/crm/api/schedule-visit.php', {
                 method: 'POST',
                 credentials: 'same-origin',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
                 body: JSON.stringify({ visit_id: parseInt(qschedCurrentProp.visit_id), date })
               })
               .then(r => r.json().then(d => ({ ok: r.ok, data: d })))

@@ -28,11 +28,7 @@ require_once CRM_INCLUDES . '/timeclock-functions.php';
 requireLogin();
 $user = getCurrentUser();
 
-// Only designated drivers need this form
-if (empty($user['is_driver'])) {
-    header('Location: /crm/homebase.php');
-    exit;
-}
+// Whoever opened a trip closes it — decided by the open trip, not by users.is_driver.
 
 // Must be clocked in — no clock-out means no post-trip
 $activeClock = getActiveClockEntry($user['id']);
@@ -103,7 +99,7 @@ session_write_close();
     <link href="/crm/css/tokens.css?v=20260410a" rel="stylesheet">
     <link href="/crm/css/mw-sync-status.css?v=20260410a" rel="stylesheet">
     <script src="/crm/js/sw-register.js?v=20260410a" defer></script>
-    <script src="/crm/js/mw-sync-status.js?v=20260410a" defer></script>
+    <script src="/crm/js/mw-sync-status.js?v=20261008a" defer></script>
     <script src="/crm/js/mw-haptics.js?v=20260410a" defer></script>
     <style>
         /* Brand + layout tokens come from /crm/css/tokens.css loaded
@@ -370,16 +366,33 @@ session_write_close();
     }
 
     // ── Clock out after post-trip is saved ────────────────────────
+    // time-clock.php POST with the token in the header and body; on a stale token, refresh it
+    // from get-csrf.php and retry once (as dpTimeClockPost() on the driver portal).
+    function timeClockPost(payload) {
+        var send = function () {
+            return fetch('/crm/api/time-clock.php', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF || '' },
+                body: JSON.stringify(Object.assign({}, payload, { csrf_token: CSRF }))
+            }).then(function (r) { return r.json(); });
+        };
+        return send().then(function (d) {
+            if (d && !d.success && d.error && String(d.error).indexOf('CSRF') !== -1) {
+                return fetch('/crm/api/get-csrf.php', { credentials: 'same-origin', cache: 'no-store' })
+                    .then(function (r) { return r.json(); })
+                    .then(function (t) { if (t && t.token) CSRF = t.token; return send(); });
+            }
+            return d;
+        });
+    }
+
     function clockOut(lat, lng) {
-        fetch('/crm/api/time-clock.php', {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'clock_out', csrf_token: CSRF, lat: lat, lng: lng })
-        })
-        .then(function (r) { return r.json(); })
+        timeClockPost({ action: 'clock_out', lat: lat, lng: lng })
         .then(function (d) {
-            if (d.success || !d.clocked_in) {
+            // Success only when the server says so, or says plainly they are no longer clocked in
+            // (an error reply has no clocked_in, and used to count as a clock-out — 2026-10-12).
+            if (d && (d.success || d.clocked_in === false)) {
                 // Stop the native foreground GPS service on clock-out.
                 try {
                     if (window.MwNative && window.MwNative.geo) {
@@ -420,31 +433,34 @@ session_write_close();
         btn.disabled = true;
         btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg> Saving…';
 
-        var form = document.getElementById('dlPostTripForm');
-        var data = new FormData(form);
+        var form   = document.getElementById('dlPostTripForm');
+        var fields = {};
+        new FormData(form).forEach(function (v, k) { fields[k] = v; });
+        // Second tap after an "is that odometer right?" warning = the driver confirms it.
+        if (window._dlConfirmOdometer) fields.confirm_odometer = '1';
 
-        fetch('/crm/api/trip-report.php', {
-            method: 'POST',
-            credentials: 'same-origin',
-            body: data
-        })
-        .then(function (r) { return r.json(); })
-        .then(function (res) {
-            if (res.success) {
-                if (window.MwHaptics) window.MwHaptics.success();
-                dlToast('Post-trip saved — clocking out…');
-                clockOutWithGeo();
-            } else {
-                dlToast(res.error || 'Save failed — try again', true);
+        // Server first; the phone is the backup when there's no signal (MwTripLog).
+        MwTripLog.submit('save_post_trip', fields, <?php echo (int)$user['id']; ?>).then(function (r) {
+            if (r.status === 'rejected') {
+                if (r.code === 'needs_confirmation') {
+                    window._dlConfirmOdometer = true;
+                    dlToast(r.message + ' Tap Save again if it is correct.', true);
+                } else {
+                    dlToast(r.message || 'Save failed — try again', true);
+                }
                 resetBtn();
+                return;
             }
-        })
-        .catch(function () {
-            dlToast('Network error — check connection', true);
-            resetBtn();
+            if (window.MwHaptics) window.MwHaptics.success();
+            dlToast(r.status === 'filed'
+                ? 'Post-trip filed — clocking out…'
+                : 'No signal — post-trip saved on this phone. It files itself when you\'re back in range.');
+            clockOutWithGeo();
         });
     };
 }());
 </script>
+<script>window.MW_USER_ID = <?php echo (int)$user['id']; ?>;</script>
+<script src="/crm/js/mw-trip-log.js?v=20260919a"></script>
 </body>
 </html>

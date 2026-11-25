@@ -22,7 +22,10 @@ for ($__i = 0; $__i < 5; $__i++) {
 unset($__dir, $__i);
 
 require_once APP_ROOT . '/Core/config.php';
-require_once APP_ROOT . '/Services/Messaging/EmailHelper.php';
+require_once APP_ROOT . '/Core/Auth/auth.php';
+require_once APP_ROOT . '/Core/Auth/AttemptThrottle.php';
+require_once APP_ROOT . '/Core/Auth/ResetCaptcha.php';
+require_once APP_ROOT . '/Services/Messaging/MessagingService.php'; // sendCrmEmail(): SMTP + fallback + logging (was the legacy mail()-only EmailHelper)
 
 // ── Handle POST ───────────────────────────────────────────────────────────
 $sent    = false;
@@ -33,6 +36,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
         $error = 'Please enter a valid email address.';
+    } elseif (!ResetCaptcha::passes((string)($_POST['recaptcha_v3_token'] ?? ''), $_SERVER['REMOTE_ADDR'] ?? null)) {
+        $error = 'Security check failed. Please try again, or call (778) 846-9273.';
+    } elseif (!AttemptThrottle::takeResetSlot(getDB(), $email, (string)($_SERVER['REMOTE_ADDR'] ?? ''))) {
+        // Own throttle (#9, Fable audit 2026-10-12): 3 per email and 10 per IP per hour, keyed 'reset:'
+        // so it never counts toward — or locks — a login. Same page as a real request (no hint).
+        $sent = true;
     } else {
         $db   = getDB();
         $user = $db->prepare("SELECT id, full_name FROM users WHERE LOWER(email) = ? AND is_active = 1 LIMIT 1");
@@ -43,15 +52,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Generate a cryptographically secure token
             $rawToken  = bin2hex(random_bytes(32));           // 64 hex chars
             $tokenHash = hash('sha256', $rawToken);
-            $expiresAt = date('Y-m-d H:i:s', time() + 3600); // 1-hour window
 
-            // Invalidate any existing unused tokens for this user
-            $db->prepare("DELETE FROM password_reset_tokens WHERE user_id = ? AND used_at IS NULL")
+            // Same table shape as the working loginAuth flow (2026-10-12): production's
+            // password_reset_tokens has `token` (the sha256 of the raw token), no token_hash/used_at —
+            // this page used to fatal on every request. One live link per user; used = deleted.
+            $db->prepare("DELETE FROM password_reset_tokens WHERE user_id = ?")
                ->execute([(int)$row['id']]);
 
-            // Store the hash (never the raw token)
-            $db->prepare("INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)")
-               ->execute([(int)$row['id'], $tokenHash, $expiresAt]);
+            // Store the hash (never the raw token). Expiry in MySQL time, compared with NOW() on use.
+            $db->prepare("INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 1 HOUR))")
+               ->execute([(int)$row['id'], $tokenHash]);
+            $expiresAt = (string)$db->query("SELECT DATE_ADD(NOW(), INTERVAL 1 HOUR)")->fetchColumn();
 
             // Build reset URL
             $resetUrl = 'https://mowology.ca/reset-password?token=' . urlencode($rawToken);
@@ -217,6 +228,7 @@ HTML;
     .success-body  { color: #555; font-size: 14px; line-height: 1.6; text-align: center; }
     .success-note  { color: #888; font-size: 12px; text-align: center; margin-top: 16px; line-height: 1.5; }
   </style>
+<?= ResetCaptcha::headTags() ?>
 </head>
 <body>
 
@@ -251,7 +263,7 @@ HTML;
         <div class="error"><?= htmlspecialchars($error) ?></div>
       <?php endif; ?>
 
-      <form method="POST" action="/forgot-password">
+      <form method="POST" action="/forgot-password" id="resetForm">
         <div class="field">
           <label for="email">Email address</label>
           <input
@@ -266,6 +278,7 @@ HTML;
           >
         </div>
         <button type="submit">Send Reset Link</button>
+        <?= ResetCaptcha::formTags('resetForm') ?>
       </form>
 
     <?php endif; ?>

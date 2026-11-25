@@ -23,11 +23,14 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 require_once CRM_INCLUDES . '/functions.php';
 require_once CRM_INCLUDES . '/cms-functions.php';
 
 // Check auth
 requireLogin();
+// Same permission as save-page.php (Fable review 2026-10-12): any login is not enough to change the public site.
+requirePermission('marketing.edit');
 $user = getCurrentUser();
 
 if (!in_array($user['role'], ['admin', 'staff'])) {
@@ -68,7 +71,7 @@ try {
     http_response_code(400);
     json_response([
         'success' => false,
-        'error' => $e->getMessage(),
+        'error' => ApiResponse::message($e, 'delete-page'),
     ]);
 }
 

@@ -146,6 +146,33 @@ class PrivacyServiceTest extends TestCase
     }
 
     /** @test */
+    public function anonymize_contact_blanks_invoice_contact_emails_and_notes(): void
+    {
+        $contact = ['id' => 5, 'first_name' => 'Jane', 'email' => 'jane@example.com'];
+        $sqls = [];
+        $params = [];
+        $db = $this->createMock(PDO::class);
+        $db->method('beginTransaction')->willReturn(true);
+        $db->method('commit')->willReturn(true);
+        $db->method('prepare')->willReturnCallback(function (string $sql) use (&$sqls, &$params, $contact) {
+            $sqls[] = $sql;
+            $stmt = $this->createMock(PDOStatement::class);
+            $stmt->method('execute')->willReturnCallback(function ($p = []) use (&$params, $sql) { $params[$sql] = $p; return true; });
+            $stmt->method('fetch')->willReturn($contact);
+            $stmt->method('fetchAll')->willReturn([]);
+            return $stmt;
+        });
+
+        (new PrivacyService($db))->anonymizeContact(5, 1);
+
+        $ic = array_values(array_filter($sqls, fn($q) => str_contains($q, 'UPDATE invoice_contacts')));
+        $this->assertCount(1, $ic, 'invoice_contacts emails are blanked');
+        $this->assertSame([5, 5, 'jane@example.com', 'jane@example.com'], $params[$ic[0]]);
+        $c = array_values(array_filter($sqls, fn($q) => str_contains($q, 'UPDATE contacts SET')));
+        $this->assertStringContainsString('notes      = NULL', $c[0]);
+    }
+
+    /** @test */
     public function anonymize_contact_rolls_back_on_db_error(): void
     {
         $contact = ['id' => 5, 'first_name' => 'Jane', 'email' => 'jane@example.com'];

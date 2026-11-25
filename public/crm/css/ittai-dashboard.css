@@ -1,0 +1,744 @@
+/* =============================================================================
+   ittai-dashboard.css — the Ittai v1.2 design on the CRM dashboard (opt-in).
+   Applies only inside .it-design (dashboard_appstack.php adds it when the viewer
+   chose "Try the new design"). Colours, type and spacing come from ittai-tokens.css
+   (generated from docs/design/ittai-v1.2) — no hex values here.
+   Kanso rules: hairlines, not shadows; sentence case; figures in tabular numerals;
+   tenant green for actions; amber only where something needs the owner.
+   Step 1 (2026-10-18): page, header, e-Transfer notice, 7-day operations, number cards.
+   ============================================================================= */
+
+/* ── Page ─────────────────────────────────────────────────────────────────── */
+body:has(.it-design),
+body:has(.it-design) .main,
+body:has(.it-design) main.content {
+  background: var(--it-page);
+}
+
+.it-design {
+  color: var(--it-text);
+  font-family: var(--it-font-sans);
+  font-size: var(--it-body-14-size);
+  line-height: var(--it-body-14-line);
+}
+
+.it-design a:focus-visible,
+.it-design button:focus-visible {
+  outline: var(--it-stroke-focus) solid var(--it-focus);
+  outline-offset: 2px;
+}
+
+/* ── Header ───────────────────────────────────────────────────────────────── */
+.it-design .mw-page-header {
+  align-items: flex-end;
+  border-bottom: 0;
+  margin-bottom: var(--it-space-6);
+  padding-bottom: 0;
+}
+
+.it-design .mw-page-title {
+  color: var(--it-text);
+  font-size: var(--it-title-28-size);
+  font-weight: var(--it-title-28-weight);
+  letter-spacing: -0.02em;
+  line-height: var(--it-title-28-line);
+}
+
+.it-design .mw-page-subtitle {
+  color: var(--it-meta);
+  font-size: var(--it-body-16-size);
+  line-height: var(--it-body-16-line);
+  margin-top: var(--it-space-1);
+}
+
+/* The switch itself (shown in both designs; styled quietly in each). */
+.it-switch-link {
+  align-items: center;
+  display: inline-flex;
+  font-size: 13px;
+  min-height: 44px;
+  white-space: nowrap;
+}
+
+.it-design .it-switch-link {
+  color: var(--it-meta);
+  font-size: var(--it-meta-13-size);
+  font-weight: 500;
+}
+
+@media (max-width: 600px) {
+  .it-design .mw-page-header { align-items: flex-start; flex-wrap: wrap; gap: 0; }
+  .it-design .mw-page-header-left { flex-basis: 100%; }
+  .it-design .mw-page-title { font-size: var(--it-title-22-size); line-height: var(--it-title-22-line); }
+}
+
+.it-design .it-switch-link:hover {
+  color: var(--it-tenant);
+  text-decoration: none;
+}
+
+/* ── e-Transfer notice: an attention row, not a coloured banner ──────────── */
+.it-design .mw-et-dash-alert {
+  background: var(--it-surface);
+  border: var(--it-stroke-hairline) solid var(--it-line);
+  border-left: 3px solid var(--it-status-attention);
+  border-radius: 0;
+  color: var(--it-text);
+  margin-bottom: var(--it-space-6);
+}
+
+.it-design .mw-et-dash-alert:hover {
+  background: var(--it-selected);
+  color: var(--it-text);
+}
+
+.it-design .mw-et-dash-alert svg { color: var(--it-status-attention); }
+
+/* ── 7-day operations ─────────────────────────────────────────────────────── */
+.it-design .mw-daily-ops {
+  background: var(--it-surface);
+  border: var(--it-stroke-hairline) solid var(--it-line);
+  border-radius: 0;
+  box-shadow: none;
+  margin-bottom: var(--it-space-6);
+}
+
+.it-design .mw-daily-ops-header {
+  align-items: flex-end;
+  border-bottom: var(--it-stroke-hairline) solid var(--it-line);
+  padding: var(--it-space-4) var(--it-space-5);
+}
+
+.it-design .mw-daily-ops-title {
+  color: var(--it-text);
+  font-size: var(--it-heading-16-size);
+  font-weight: var(--it-heading-16-weight);
+  letter-spacing: 0;
+  line-height: var(--it-heading-16-line);
+  text-transform: none;
+}
+
+.it-design .mw-daily-ops-summary { gap: var(--it-space-8); }
+
+.it-design .mw-daily-ops-stat-val {
+  color: var(--it-text);
+  font-size: var(--it-heading-18-size);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  line-height: var(--it-heading-18-line);
+}
+
+.it-design .mw-daily-ops-stat-lbl {
+  color: var(--it-meta);
+  font-size: var(--it-caption-12-size);
+  font-weight: var(--it-caption-12-weight);
+  line-height: var(--it-caption-12-line);
+}
+
+.it-design .mw-daily-ops-day {
+  border-right: var(--it-stroke-hairline) solid var(--it-line);
+  padding: var(--it-space-3) var(--it-space-2);
+}
+
+.it-design .mw-daily-ops-today {
+  background: var(--it-selected);
+  box-shadow: inset 0 3px 0 var(--it-tenant-mark);
+}
+
+/* Past days: quieter text, not a faded block (opacity drops contrast below AA). */
+.it-design .mw-daily-ops-past { opacity: 1; }
+.it-design .mw-daily-ops-past .mw-daily-ops-revenue,
+.it-design .mw-daily-ops-past .mw-daily-ops-net { color: var(--it-meta); }
+.it-design .mw-daily-ops-future .mw-daily-ops-profit { opacity: 1; }
+
+.it-design .mw-daily-ops-date {
+  color: var(--it-text);
+  font-size: var(--it-caption-12-size);
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.it-design .mw-daily-ops-dayname {
+  color: var(--it-meta);
+  font-size: var(--it-caption-12-size);
+  font-weight: var(--it-caption-12-weight);
+}
+
+.it-design .mw-daily-ops-today .mw-daily-ops-dayname { color: var(--it-tenant); }
+
+.it-design .mw-daily-ops-wicon { font-size: 16px; }
+
+.it-design .mw-daily-ops-wtemps {
+  color: var(--it-meta);
+  font-size: var(--it-caption-12-size);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+.it-design .mw-daily-ops-wprecip {
+  color: var(--it-status-progress);
+  font-size: var(--it-caption-12-size);
+}
+
+.it-design .mw-daily-ops-divider {
+  background: var(--it-line);
+  margin: var(--it-space-2) var(--it-space-2);
+}
+
+.it-design .mw-daily-ops-profit { font-variant-numeric: tabular-nums; }
+
+.it-design .mw-daily-ops-visits {
+  color: var(--it-meta);
+  font-size: var(--it-caption-12-size);
+}
+
+.it-design .mw-daily-ops-visits.mw-daily-ops-scheduled {
+  color: var(--it-status-progress);
+  font-style: normal;
+}
+
+.it-design .mw-daily-ops-revenue,
+.it-design .mw-daily-ops-est {
+  color: var(--it-text);
+  font-size: var(--it-body-14-size);
+  font-style: normal;
+  font-weight: 600;
+}
+
+.it-design .mw-daily-ops-cost {
+  color: var(--it-meta);
+  font-size: var(--it-caption-12-size);
+}
+
+.it-design .mw-daily-ops-net {
+  border-top: var(--it-stroke-hairline) solid var(--it-line);
+  font-size: var(--it-body-14-size);
+  font-weight: 600;
+}
+
+.it-design .mw-daily-ops-margin {
+  font-size: var(--it-caption-12-size);
+  font-weight: 500;
+}
+
+.it-design .mw-daily-ops-empty { color: var(--it-meta); }
+
+/* Margin words: healthy = complete green, thin = plain text, low = amber (worth a look). */
+.it-design .mw-margin-good { color: var(--it-status-complete); }
+.it-design .mw-margin-ok   { color: var(--it-text); }
+.it-design .mw-margin-low  { color: var(--it-status-attention); }
+.it-design .mw-margin-none { color: var(--it-meta); }
+
+/* ── Number cards: one calm figure each, no coloured tops ─────────────────── */
+.it-design .mw-stat-link { color: inherit; text-decoration: none; }
+
+.it-design .card.stat-card {
+  background: var(--it-surface);
+  border: var(--it-stroke-hairline) solid var(--it-line);
+  border-radius: 0;
+  box-shadow: none;
+  margin-bottom: var(--it-space-4);
+  transition: background 120ms ease;
+}
+
+.it-design .mw-stat-link:hover .card.stat-card { background: var(--it-selected); }
+
+.it-design .card.stat-card .card-body { padding: var(--it-space-5); }
+
+.it-design .card.stat-card h5.card-title {
+  color: var(--it-meta);
+  font-size: var(--it-caption-12-size);
+  font-weight: var(--it-caption-12-weight);
+  letter-spacing: 0;
+  line-height: var(--it-caption-12-line);
+  margin-bottom: var(--it-space-2) !important; /* beats Bootstrap's .mb-4 utility (!important) */
+  text-transform: none;
+}
+
+.it-design .card.stat-card h1 {
+  color: var(--it-text);
+  font-size: var(--it-title-28-size);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--it-title-28-weight);
+  line-height: var(--it-title-28-line);
+  margin: 0 0 var(--it-space-1) !important; /* beats .mt-1 .mb-3 utilities */
+}
+
+.it-design .card.stat-card .text-muted {
+  color: var(--it-meta) !important; /* Bootstrap .text-muted is !important */
+  font-size: var(--it-meta-13-size);
+}
+
+/* ── Step 2 (2026-10-18): the top of the page — "Needs you now" and the heads deck ── */
+
+/* Needs you now: a hairline list; amber edge only on Charlie's one top item. */
+.it-design .card.mw-action-board {
+  background: var(--it-surface);
+  border: var(--it-stroke-hairline) solid var(--it-line);
+  border-radius: 0;
+  box-shadow: none;
+  margin-bottom: var(--it-space-6);
+  padding: var(--it-space-4) var(--it-space-5);
+}
+
+.it-design .mw-ab-title {
+  color: var(--it-text);
+  font-size: var(--it-heading-16-size);
+  font-weight: var(--it-heading-16-weight);
+  line-height: var(--it-heading-16-line);
+}
+
+.it-design .mw-ab-count,
+.it-design .mw-ab-n {
+  background: var(--it-sunk);
+  color: var(--it-meta);
+  font-size: var(--it-caption-12-size);
+  font-weight: 500;
+}
+
+.it-design .mw-ab-line { color: var(--it-meta); font-size: var(--it-body-14-size); }
+
+.it-design .mw-ab-colhead { border-bottom: var(--it-stroke-hairline) solid var(--it-line); }
+.it-design .mw-ab-colhead b { color: var(--it-text); font-size: var(--it-body-14-size); font-weight: 600; }
+.it-design .mw-ab-colhead span {
+  color: var(--it-meta);
+  font-size: var(--it-caption-12-size);
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.it-design .mw-ab-face {
+  box-shadow: 0 0 0 1px var(--it-line);
+  height: 48px;
+  width: 48px;
+}
+
+.it-design .mw-ab-items { gap: 0; }
+
+.it-design .mw-ab-row {
+  background: transparent;
+  border: 0;
+  border-bottom: var(--it-stroke-hairline) solid var(--it-line);
+  border-radius: 0;
+  box-shadow: none;
+  padding: var(--it-space-3) 0;
+}
+
+.it-design .mw-ab-row.is-top {
+  border-left: 3px solid var(--it-state-approval);
+  padding-left: var(--it-space-3);
+}
+
+.it-design .mw-ab-text { color: var(--it-text); font-size: var(--it-body-14-size); line-height: var(--it-body-14-line); }
+.it-design .mw-ab-wait { color: var(--it-meta); font-size: var(--it-caption-12-size); }
+.it-design .mw-ab-later { color: var(--it-meta); font-size: var(--it-meta-13-size); }
+.it-design .mw-ab-later:hover,
+.it-design .mw-ab-later:focus { color: var(--it-text); }
+
+.it-design .btn-primary.mw-ab-go {
+  background: var(--it-tenant);
+  border-color: var(--it-tenant);
+  border-radius: var(--it-radius-md);
+  color: var(--it-on-tenant);
+  font-weight: 600;
+}
+
+/* Heads deck: flat working surfaces, hairline borders, no glow. */
+.it-design .mw-head-card {
+  background: var(--it-surface);
+  border: var(--it-stroke-hairline) solid var(--it-line);
+  border-radius: 0;
+  box-shadow: none;
+  padding: var(--it-space-5);
+}
+
+.it-design .mw-head-feature { border-color: var(--it-line); }
+
+/* Portrait ring = the head's state colour (working), not a decorative lime glow. */
+.it-design .mw-head-portrait img {
+  border-radius: var(--it-radius-md);
+  box-shadow: 0 0 0 2px var(--it-state-working);
+}
+
+.it-design .mw-head-name {
+  color: var(--it-text);
+  font-size: var(--it-heading-18-size);
+  font-weight: var(--it-heading-18-weight);
+  line-height: var(--it-heading-18-line);
+}
+
+.it-design .mw-head-role { color: var(--it-meta); font-size: var(--it-meta-13-size); line-height: var(--it-meta-13-line); }
+
+/* State word, not a pill: colour + dot carry it. */
+.it-design .mw-head-pill {
+  background: transparent;
+  color: var(--it-state-working);
+  font-size: var(--it-caption-12-size);
+  font-weight: 500;
+  padding: 0;
+}
+.it-design .mw-head-pill i { background: var(--it-state-working); }
+.it-design .mw-head-pill.is-planned { background: transparent; color: var(--it-state-idle); }
+.it-design .mw-head-pill.is-planned i { background: var(--it-state-idle); }
+
+/* Badges: quiet tags. */
+.it-design .mw-head-badge {
+  background: var(--it-surface);
+  border: var(--it-stroke-hairline) solid var(--it-line);
+  border-radius: var(--it-radius-sm);
+  color: var(--it-meta);
+  font-size: var(--it-caption-12-size);
+  font-weight: 500;
+}
+.it-design .mw-head-badge.is-next { background: var(--it-surface); border-style: dashed; color: var(--it-meta); }
+.it-design .mw-head-badge.is-next i { background: var(--it-tenant); }
+
+/* What the head says: plain sentence, no tinted bubble. */
+.it-design .mw-head-say {
+  background: transparent;
+  border-radius: 0;
+  color: var(--it-text);
+  font-size: var(--it-body-16-size);
+  line-height: var(--it-body-16-line);
+  padding: 0 0 var(--it-space-4);
+}
+.it-design .mw-head-say b { color: var(--it-text); font-weight: 600; }
+
+/* Figures: one hairline grid, like the business pulse. */
+/* Hairlines drawn by the cells (right + bottom) inside a top/left frame, so an empty
+   last slot stays plain surface instead of showing the line colour. */
+.it-design .mw-head-stats {
+  border-left: var(--it-stroke-hairline) solid var(--it-line);
+  border-top: var(--it-stroke-hairline) solid var(--it-line);
+  gap: 0;
+}
+
+.it-design .mw-head-stat {
+  background: var(--it-surface);
+  border: 0;
+  border-bottom: var(--it-stroke-hairline) solid var(--it-line);
+  border-radius: 0;
+  border-right: var(--it-stroke-hairline) solid var(--it-line);
+  padding: var(--it-space-3) var(--it-space-4);
+}
+
+.it-design .mw-head-stat .mw-k {
+  color: var(--it-meta);
+  font-size: var(--it-caption-12-size);
+  font-weight: var(--it-caption-12-weight);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.it-design .mw-head-stat .mw-v {
+  color: var(--it-text);
+  font-size: var(--it-title-22-size);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  line-height: var(--it-title-22-line);
+}
+
+.it-design .mw-head-stat .mw-v small { color: var(--it-meta); font-size: var(--it-meta-13-size); font-weight: 400; }
+.it-design .mw-head-stat .mw-n { color: var(--it-meta); font-size: var(--it-caption-12-size); line-height: var(--it-caption-12-line); }
+.it-design .mw-head-stat.is-money .mw-v { color: var(--it-text); }
+.it-design .mw-head-stat.is-alert .mw-v { color: var(--it-status-attention); }
+
+.it-design .mw-head-bar { background: var(--it-sunk); border-radius: 2px; height: 4px; }
+.it-design .mw-head-bar > span { background: var(--it-tenant); border-radius: 2px; }
+
+/* Vendors: quiet tags; "trusted" is an outline in the tenant colour, not a dark fill. */
+.it-design .mw-head-vendors .mw-k {
+  color: var(--it-meta);
+  font-size: var(--it-caption-12-size);
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.it-design .mw-hv {
+  background: var(--it-surface);
+  border: var(--it-stroke-hairline) solid var(--it-line);
+  border-radius: var(--it-radius-sm);
+  font-size: var(--it-caption-12-size);
+}
+.it-design .mw-hv b { color: var(--it-text); font-weight: 600; }
+.it-design .mw-hv small { color: var(--it-meta); }
+.it-design .mw-hv.is-trusted { background: var(--it-surface); border-color: var(--it-tenant); }
+.it-design .mw-hv.is-trusted b,
+.it-design .mw-hv.is-trusted small { color: var(--it-tenant); }
+.it-design .mw-hv-dots em { background: var(--it-line); }
+.it-design .mw-hv-dots em.on,
+.it-design .mw-hv.is-trusted .mw-hv-dots em.on { background: var(--it-tenant); }
+
+.it-design .mw-audit {
+  background: transparent;
+  border-radius: 0;
+  color: var(--it-meta);
+  font-size: var(--it-meta-13-size);
+  padding: var(--it-space-2) 0;
+}
+
+/* Penny's strips: hairline rows; amber edge where a statement has a gap that needs the owner. */
+.it-design .mw-penny-statements,
+.it-design .mw-penny-missing,
+.it-design .mw-penny-trips,
+.it-design .mw-penny-pm {
+  background: var(--it-surface);
+  border: var(--it-stroke-hairline) solid var(--it-line);
+  border-left: 3px solid var(--it-line);
+  border-radius: 0;
+  color: var(--it-text);
+  font-size: var(--it-meta-13-size);
+  line-height: var(--it-meta-13-line);
+}
+
+.it-design .mw-penny-statements.is-bad { border-left-color: var(--it-state-approval); }
+.it-design .mw-penny-statements .mw-ps-k { color: var(--it-text); }
+.it-design .mw-penny-statements .mw-ps-ok { color: var(--it-status-complete); }
+.it-design .mw-penny-statements .mw-ps-bad { color: var(--it-status-attention); font-weight: 600; }
+.it-design .mw-penny-statements .mw-ps-sep { color: var(--it-line); }
+.it-design .mw-penny-statements .mw-ps-link { color: var(--it-tenant); }
+.it-design .mw-penny-statements .mw-ps-gaps { color: var(--it-text); }
+.it-design .mw-penny-statements .mw-ps-gaps li.is-weak { color: var(--it-meta); }
+
+/* ── Step 3 (2026-10-18): the rest of the dashboard ──────────────────────────────
+   "&" below is .it-design.it-design: several AppStack/brand rules stack three classes,
+   and a doubled class outranks them without !important. */
+
+/* Every card on the page: a flat working surface. */
+.it-design.it-design .card { background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 0; box-shadow: none; }
+.it-design.it-design .card .card-header { background: transparent; border-bottom: var(--it-stroke-hairline) solid var(--it-line); }
+.it-design.it-design .card .card-title { color: var(--it-text); font-size: var(--it-heading-16-size); font-weight: var(--it-heading-16-weight); line-height: var(--it-heading-16-line); text-transform: none; letter-spacing: 0; }
+.it-design.it-design .card .text-muted { color: var(--it-meta) !important; }   /* Bootstrap's own rule is !important */
+.it-design.it-design .btn-primary { background: var(--it-tenant); border-color: var(--it-tenant); color: var(--it-on-tenant); border-radius: var(--it-radius-md); }
+.it-design.it-design .btn-outline-primary { color: var(--it-tenant); border-color: var(--it-tenant); border-radius: var(--it-radius-md); }
+.it-design.it-design .btn-outline-primary:hover { background: var(--it-tenant); color: var(--it-on-tenant); }
+.it-design.it-design .badge { background: var(--it-sunk); color: var(--it-meta); font-weight: 500; border-radius: var(--it-radius-sm); }
+
+/* Work queue: plain lanes; amber only on the lane that needs the owner (critical). */
+.it-design.it-design .mw-wq-summary, .it-design.it-design .mw-wq-lane { background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 0; box-shadow: none; }
+.it-design.it-design .mw-wq-lane.mw-wq-lane-critical { border-top: 3px solid var(--it-state-approval); }
+.it-design.it-design .mw-wq-lane-header { background: transparent; }
+.it-design.it-design .mw-wq-lane-header:hover { background: var(--it-selected); }
+.it-design.it-design .mw-wq-lane-icon-wrap { background: transparent; color: var(--it-meta); }
+.it-design.it-design .mw-wq-lane-critical .mw-wq-lane-icon-wrap { color: var(--it-status-attention); }
+.it-design.it-design .mw-wq-lane-badge { background: var(--it-sunk); color: var(--it-meta); font-weight: 500; }
+.it-design.it-design .mw-wq-lane-critical .mw-wq-lane-badge { background: transparent; color: var(--it-status-attention); border: var(--it-stroke-hairline) solid var(--it-status-attention); }
+.it-design.it-design .mw-wq-item { background: transparent; border: 0; border-bottom: var(--it-stroke-hairline) solid var(--it-line); border-radius: 0; box-shadow: none; }
+.it-design.it-design .mw-wq-item:hover { background: var(--it-selected); }
+.it-design.it-design .mw-wq-item-icon { background: transparent; color: var(--it-meta); }
+.it-design.it-design .mw-wq-item-icon.mw-wq-icon-critical { color: var(--it-status-attention); }
+.it-design.it-design .mw-wq-sum-cat { background: transparent; color: var(--it-meta); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-sm); font-weight: 500; }
+.it-design.it-design .mw-wq-sum-cat.mw-wq-sum-critical { color: var(--it-status-attention); border-color: var(--it-status-attention); }
+.it-design.it-design .mw-wq-summary-total strong { color: var(--it-text); }
+
+/* Incoming quote requests: hairline cards; the urgency word carries the colour. */
+.it-design.it-design .mw-qr-card { background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 0; box-shadow: none; }
+.it-design.it-design .mw-qr-card:hover { background: var(--it-selected); box-shadow: none; }
+.it-design.it-design .mw-urgency-badge { background: transparent; color: var(--it-meta); font-weight: 500; text-transform: none; letter-spacing: 0; padding-left: 0; padding-right: 0; }
+.it-design.it-design .mw-urgency-badge.mw-urgency-asap { color: var(--it-status-attention); }
+
+/* Winter outlook: one hairline grid; sentence-case labels. */
+.it-design.it-design .mw-seasonal { background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 0; box-shadow: none; }
+.it-design.it-design .mw-seasonal.mw-seasonal-compact { border-left: var(--it-stroke-hairline) solid var(--it-line); }
+.it-design.it-design .mw-seasonal-month { background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 0; box-shadow: none; }
+.it-design.it-design .mw-seasonal-month-name, .it-design.it-design .mw-seasonal-metric-lbl, .it-design.it-design .mw-seasonal-badge { text-transform: none; letter-spacing: 0; }
+.it-design.it-design .mw-seasonal-month-name { color: var(--it-text); font-weight: 600; }
+.it-design.it-design .mw-seasonal-metric-lbl { color: var(--it-meta); font-size: var(--it-caption-12-size); }
+.it-design.it-design .mw-seasonal-badge { background: var(--it-sunk); color: var(--it-meta); font-weight: 500; border: 0; }
+
+/* Crew today, recent activity, reviews, the live map: flat; state colours only on the dots. */
+.it-design.it-design .card.mw-crew-card { border-top: var(--it-stroke-hairline) solid var(--it-line); }
+.it-design.it-design .mw-crew-status-dot { box-shadow: none; }
+.it-design.it-design .mw-crew-status-dot.mw-crew-clocked-in { background: var(--it-status-complete); }
+.it-design.it-design .mw-activity-avatar { background: var(--it-sunk); color: var(--it-meta); text-transform: none; }
+.it-design.it-design .mw-ops-map-crew-dot { box-shadow: 0 0 0 2px var(--it-surface); }
+
+/* The heads' own cards (Otto, Charlie, Mia, Sam, Ada …): labels in sentence case, one action colour. */
+.it-design.it-design .mw-k, .it-design.it-design .mw-charlie-tag, .it-design.it-design .mw-mia-lbl, .it-design.it-design .mw-mia-ch-sub, .it-design.it-design .mw-sam-lbl { text-transform: none; letter-spacing: 0; color: var(--it-meta); font-size: var(--it-caption-12-size); font-weight: 500; }
+.it-design.it-design .mw-otto-item.is-p1, .it-design.it-design .mw-charlie-row.is-p1, .it-design.it-design .mw-omr.is-card, .it-design.it-design .mw-sam-q-opened, .it-design.it-design .mw-charlie-thing { border-left-color: var(--it-state-approval); }
+.it-design.it-design .mw-charlie-bad { background: var(--it-surface); border-left-color: var(--it-state-approval); }
+.it-design.it-design .mw-rc-ok, .it-design.it-design .is-main, .it-design.it-design .mw-charlie-go, .it-design.it-design .mw-charlie-btn.is-primary, .it-design.it-design .mw-mia-send, .it-design.it-design .mw-mia-ch-btn.is-primary {
+  background: var(--it-tenant); border-color: var(--it-tenant); color: var(--it-on-tenant); }
+.it-design.it-design .mw-otto-qs, .it-design.it-design .mw-charlie-qs, .it-design.it-design .mw-mia-q, .it-design.it-design .mw-pq, .it-design.it-design .mw-sam-why.is-replied { background: var(--it-sunk); }
+.it-design.it-design .mw-mia-ch-pill.is-wait { background: transparent; color: var(--it-status-attention); }
+.it-design.it-design .mw-otto-face, .it-design.it-design .mw-charlie-face, .it-design.it-design .mw-mia-camp { box-shadow: 0 0 0 1px var(--it-line); }
+.it-design.it-design .mw-ada-dot { background: var(--it-state-idle); }
+.it-design.it-design .mw-otto-gaps-photo img { box-shadow: 0 0 0 2px var(--it-state-working); }
+/* Last stragglers: success buttons, Otto's main links, Penny's confidence words, margin labels. */
+.it-design.it-design .btn-success { background: var(--it-tenant); border-color: var(--it-tenant); color: var(--it-on-tenant); border-radius: var(--it-radius-md); }
+.it-design.it-design .mw-otto-btnlink.is-main { background: var(--it-tenant); border-color: var(--it-tenant); color: var(--it-on-tenant); }
+.it-design.it-design .mw-rc-conf { background: transparent; border: var(--it-stroke-hairline) solid var(--it-line); color: var(--it-meta); }
+.it-design.it-design .mw-rc-conf.is-high { color: var(--it-status-complete); }
+.it-design.it-design .mw-rc-conf.is-low { color: var(--it-status-attention); }
+.it-design.it-design .mw-daily-ops-margin { background: transparent; }
+
+/* ── Every display (1.2.1, 2026-10-19) ──────────────────────────────────────────
+   Text never below 12 px at any width: the labels the dashboard drew at 9.6–11.8 px. */
+.it-design.it-design :is(small, .small, .mw-sam-count, .mw-sam-meta, .mw-n, .mw-otto-trips-ft, .mw-head-foot span,
+  .mw-mia-hub-foot span, .mw-mia-ch-head span, .mw-mia-ch-pill, .mw-mia-ch-note, .mw-charlie-btn.is-quiet, .mw-charlie-more,
+  .mw-charlie-cal-link, .mw-seasonal-badge, .mw-seasonal-month-name, .mw-seasonal-metric-sub, .mw-seasonal-total em,
+  .mw-wq-sum-cat, .mw-urgency-badge, .mw-activity-avatar, .mw-crew-visits-badge, .custom-select) { font-size: var(--it-caption-12-size); }
+
+/* Phone: the top bar already says "Dashboard" and the date, so the page title goes; head cards stay compact. */
+@media (max-width: 700px) {
+  .it-design .mw-page-header { justify-content: flex-end; margin-bottom: var(--it-space-3); }
+  .it-design .mw-page-header-left { display: none; }
+  .it-design.it-design .mw-head-portrait { align-items: flex-start; gap: var(--it-space-3); }
+  .it-design.it-design .mw-head-portrait img { width: 72px; height: 72px; }
+  .it-design.it-design .mw-head-badges { max-width: none; }
+  .it-design.it-design .mw-head-card { padding: var(--it-space-4); }
+}
+
+/* ── Today with the office (2026-10-19): the mockup made live, above the head columns ──
+   action-board.php prints it when the it_design choice is on; action-board.js fills it from Charlie's list.
+   Hexagon left (Charlie or the head whose three you're on in the centre), today's three right, a carousel
+   to the next head. Below 1100 px the decisions come first; below 700 px the names move under the hexagon. */
+.it-design .it-today {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--it-space-6);
+  align-items: flex-start;
+  padding-bottom: var(--it-space-6);
+  margin-bottom: var(--it-space-5);
+  border-bottom: var(--it-stroke-hairline) solid var(--it-line);
+}
+.it-design .it-today[hidden] { display: none; }
+.it-design .it-tc-office {
+  flex: 0 1 440px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: var(--it-surface);
+  border: var(--it-stroke-hairline) solid var(--it-line);
+  padding: var(--it-space-2) var(--it-space-2) var(--it-space-3);
+}
+.it-design .it-tc-hex { width: 100%; height: auto; max-width: 440px; }
+.it-design .it-hx-spoke line { stroke: var(--it-line); stroke-width: var(--it-stroke-hairline); }
+.it-design .it-hx-side { stroke-linecap: round; stroke: var(--it-line); stroke-width: 1.5px; }
+.it-design .it-hx-side.is-done { stroke: var(--it-status-complete); stroke-width: var(--it-stroke-side-selected); }
+.it-design .it-hx-side.is-wait { stroke: var(--it-status-attention); stroke-width: var(--it-stroke-side); }
+.it-design .it-hx-centre { fill: none; stroke: var(--it-status-progress); stroke-width: var(--it-stroke-centre); }
+.it-design .it-hx-ring { fill: none; stroke: var(--it-line); stroke-width: 1px; }
+.it-design .it-hx-ring.is-done { stroke: var(--it-status-complete); stroke-width: 2px; }
+.it-design .it-hx-ring.is-wait { stroke: var(--it-status-attention); stroke-width: 2px; }
+.it-design .it-hx-badge { fill: var(--it-surface); stroke: var(--it-line); }
+.it-design .it-hx-k { font-family: "Zen Kaku Gothic New", var(--it-font-sans); font-size: 12px; font-weight: 500; fill: var(--it-text); }
+.it-design .it-hx-lbl { font-family: var(--it-font-sans); font-size: 12px; font-weight: 500; fill: var(--it-meta); }
+.it-design .it-hx-name { font-size: 14px; fill: var(--it-text); }
+.it-design .it-hx-name.is-on { font-weight: 600; }
+.it-design .it-hx-role.is-done { fill: var(--it-status-complete); }
+.it-design .it-hx-role.is-wait { fill: var(--it-status-attention); }
+
+.it-design .it-tc-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--it-space-1) var(--it-space-4); font-size: var(--it-caption-12-size); font-weight: 500; color: var(--it-meta); }
+.it-design .it-tc-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.it-design .it-tc-legend i { display: inline-block; width: 14px; height: 3px; border-radius: var(--it-radius-full); }
+.it-design .it-tc-legend i.is-done { background: var(--it-status-complete); }
+.it-design .it-tc-legend i.is-wait { background: var(--it-status-attention); }
+
+.it-design .it-tc-onthis { display: none; list-style: none; margin: var(--it-space-2) 0 0; padding: 0; width: 100%; border-top: var(--it-stroke-hairline) solid var(--it-line); }
+.it-design .it-tc-onthis li { display: flex; align-items: center; gap: var(--it-space-2); min-height: 48px; border-bottom: var(--it-stroke-hairline) solid var(--it-line); padding: 0 var(--it-space-2); font-size: var(--it-body-14-size); }
+.it-design .it-tc-onthis b { font-weight: 600; color: var(--it-text); }
+.it-design .it-tc-onthis span { color: var(--it-meta); }
+.it-design .it-tc-onthis small { margin-left: auto; font-size: var(--it-caption-12-size); font-weight: 500; }
+
+.it-design .it-tc-main { flex: 1 1 520px; min-width: 0; display: flex; flex-direction: column; gap: var(--it-space-4); }
+.it-design .it-tc-pick { display: flex; gap: var(--it-space-6); align-items: flex-end; flex-wrap: wrap; }
+.it-design .it-tc-three { flex: 1 1 400px; min-width: 0; display: flex; flex-direction: column; gap: var(--it-space-2); }
+.it-design .it-tc-eyebrow { font-size: var(--it-caption-12-size); line-height: var(--it-caption-12-line); font-weight: 500; color: var(--it-meta); }
+.it-design .it-tc-h { margin: 0; font-size: var(--it-heading-18-size); line-height: var(--it-heading-18-line); font-weight: 600; color: var(--it-text); }
+.it-design .it-tc-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--it-space-2); }
+.it-design .it-tc-queue { flex: none; width: 200px; display: flex; flex-direction: column; gap: var(--it-space-2); padding-left: var(--it-space-6); border-left: var(--it-stroke-hairline) solid var(--it-line); }
+.it-design .it-tc-tab {
+  text-align: left;
+  min-height: 64px;
+  padding: var(--it-space-2) var(--it-space-3);
+  border: var(--it-stroke-hairline) solid var(--it-line);
+  border-radius: var(--it-radius-md);
+  background: var(--it-surface);
+  color: var(--it-text);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-family: var(--it-font-sans);
+  cursor: pointer;
+  min-width: 0;
+}
+.it-design .it-tc-tab b {
+  font-size: var(--it-body-14-size);
+  line-height: var(--it-body-14-line);
+  font-weight: 600;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.it-design .it-tc-tab small { font-size: var(--it-caption-12-size); line-height: var(--it-caption-12-line); font-weight: 500; color: var(--it-meta); }
+.it-design .it-tc-tab[aria-pressed="true"] { background: var(--it-selected); box-shadow: inset 0 0 0 1px var(--it-tenant); border-color: var(--it-tenant); }
+.it-design .it-tc-tab:focus-visible,
+.it-design .it-tc-back:focus-visible { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: 2px; }
+.it-design .it-tc-step { flex-direction: row; align-items: center; gap: var(--it-space-2); width: 100%; }
+.it-design .it-tc-step span { display: flex; flex-direction: column; min-width: 0; }
+.it-design .it-tc-step small { white-space: nowrap; }
+.it-design .it-tc-end { font-size: var(--it-meta-13-size); color: var(--it-meta); }
+
+.it-design .it-tc-face { position: relative; display: inline-block; width: 44px; height: 44px; flex: none; }
+.it-design .it-tc-face img { position: absolute; left: 4px; top: 4px; width: 36px; height: 36px; border-radius: var(--it-radius-full); object-fit: cover; box-shadow: 0 0 0 1px var(--it-line); }
+.it-design .it-tc-face.is-done img { box-shadow: 0 0 0 2px var(--it-status-complete); }
+.it-design .it-tc-kanji {
+  position: absolute; right: -2px; bottom: -2px; width: 20px; height: 20px;
+  border-radius: var(--it-radius-full); background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line);
+  display: flex; align-items: center; justify-content: center;
+  font-family: "Zen Kaku Gothic New", var(--it-font-sans); font-size: var(--it-caption-12-size); font-weight: 500; line-height: 1; color: var(--it-text);
+}
+
+.it-design .it-tc-card { background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); }
+.it-design .mw-ab-row.it-tc-item { border: 0; padding: 0; }
+.it-design .it-tc-top { padding: var(--it-space-5) var(--it-space-6) var(--it-space-4); display: flex; flex-direction: column; gap: var(--it-space-2); }
+.it-design .it-tc-tag { font-size: var(--it-caption-12-size); line-height: var(--it-caption-12-line); font-weight: 500; color: var(--it-status-attention); }
+.it-design .it-tc-text { margin: 0; font-size: var(--it-title-22-size); line-height: var(--it-title-22-line); font-weight: 600; color: var(--it-text); overflow-wrap: anywhere; }
+.it-design .it-tc-acts { display: flex; align-items: center; gap: var(--it-space-4); flex-wrap: wrap; margin-top: var(--it-space-1); }
+.it-design .btn-primary.it-tc-go { min-height: 44px; display: inline-flex; align-items: center; padding: 0 var(--it-space-5); }
+.it-design .it-tc-later { min-height: 44px; border: 0; background: transparent; padding: 0 var(--it-space-2); font-weight: 500; }
+.it-design .it-tc-stages {
+  list-style: none; margin: 0;
+  padding: var(--it-space-4) var(--it-space-6) var(--it-space-5);
+  border-top: var(--it-stroke-hairline) solid var(--it-line);
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: var(--it-space-6);
+}
+.it-design .it-tc-stage { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.it-design .it-tc-stage-top { display: flex; align-items: center; min-height: 48px; }
+.it-design .it-tc-solid { flex: 1; height: 2px; background: var(--it-status-complete); margin-left: var(--it-space-3); }
+.it-design .it-tc-you {
+  width: 36px; height: 36px; margin: 4px; border-radius: var(--it-radius-full);
+  background: var(--it-sunk); box-shadow: 0 0 0 2px var(--it-status-attention);
+  display: flex; align-items: center; justify-content: center;
+  font-size: var(--it-caption-12-size); font-weight: 600; color: var(--it-text);
+}
+.it-design .it-tc-stage b { font-size: var(--it-body-16-size); line-height: var(--it-body-16-line); font-weight: 600; color: var(--it-text); }
+.it-design .it-tc-stage small { font-size: var(--it-meta-13-size); line-height: var(--it-meta-13-line); color: var(--it-meta); }
+.it-design .it-today .is-done { color: var(--it-status-complete); }
+.it-design .it-today .is-wait { color: var(--it-status-attention); }
+.it-design .it-tc-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--it-space-4); flex-wrap: wrap; }
+.it-design .it-tc-back { border: 0; background: transparent; padding: 0; min-height: 44px; color: var(--it-tenant); font-weight: 500; font-size: var(--it-body-14-size); cursor: pointer; }
+.it-design .it-tc-note { font-size: var(--it-meta-13-size); color: var(--it-meta); margin-left: auto; }
+
+/* Tablet and small laptop: the decisions first, the office across the width under them (Ittai 1.2.1) */
+@media (max-width: 1100px) {
+  .it-design .it-tc-office { flex-basis: 100%; order: 2; }
+  .it-design .it-tc-main { flex-basis: 100%; }
+}
+/* Phone: one tab per row, the next head under them, names listed under the hexagon (labels would fall below 12 px) */
+@media (max-width: 700px) {
+  .it-design .it-tc-tabs { grid-template-columns: 1fr; }
+  .it-design .it-tc-queue { width: 100%; padding-left: 0; border-left: 0; }
+  .it-design .it-tc-top { padding: var(--it-space-4); }
+  .it-design .it-tc-stages { padding: var(--it-space-4); column-gap: var(--it-space-4); }
+  .it-design .it-tc-text { font-size: var(--it-heading-18-size); line-height: var(--it-heading-18-line); }
+  .it-design .it-tc-hex .it-hx-lbl { display: none; }
+  .it-design .it-tc-onthis { display: block; }
+  .it-design .it-tc-legend { margin-top: var(--it-space-2); }
+}

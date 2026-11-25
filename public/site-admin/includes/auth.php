@@ -59,6 +59,37 @@ function isSiteLoggedIn(): bool
         return false;
     }
 
+    return siteRecheckUser();
+}
+
+/** Seconds between re-reads of the signed-in site user (same as the CRM's AuthFreshness). */
+const SITE_RECHECK_SECONDS = 60;
+
+/**
+ * Re-read the site user at most every SITE_RECHECK_SECONDS (Fable audit 2026-10-12): a deactivated,
+ * deleted or re-roled site user now loses or changes access within a minute, not at next sign-in.
+ * A database error keeps the session (tries again next request).
+ */
+function siteRecheckUser(): bool
+{
+    $now  = time();
+    $last = (int)($_SESSION['cms_site_checked_at'] ?? 0);
+    if ($last > 0 && $now >= $last && ($now - $last) < SITE_RECHECK_SECONDS) return true;
+    try {
+        $st = getDB()->prepare("SELECT * FROM cms_site_users WHERE id = ? AND site_id = ? LIMIT 1");
+        $st->execute([(int)$_SESSION['cms_site_user_id'], (int)$_SESSION['cms_site_id']]);
+        $row = $st->fetch(PDO::FETCH_ASSOC) ?: null;
+    } catch (Throwable $e) {
+        error_log('siteRecheckUser: check failed: ' . $e->getMessage());
+        return true;
+    }
+    if (!$row || (isset($row['is_active']) && (int)$row['is_active'] !== 1)) {
+        siteLogout();
+        return false;
+    }
+    unset($row['password_hash']);
+    $_SESSION['cms_site_user']       = $row;
+    $_SESSION['cms_site_checked_at'] = $now;
     return true;
 }
 
@@ -90,17 +121,97 @@ function siteLogin(string $email, string $password): ?array
         return null;
     }
 
+    // Throttle (Fable review 2026-10-12): same login_attempts table and ceilings as the CRM,
+    // keyed "site-admin:<email>" so the two logins never share a counter. Fails closed.
+    $ip = (string)($_SERVER['REMOTE_ADDR'] ?? '');
+    if (cms_siteLoginThrottled($email, $ip)) {
+        return null;
+    }
+
     $user = cms_authenticateSiteUser(CMS_SITE_ID, $email, $password);
     if (!$user) {
+        cms_recordSiteLoginFailure($email, $ip);
         return null;
     }
 
     $_SESSION['cms_site_user_id'] = $user['id'];
     $_SESSION['cms_site_id']      = $user['site_id'];
     $_SESSION['cms_site_user']    = $user;
+    $_SESSION['cms_site_checked_at'] = time();
     session_regenerate_id(true);
+    unset($_SESSION['cms_site_csrf']); // a fresh token for the signed-in session
 
     return $user;
+}
+
+// ── CSRF + roles (Fable review 2026-10-12) ───────────────────────────────────
+
+/** The site-admin CSRF token for this session (created on first use). */
+function siteCsrfToken(): string
+{
+    if (empty($_SESSION['cms_site_csrf']) || !is_string($_SESSION['cms_site_csrf'])) {
+        $_SESSION['cms_site_csrf'] = bin2hex(random_bytes(32));
+    }
+    return $_SESSION['cms_site_csrf'];
+}
+
+/** Hidden form field carrying the token. */
+function siteCsrfField(): string
+{
+    return '<input type="hidden" name="_csrf" value="' . htmlspecialchars(siteCsrfToken(), ENT_QUOTES, 'UTF-8') . '">';
+}
+
+/** True when the request carries this session's token (form field or X-CSRF-Token header). */
+function verifySiteCsrf(): bool
+{
+    $sent = (string)($_POST['_csrf'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
+    $have = $_SESSION['cms_site_csrf'] ?? '';
+    return is_string($have) && $have !== '' && $sent !== '' && hash_equals($have, $sent);
+}
+
+/** Roles that may change the site. Viewers read only. */
+const SITE_WRITE_ROLES = ['owner', 'admin', 'editor'];
+
+/** True when the signed-in site user has one of $roles. */
+function siteUserHasRole(array $roles): bool
+{
+    $u = getSiteUser();
+    return $u !== null && in_array((string)($u['role'] ?? ''), $roles, true);
+}
+
+/**
+ * Refuse unless the signed-in site user has one of $roles. JSON for API calls, a plain page
+ * otherwise.
+ */
+function requireSiteRole(array $roles, bool $json = false): void
+{
+    if (siteUserHasRole($roles)) return;
+    http_response_code(403);
+    if ($json) {
+        header('Content-Type: application/json');
+        echo json_encode(['ok' => false, 'error' => 'Your account can view this site but not change it.']);
+    } else {
+        echo 'Your account can view this site but not change it.';
+    }
+    exit;
+}
+
+/**
+ * Every write: POST, a valid CSRF token, and a role in SITE_WRITE_ROLES.
+ */
+function requireSiteWrite(bool $json = false): void
+{
+    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST' || !verifySiteCsrf()) {
+        http_response_code(403);
+        if ($json) {
+            header('Content-Type: application/json');
+            echo json_encode(['ok' => false, 'error' => 'Session expired — reload the page and try again.']);
+        } else {
+            echo 'Session expired — go back, reload the page and try again.';
+        }
+        exit;
+    }
+    requireSiteRole(SITE_WRITE_ROLES, $json);
 }
 
 /**
@@ -108,5 +219,5 @@ function siteLogin(string $email, string $password): ?array
  */
 function siteLogout(): void
 {
-    unset($_SESSION['cms_site_user_id'], $_SESSION['cms_site_id'], $_SESSION['cms_site_user']);
+    unset($_SESSION['cms_site_user_id'], $_SESSION['cms_site_id'], $_SESSION['cms_site_user'], $_SESSION['cms_site_checked_at']);
 }

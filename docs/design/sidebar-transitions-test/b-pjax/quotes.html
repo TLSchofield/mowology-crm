@@ -1,0 +1,49 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Quotes</title><link rel="stylesheet" href="../shared/app.css"><style>
+@view-transition { navigation: auto; }
+.sidebar { view-transition-name: sidebar; }
+.hl { view-transition-name: hl; }
+main { view-transition-name: main; }
+::view-transition-group(sidebar) { animation: none; }
+::view-transition-group(hl) { animation-duration: 260ms; animation-timing-function: cubic-bezier(.2,.7,.2,1); }
+::view-transition-old(main) { animation: 90ms ease-out both vt-out; }
+::view-transition-new(main) { animation: 160ms ease-out 40ms both vt-in; }
+@keyframes vt-out { to { opacity: 0; } } @keyframes vt-in { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; } }
+</style></head>
+<body class="soft"><div class="shell"><aside class="sidebar" id="sidebar"><div class="logo">ittai</div><div class="card" style="--hc:#2d8659"><div class="face">S</div><b>Sam</b><small>Sales</small></div><nav class="menu" style="--i:2"><a href="today.html">Today</a><a href="clients.html">Clients</a><a href="quotes.html" aria-current="page">Quotes</a><a href="jobs.html">Jobs</a><a href="schedule.html">Schedule</a><a href="invoices.html">Invoices</a><span class="hl"></span></nav><div class="foot">Sidebar built <b id="age">0</b> s ago</div></aside><main id="main"><h1>Quotes</h1><p class="sub">Test page: 9 rows. Content height differs per page on purpose.</p><div class="decision" style="--hc:#2d8659"><div><b>Send the Alder Test quote?</b><span>Sam asks</span></div><button>Yes, do it</button></div><div class="stats"><div class="stat"><b>9</b>open</div><div class="stat"><b>$3690</b>value</div><div class="stat"><b>49%</b>rate</div><div class="stat"><b>2</b>days</div></div><div class="rows"><div class="row"><span>Quotes item 1</span><span>1d</span></div><div class="row"><span>Quotes item 2</span><span>4d</span></div><div class="row"><span>Quotes item 3</span><span>7d</span></div><div class="row"><span>Quotes item 4</span><span>10d</span></div><div class="row"><span>Quotes item 5</span><span>13d</span></div><div class="row"><span>Quotes item 6</span><span>16d</span></div><div class="row"><span>Quotes item 7</span><span>2d</span></div><div class="row"><span>Quotes item 8</span><span>5d</span></div><div class="row"><span>Quotes item 9</span><span>8d</span></div></div></main></div>
+<script src="../shared/probe.js"></script><script>
+function parse(html) { return new DOMParser().parseFromString(html, 'text/html'); }
+function setActive(url) {
+  var file = new URL(url, location.href).pathname.split('/').pop();
+  var links = [].slice.call(document.querySelectorAll('.menu a')), i = 0;
+  links.forEach(function (a, n) { var on = a.getAttribute('href') === file; if (on) i = n; if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
+  document.querySelector('.menu').style.setProperty('--i', i);
+}
+function swapIn(doc, url) {
+  var next = doc.getElementById('main'); document.title = doc.title;
+  document.getElementById('main').innerHTML = next.innerHTML;
+  var oc = document.querySelector('.card'), nc = doc.querySelector('.card');
+  if (oc && nc) { oc.setAttribute('style', nc.getAttribute('style')); oc.innerHTML = nc.innerHTML; oc.classList.remove('pop'); void oc.offsetWidth; oc.classList.add('pop'); }
+  window.scrollTo(0, 0);
+}
+function withTransition(fn) {
+  if (!document.startViewTransition) { fn(); return Promise.resolve(); }
+  var t = document.startViewTransition(fn); return t.finished.catch(function () {});
+}
+
+// B: classic soft navigation (pjax). A click is caught, the highlight moves at once, the page is fetched, only <main> is swapped.
+var cache = {};
+function load(url) { return cache[url] || (cache[url] = fetch(url).then(function (r) { return r.text(); })); }
+function go(url, push) {
+  setActive(url); document.body.classList.add('loading');
+  load(url).then(function (html) {
+    return withTransition(function () { swapIn(parse(html), url); if (push) history.pushState({}, '', url); });
+  }).then(function () { document.body.classList.remove('loading'); delete cache[url]; });
+}
+document.addEventListener('click', function (e) {
+  var a = e.target.closest && e.target.closest('.menu a'); if (!a || e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;
+  e.preventDefault(); if (a.getAttribute('aria-current') === 'page') return; go(a.href, true);
+});
+addEventListener('popstate', function () { go(location.href, false); });
+</script></body></html>

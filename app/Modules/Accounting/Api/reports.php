@@ -38,9 +38,11 @@ try {
     require_once APP_ROOT . '/Modules/Accounting/Services/AccountingService.php';
     require_once APP_ROOT . '/Modules/Accounting/Services/TaxEngine.php';
     require_once APP_ROOT . '/Modules/Accounting/Services/RulesEngine.php';
+    require_once APP_ROOT . '/Modules/Accounting/Services/ReportingService.php';
 
-    $svc = new AccountingService($db);
-    $tax = new TaxEngine($db);
+    $svc       = new AccountingService($db);
+    $tax       = new TaxEngine($db);
+    $reporting = new ReportingService($db);
 
     $action    = $_GET['action'] ?? '';
     $thisMonth = date('Y-m-01');
@@ -52,8 +54,35 @@ try {
 
         // ── Profit & Loss ─────────────────────────────────────────────────────
         case 'pl':
-            $data = $svc->getProfitLoss($dateFrom, $dateTo);
+            // From the journal (Codex review 2026-10-14): the old accounting_transactions P&L counted
+            // unmatched bank deposits as income again and missed Jobber-era invoices. Same shape as before.
+            $data = ReportingService::asProfitLoss($reporting->getIncomeStatement($dateFrom, $dateTo), $dateFrom, $dateTo);
             echo json_encode(['ok' => true, 'report' => $data]);
+            break;
+
+        case 'pl_legacy':   // the old numbers, for comparison only
+            echo json_encode(['ok' => true, 'report' => $svc->getProfitLoss($dateFrom, $dateTo)]);
+            break;
+
+        // ── Double-entry statements (Phase 1) ─────────────────────────────────
+        case 'trial_balance':
+            echo json_encode(['ok' => true, 'report' => $reporting->getTrialBalance($dateTo)]);
+            break;
+
+        case 'balance_sheet':
+            echo json_encode(['ok' => true, 'report' => $reporting->getBalanceSheet($dateTo)]);
+            break;
+
+        case 'income_statement':
+            echo json_encode(['ok' => true, 'report' => $reporting->getIncomeStatement($dateFrom, $dateTo)]);
+            break;
+
+        // ── GGOB cost drill-down (group_by: cost_type | service_type | job) ────
+        case 'cost_drilldown':
+            $groupBy = in_array($_GET['group_by'] ?? '', ['cost_type', 'service_type', 'job'], true)
+                ? $_GET['group_by'] : 'cost_type';
+            echo json_encode(['ok' => true, 'group_by' => $groupBy,
+                'report' => $reporting->getCostDrillDown($dateFrom, $dateTo, $groupBy)]);
             break;
 
         // ── Cash Flow (simplified) ────────────────────────────────────────────
@@ -106,6 +135,7 @@ try {
                 WHERE t.type = 'expense'
                   AND t.transaction_date BETWEEN ? AND ?
                   AND t.status IN ('cleared', 'reconciled')
+                  AND " . AccountingService::countedSql('t') . "
                 GROUP BY coa.id, coa.code, coa.name
                 ORDER BY total DESC
             ");
@@ -146,6 +176,10 @@ try {
                 LEFT JOIN job_plans jp ON jp.id = t.job_id
                 LEFT JOIN contacts  c  ON c.id  = t.contact_id
                 WHERE t.transaction_date BETWEEN ? AND ?
+                  AND t.status NOT IN ('void', 'deleted')
+                  AND NOT EXISTS (SELECT 1 FROM bank_import_rows bir WHERE bir.transaction_id = t.id AND bir.is_duplicate = 1)
+                  AND NOT (t.reference_type = 'bank_import' AND t.matched_invoice_id IS NOT NULL)
+                  AND " . AccountingService::countedSql('t') . "
                 ORDER BY t.transaction_date ASC, t.type ASC
             ");
             $stmt->execute([$dateFrom, $dateTo]);
@@ -174,7 +208,7 @@ try {
     }
 
 } catch (Throwable $e) {
-    $code = ($e->getCode() >= 400 && $e->getCode() < 600) ? $e->getCode() : 500;
-    http_response_code($code);
-    echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+    require_once APP_ROOT . '/Core/ApiResponse.php';
+    http_response_code(ApiResponse::status($e));
+    echo json_encode(['ok' => false, 'error' => ApiResponse::message($e, 'reports.php')]);
 }

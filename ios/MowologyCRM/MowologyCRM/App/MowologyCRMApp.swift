@@ -10,7 +10,8 @@ import UserNotifications
 @main
 struct MowologyCRMApp: App {
 
-    @StateObject private var authSession = AuthSession()
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    @StateObject private var authSession = AuthSession.shared
     @Environment(\.scenePhase) private var scenePhase
 
     private let bgTaskId = "ca.mowology.gps-refresh"
@@ -18,8 +19,16 @@ struct MowologyCRMApp: App {
     // MARK: - Init
 
     init() {
+        VitalsUploader.shared.start()   // before CrashLoopBreaker: it reads the last run's breadcrumbs first
+        AppCrashReports.shared.start()
+        ChangeCapture.shared.start()   // lets a redraw alarm name the property that changed
+        HangWatchdog.shared.start()
+        CrashLoopBreaker.shared.start()
+        ItFontRegistry.registerAll()
         registerBackgroundTask()
         requestNotificationPermission()
+        // Announce reconnects from launch so every offline queue drains, clocked in or not.
+        ConnectivityMonitor.shared.start()
     }
 
     // MARK: - Scene
@@ -28,6 +37,11 @@ struct MowologyCRMApp: App {
         WindowGroup {
             RootView()
                 .environmentObject(authSession)
+                .overlay { ScheduleTimelineDemoOverlay() }   // Debug builds only, behind a launch flag
+                .overlay { ReceiptCameraDemoOverlay() }      // Debug builds only, behind a launch flag
+                #if DEBUG
+                .overlay { SignUpDemoOverlay() }             // Debug builds only: sign-in / welcome / sign-up / onboarding demos
+                #endif
                 // Wire the global transition drain once the crew is authenticated.
                 // The drain fires on reconnect (mwPingQueueOnline) to retry any
                 // persisted stop/start calls that failed when offline — regardless
@@ -35,7 +49,13 @@ struct MowologyCRMApp: App {
                 .onReceive(authSession.$token.compactMap { $0 }) { _ in
                     let client = APIClient(authSession: authSession)
                     AppTransitionDrainService.shared.configure(apiClient: client)
+                    AppPhotoQueueDrainService.shared.configure(apiClient: client)
                     Task { await AppTransitionDrainService.shared.drain() }
+                    Task { await AppPhotoQueueDrainService.shared.drain() }
+                    PlantSendQueue.shared.configure(apiClient: client)
+                    VitalsUploader.shared.configure(apiClient: client)
+                    Task { await VitalsUploader.shared.flush() }
+                    Task { await PlantSendQueue.shared.drain() }   // plants sent with no signal carry on
                 }
         }
         .onChange(of: scenePhase) { _, phase in
@@ -46,6 +66,18 @@ struct MowologyCRMApp: App {
                 // Drain on every foreground transition — catches the case where
                 // connectivity restored while the app was backgrounded.
                 Task { await AppTransitionDrainService.shared.drain() }
+                Task { await AppPhotoQueueDrainService.shared.drain() }
+                Task { await PlantSendQueue.shared.drain() }
+                Task { await VitalsUploader.shared.flush() }
+                // Re-registering is idempotent server-side (upsert) and gives retry
+                // coverage if the token arrived while offline on a previous launch.
+                UIApplication.shared.registerForRemoteNotifications()
+                // Pick the shift's tracking back up here, not only when the Time Clock tab
+                // happens to appear — and send any fixes still owed from an earlier shift.
+                GPSTrackingService.shared.resumeIfShiftActive(authSession: authSession)
+                GPSTrackingService.shared.flushBacklog(authSession: authSession)
+                // Opening the app is acknowledgement enough — don't leave a stale badge.
+                UNUserNotificationCenter.current().setBadgeCount(0)
             }
         }
     }
@@ -82,7 +114,7 @@ struct MowologyCRMApp: App {
         scheduleGPSRefreshIfNeeded()
 
         let jobActive = UserDefaults.standard.bool(forKey: GPSTrackingService.kShiftActive)
-        let lastPing  = UserDefaults.standard.double(forKey: GPSTrackingService.kLastPingAt)
+        let lastPing  = GPSTrackingService.pingDefaults.double(forKey: GPSTrackingService.kLastPingAt)
         let elapsed   = lastPing > 0 ? Date().timeIntervalSince1970 - lastPing : 0
 
         // If a job is active and we haven't pinged in >8 minutes, nudge the crew.
@@ -90,7 +122,7 @@ struct MowologyCRMApp: App {
         // an alert — crew phone is not disturbed, but the app gets a reconnect chance.
         if jobActive && elapsed > 8 * 60 {
             let content = UNMutableNotificationContent()
-            content.title             = "Mowology GPS"
+            content.title             = "Ittai GPS"
             content.body              = "GPS tracking paused. Open the app to resume."
             content.sound             = nil
             content.interruptionLevel = .timeSensitive
@@ -114,8 +146,21 @@ struct MowologyCRMApp: App {
     // MARK: - Notification Permission
 
     private func requestNotificationPermission() {
+        #if DEBUG
+        // The design demos (`-mwBarDemo`, `-mwTimelineDemo`…) are screenshotted: the permission alert would cover them.
+        if ProcessInfo.processInfo.arguments.contains(where: { $0.hasPrefix("-mw") && $0.hasSuffix("Demo") }) { return }
+        #endif
         UNUserNotificationCenter.current().requestAuthorization(
             options: [.alert, .sound, .badge]
-        ) { _, _ in }
+        ) { granted, _ in
+            // Authorization alone doesn't get us a device token — registerForRemoteNotifications()
+            // is what triggers iOS to actually contact APNs and deliver one via
+            // AppDelegate.didRegisterForRemoteNotificationsWithDeviceToken. Must hop to the
+            // main thread — UIApplication APIs aren't safe to call from this completion handler's queue.
+            guard granted else { return }
+            DispatchQueue.main.async {
+                UIApplication.shared.registerForRemoteNotifications()
+            }
+        }
     }
 }

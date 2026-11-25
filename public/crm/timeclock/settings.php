@@ -5,12 +5,15 @@
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
 require_once dirname(__DIR__) . '/includes/timeclock-functions.php';
+require_once APP_ROOT . '/Modules/Team/Services/TrackingSetupGate.php';
+require_once APP_ROOT . '/Modules/Operations/Services/BreakService.php';
 
 requireLogin();
 $user = getCurrentUser();
 requirePermission('settings.edit');
 
 $db = getDB();
+$breakSvcForm = new BreakService($db);
 
 // Handle form submission
 $saved = false;
@@ -39,10 +42,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'auto_clock_out_hours' => max(1, min(24, (int)($_POST['auto_clock_out_hours'] ?? 12))),
             'require_gps_for_clock_in' => !empty($_POST['require_gps_for_clock_in']) ? '1' : '0',
             'require_gps_for_job_start' => !empty($_POST['require_gps_for_job_start']) ? '1' : '0',
+            // Whose jobs crew see (CrewViewScope): unticked = only their own.
+            'crew_job_visibility' => !empty($_POST['crew_job_visibility_all']) ? 'all' : 'own',
             'auto_arrival_enabled' => !empty($_POST['auto_arrival_enabled']) ? '1' : '0',
             'auto_arrival_service_types' => implode(',', $arrivalTypes),
             'gps_interval_standard_ms' => max(10000, min(120000, (int)($_POST['gps_interval_standard_ms'] ?? 30000))),
             'gps_interval_heightened_ms' => max(5000, min(30000, (int)($_POST['gps_interval_heightened_ms'] ?? 10000))),
+            TrackingSetupGate::SETTING => implode(',', TrackingSetupGate::parseIds(
+                implode(',', array_map('strval', (array)($_POST['tracking_setup_user_ids'] ?? [])))
+            )),
         ];
 
         $stmt = $db->prepare("
@@ -53,6 +61,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         foreach ($settings as $key => $value) {
             $stmt->execute([$key, (string)$value, $user['id']]);
+        }
+
+        // Breaks live in ops_settings (BreakService reads them there; migration 1318/1358).
+        $newPaid = !empty($_POST['breaks_paid']) ? '1' : '0';
+        $oldPaid = $breakSvcForm->breaksPaid() ? '1' : '0';
+        $opsStmt = $db->prepare("
+            INSERT INTO ops_settings (setting_key, setting_value, updated_by) VALUES (?, ?, ?)
+            ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), updated_by = VALUES(updated_by)
+        ");
+        $opsStmt->execute(['breaks_paid', $newPaid, $user['id']]);
+        $opsStmt->execute(['break_reminder_minutes',
+            (string)BreakService::reminderMinutesFrom((string)($_POST['break_reminder_minutes'] ?? '60')), $user['id']]);
+        if ($newPaid !== $oldPaid && function_exists('logActivity')) {
+            // Changes pay for every shift not yet approved — leave a trail.
+            logActivity((int)$user['id'], null, 'Breaks setting changed', $newPaid === '1'
+                ? 'Breaks are now PAID (break time stays in paid hours)'
+                : 'Breaks are now UNPAID (tapped break time comes off paid hours)');
         }
 
         $saved = true;
@@ -72,9 +97,22 @@ $autoArrivalEnabled = getTimeClockSetting('auto_arrival_enabled', '1');
 $autoArrivalServiceTypesStr = getTimeClockSetting('auto_arrival_service_types', '');
 $autoArrivalServiceTypes = array_filter(array_map('trim', explode(',', $autoArrivalServiceTypesStr)));
 
+// Breaks (ops_settings)
+$breaksPaid      = $breakSvcForm->breaksPaid();
+$breakReminder   = $breakSvcForm->reminderMinutes();
+
 // GPS interval settings
 $gpsIntervalStandard = (int)getTimeClockSetting('gps_interval_standard_ms', '30000');
 $gpsIntervalHeightened = (int)getTimeClockSetting('gps_interval_heightened_ms', '10000');
+
+// Users who must prove full location setup before a self clock-in (TrackingSetupGate)
+$trackingSetupIds = TrackingSetupGate::parseIds(getTimeClockSetting(TrackingSetupGate::SETTING, ''));
+$crewPhones = $db->query("
+    SELECT id, TRIM(COALESCE(NULLIF(TRIM(CONCAT(IFNULL(first_name,''), ' ', IFNULL(last_name,''))), ''), full_name)) AS display_name
+    FROM users
+    WHERE is_active = 1 AND IFNULL(device_type, 'personal') <> 'truck'
+    ORDER BY display_name
+")->fetchAll(PDO::FETCH_ASSOC);
 
 // Available service types
 $allServiceTypes = [
@@ -87,7 +125,7 @@ $allServiceTypes = [
 ];
 
 $pageTitle = 'Time Clock Settings';
-$activePage = 'timeclock';
+$activePage = 'timeclock-settings';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
@@ -173,6 +211,19 @@ $activePage = 'timeclock';
 
         <div class="mw-tcs-row">
             <div class="mw-tcs-label">
+                Crew see every crew's jobs
+                <small>Off: crew see only the jobs they're on (schedule, phone apps, nearby-job prompts). On: crew can switch between Mine and All crews. Managers and admins can always switch.</small>
+            </div>
+            <div class="custom-control custom-switch">
+                <input type="checkbox" class="custom-control-input" id="crewJobVisibilityAll"
+                       name="crew_job_visibility_all" value="1"
+                    <?php echo getTimeClockSetting('crew_job_visibility', 'own') === 'all' ? 'checked' : ''; ?>>
+                <label class="custom-control-label" for="crewJobVisibilityAll"></label>
+            </div>
+        </div>
+
+        <div class="mw-tcs-row">
+            <div class="mw-tcs-label">
                 Require GPS for clock-in
                 <small>Employee must share location to clock in</small>
             </div>
@@ -196,6 +247,23 @@ $activePage = 'timeclock';
                 <label class="custom-control-label" for="requireGpsJob"></label>
             </div>
         </div>
+
+        <div class="mw-tcs-row" style="flex-direction: column; align-items: flex-start;">
+            <div class="mw-tcs-label mb-2">
+                Require full location setup to clock in
+                <small>Ticked people can only clock themselves in from the Crew app with Location set to "Allow all the time" and Precise on. Office clock-ins are not affected.</small>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px 24px; width: 100%;">
+                <?php foreach ($crewPhones as $cp): ?>
+                <div class="custom-control custom-checkbox">
+                    <input type="checkbox" class="custom-control-input" id="tsu_<?php echo (int)$cp['id']; ?>"
+                           name="tracking_setup_user_ids[]" value="<?php echo (int)$cp['id']; ?>"
+                        <?php echo in_array((int)$cp['id'], $trackingSetupIds, true) ? 'checked' : ''; ?>>
+                    <label class="custom-control-label" for="tsu_<?php echo (int)$cp['id']; ?>"><?php echo htmlspecialchars((string)$cp['display_name']); ?></label>
+                </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
     </div>
 
     <!-- Safety Settings -->
@@ -213,6 +281,43 @@ $activePage = 'timeclock';
                        value="<?php echo $autoClockOut; ?>">
                 <small class="text-muted">hours (1–24)</small>
             </div>
+        </div>
+    </div>
+
+    <!-- Breaks -->
+    <div class="mw-tcs-section" id="breaks">
+        <h3><i data-feather="coffee" style="width:16px;height:16px;"></i> Breaks</h3>
+        <p class="text-muted small">Crew tap <strong>Start break</strong> and <strong>End break</strong> on the Time Clock screen. Location sharing pauses during a break. Truck logins have no break button.</p>
+
+        <div class="mw-tcs-row">
+            <div class="mw-tcs-label">
+                Breaks are paid
+                <small>On: break time stays in paid hours. Off: tapped break minutes come off paid hours in payroll, timesheets and exports (before overtime is worked out).</small>
+            </div>
+            <div class="custom-control custom-switch">
+                <input type="checkbox" class="custom-control-input" id="breaksPaid" name="breaks_paid" value="1"
+                    <?php echo $breaksPaid ? 'checked' : ''; ?>>
+                <label class="custom-control-label" for="breaksPaid"></label>
+            </div>
+        </div>
+
+        <div class="mw-tcs-row">
+            <div class="mw-tcs-label">
+                "Still on break?" reminder after
+                <small>The phone asks with End break / Still on break buttons</small>
+            </div>
+            <div>
+                <input type="number" name="break_reminder_minutes" class="form-control form-control-sm"
+                       style="width: 80px;" min="5" max="240" step="5"
+                       value="<?php echo (int)$breakReminder; ?>">
+                <small class="text-muted">minutes (5–240)</small>
+            </div>
+        </div>
+
+        <div class="alert alert-info small mt-2 mb-0" style="background: var(--mw-light); border-color: var(--mw-green);">
+            <strong>BC rule:</strong> nobody works more than 5 hours without a 30-minute meal break, and a meal break
+            must be <strong>paid</strong> if the worker has to stay available for work during it. Otto flags shifts over
+            5 hours with no 30-minute break.
         </div>
     </div>
 

@@ -32,10 +32,13 @@ if (!defined('APP_ROOT')) {
     }
     unset($__dir, $__i);
 }
+require_once APP_ROOT . '/Core/Uploads.php';
 
 try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+    require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
     require_once CRM_INCLUDES . '/functions.php';
+    require_once APP_ROOT . '/Core/IdempotencyHelper.php';
 
     requireLogin();
     $user = getCurrentUser();
@@ -54,6 +57,36 @@ try {
         http_response_code(403);
         echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
         exit;
+    }
+
+    // ── Idempotency short-circuit ─────────────────────────────────────
+    // MwPhotoQueue uploads one queued record per request, so the header
+    // applies to that single file. If we already saved a row under this UUID,
+    // skip the variant generation and return the existing row.
+    $idemKey = readIdempotencyKeyHeader();
+    if ($idemKey) {
+        $existingId = lookupIdempotencyRow($db, 'visit_photos', $idemKey);
+        if ($existingId) {
+            $row = $db->prepare("SELECT id, filename, photo_type, thumb_path, view_path FROM visit_photos WHERE id = ?");
+            $row->execute([$existingId]);
+            $r = $row->fetch(PDO::FETCH_ASSOC);
+            if ($r) {
+                echo json_encode([
+                    'success' => true,
+                    'deduplicated' => true,
+                    'results' => [[
+                        'success'      => true,
+                        'media_id'     => (int)$r['id'],
+                        'uuid'         => $r['filename'],
+                        'thumb_url'    => $r['thumb_path'] ?: (uploadsUrl('photos') . '/' . $r['filename']),
+                        'view_url'     => $r['view_path']  ?: (uploadsUrl('photos') . '/' . $r['filename']),
+                        'photo_type'   => $r['photo_type'],
+                        'is_duplicate' => true,
+                    ]],
+                ]);
+                exit;
+            }
+        }
     }
 
     // Context validation
@@ -165,11 +198,12 @@ try {
     }
 
     $allowed   = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-    $uploadDir = PUBLIC_ROOT . '/uploads/photos/';
+    $uploadDir = uploadsDir('photos') . '/';
     if (!is_dir($uploadDir)) @mkdir($uploadDir, 0755, true);
 
     $ip      = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? null;
     $results = [];
+    $idemKeyUsed = false; // attach idempotency_key to the first row only
 
     foreach ($files as $file) {
         // Validate MIME via finfo (not extension)
@@ -187,7 +221,9 @@ try {
         }
 
         // Move uploaded file to photos dir
-        $ext      = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION) ?: 'jpg');
+        // Extension from the VALIDATED type, never the client's file name (a .php named photo
+        // with a JPEG header passed finfo and kept its .php — 2026-10-12).
+        $ext      = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/gif' => 'gif', 'image/webp' => 'webp', 'image/heic' => 'heic'][$realMime] ?? 'jpg';
         $base     = 'pow_' . $visitId . '_' . $photoType . '_' . bin2hex(random_bytes(8));
         $filename = $base . '.' . $ext;
         $fullPath = $uploadDir . $filename;
@@ -197,7 +233,11 @@ try {
         $variants    = vphGenerateVariants($fullPath, $visitId, $base, $realMime);
         $photoSha256 = hash_file('sha256', $fullPath);
 
-        // Try full INSERT with all new columns (migration 1025). Fall back gracefully.
+        // Idempotency key applies to the first row only — multi-file batch uploads
+        // (rare; not used by MwPhotoQueue) leave subsequent rows un-keyed.
+        $rowIdemKey = (!$idemKeyUsed && $idemKey) ? $idemKey : null;
+
+        // Try full INSERT with all new columns (migration 1025+1023). Fall back gracefully.
         try {
             $db->prepare("
                 INSERT INTO visit_photos
@@ -205,8 +245,8 @@ try {
                      mime_type, caption, sort_order, thumb_path, grid_path, view_path,
                      uploaded_by, work_zone_id,
                      property_id, uploaded_by_name, service_type, sha256,
-                     gps_lat, gps_lng, gps_accuracy_m, captured_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     gps_lat, gps_lng, gps_accuracy_m, captured_at, idempotency_key)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ")->execute([
                 $visitId, $photoType, $filename, $file['name'],
                 $file['size'], $realMime, '', 0,
@@ -214,10 +254,36 @@ try {
                 $user['id'], $photoWorkZoneId,
                 $photoPropertyId, $user['full_name'] ?? $user['name'] ?? null,
                 $photoServiceType, $photoSha256,
-                $gpsLat, $gpsLng, $gpsAccuracy, $capturedAt,
+                $gpsLat, $gpsLng, $gpsAccuracy, $capturedAt, $rowIdemKey,
             ]);
+            $idemKeyUsed = $idemKeyUsed || ($rowIdemKey !== null);
         } catch (PDOException $insErr) {
-            // Pre-migration 1025 fallback — omit new columns
+            // Race: a concurrent retry won under the same idempotency_key —
+            // return the existing row instead of failing the whole batch.
+            if ($rowIdemKey && stripos($insErr->getMessage(), 'duplicate') !== false) {
+                $existingId = lookupIdempotencyRow($db, 'visit_photos', $rowIdemKey);
+                if ($existingId) {
+                    $row = $db->prepare("SELECT id, filename, photo_type, thumb_path, view_path FROM visit_photos WHERE id = ?");
+                    $row->execute([$existingId]);
+                    $r = $row->fetch(PDO::FETCH_ASSOC);
+                    if ($r) {
+                        @unlink($fullPath);
+                        $results[] = [
+                            'success'      => true,
+                            'media_id'     => (int)$r['id'],
+                            'uuid'         => $r['filename'],
+                            'thumb_url'    => $r['thumb_path'] ?: (uploadsUrl('photos') . '/' . $r['filename']),
+                            'view_url'     => $r['view_path']  ?: (uploadsUrl('photos') . '/' . $r['filename']),
+                            'photo_type'   => $r['photo_type'],
+                            'is_duplicate' => true,
+                            'deduplicated' => true,
+                        ];
+                        $idemKeyUsed = true;
+                        continue;
+                    }
+                }
+            }
+            // Pre-migration 1025/1023 fallback — omit new columns
             $db->prepare("
                 INSERT INTO visit_photos
                     (visit_id, photo_type, filename, original_filename, file_size,
@@ -245,8 +311,14 @@ try {
             ]);
         } catch (PDOException $e) { /* non-fatal */ }
 
-        $thumbUrl = $variants['thumb_path'] ?? ('/uploads/photos/' . $filename);
-        $viewUrl  = $variants['view_path']  ?? ('/uploads/photos/' . $filename);
+        // Mia's media library: copy into the library and tag from context. Never fails the upload.
+        try {
+            require_once APP_ROOT . '/Modules/Marketing/Services/MediaTagService.php';
+            MediaTagService::onVisitPhoto($db, $photoId);
+        } catch (Throwable $e) { /* non-fatal */ }
+
+        $thumbUrl = $variants['thumb_path'] ?? (uploadsUrl('photos') . '/' . $filename);
+        $viewUrl  = $variants['view_path']  ?? (uploadsUrl('photos') . '/' . $filename);
 
         $results[] = [
             'success'      => true,
@@ -263,7 +335,7 @@ try {
 
 } catch (InvalidArgumentException $e) {
     http_response_code(400);
-    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    echo json_encode(['success' => false, 'error' => ApiResponse::message($e, 'visit-photo-upload')]);
 } catch (PDOException $e) {
     error_log('visit-photo-upload PDO: ' . $e->getMessage());
     http_response_code(500);
@@ -306,9 +378,9 @@ function vphGenerateVariants(string $srcPath, int $visitId, string $baseName, st
     $canWebP = function_exists('imagewebp');
     $outExt  = $canWebP ? 'webp' : 'jpg';
 
-    $tDir = PUBLIC_ROOT . '/uploads/photos/t/' . $visitId . '/';
-    $gDir = PUBLIC_ROOT . '/uploads/photos/g/' . $visitId . '/';
-    $vDir = PUBLIC_ROOT . '/uploads/photos/v/' . $visitId . '/';
+    $tDir = uploadsDir('photos/t') . '/' . $visitId . '/';
+    $gDir = uploadsDir('photos/g') . '/' . $visitId . '/';
+    $vDir = uploadsDir('photos/v') . '/' . $visitId . '/';
     foreach ([$tDir, $gDir, $vDir] as $d) {
         if (!is_dir($d)) @mkdir($d, 0755, true);
     }
@@ -323,7 +395,7 @@ function vphGenerateVariants(string $srcPath, int $visitId, string $baseName, st
     $tFile = $baseName . '_t.' . $outExt;
     vphGdSave($thumb, $tDir . $tFile, $outExt, 65);
     imagedestroy($thumb);
-    $result['thumb_path'] = '/uploads/photos/t/' . $visitId . '/' . $tFile;
+    $result['thumb_path'] = uploadsUrl('photos/t') . '/' . $visitId . '/' . $tFile;
 
     // Grid: 512px max (contain, no upscale)
     [$gW, $gH] = vphGdScale($origW, $origH, 512);
@@ -333,7 +405,7 @@ function vphGenerateVariants(string $srcPath, int $visitId, string $baseName, st
     $gFile = $baseName . '_g.' . $outExt;
     vphGdSave($grid, $gDir . $gFile, $outExt, 70);
     imagedestroy($grid);
-    $result['grid_path'] = '/uploads/photos/g/' . $visitId . '/' . $gFile;
+    $result['grid_path'] = uploadsUrl('photos/g') . '/' . $visitId . '/' . $gFile;
 
     // View: 1280px max (contain, no upscale)
     [$vW, $vH] = vphGdScale($origW, $origH, 1280);
@@ -343,7 +415,7 @@ function vphGenerateVariants(string $srcPath, int $visitId, string $baseName, st
     $vFile = $baseName . '_v.' . $outExt;
     vphGdSave($view, $vDir . $vFile, $outExt, 78);
     imagedestroy($view);
-    $result['view_path'] = '/uploads/photos/v/' . $visitId . '/' . $vFile;
+    $result['view_path'] = uploadsUrl('photos/v') . '/' . $visitId . '/' . $vFile;
 
     imagedestroy($gd);
     return $result;

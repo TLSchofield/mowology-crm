@@ -1,0 +1,256 @@
+# Schedule / Plan / Visit Function Library
+
+> Sectional doc for the Job Plan → Visit → Calendar Stop engine.
+> Watched by the pre-commit doc-sync hook: changes to
+> `app/Modules/Jobs/Services/PlanFunctions.php` or `public/crm/jobs/schedule.php`
+> should update this file.
+
+## Domain model
+
+| Table | Meaning |
+|-------|---------|
+| `job_plans` | The service agreement / contract (recurring or one-off). |
+| `plan_line_items` | What services are included in each visit (drives price). |
+| `job_visits` | One occurrence of work generated from a plan. |
+| `calendar_stops` | One card per property per day per crew on the schedule. |
+
+## Where the code lives
+
+`app/Modules/Jobs/Services/PlanFunctions.php` is a **thin aggregator** (no logic
+of its own). It `require_once`'s 11 focused domain files under
+`app/Modules/Jobs/Services/Plan/`. Every function is a **global function** (no
+namespace) so the ~28 callers and the legacy shim keep working unchanged.
+
+> **Do not add logic to `PlanFunctions.php`.** Add it to the relevant `Plan/*.php`
+> file below (or create a new one and `require_once` it from the aggregator).
+
+### Load paths
+
+```
+public/crm/includes/plan-functions.php   (legacy shim — DO NOT add code)
+        └─ require app/Modules/Jobs/Services/PlanFunctions.php   (aggregator)
+                └─ require app/Modules/Jobs/Services/Plan/*.php   (11 domain files)
+```
+
+Most callers `require_once CRM_INCLUDES . '/plan-functions.php'`; a few require
+`APP_ROOT . '/Modules/Jobs/Services/PlanFunctions.php'` directly. Both resolve to
+the same aggregator.
+
+### Domain files (`Services/Plan/`)
+
+| File | Functions |
+|------|-----------|
+| `PlanHelpers.php` | `planTimeStringToMinutes`, `planMinutesToTimeString`, `isVisitHorizonCurrent`, `generatePlanNumber`, `generateVisitNumber` |
+| `PlanCrud.php` | `createJobPlan`, `createPlanFromQuote` |
+| `PlanLineItems.php` | `addPlanLineItems`, `getPlanLineItems`, `updatePlanTotalFromItems`, `getNextScheduledVisitDate`, `getQuoteLineItemsWithStatus`, `getPlansForQuote` |
+| `VisitGeneration.php` | `generateVisits`, `getActiveHolidays`, `findBumpDate`, `parseDowList`, `calculateRecurrenceDates` — **facade**: these delegate to `VisitGenerationService` (Phase 2). |
+| `CalendarStops.php` | `ensureCalendarStop`, `getCalendarStops` |
+| `VisitLifecycle.php` | `updateVisitStatus`, `getVisitWithPlan`, `getPlanDetails`, `getPlanVisits`, `pausePlan`, `resumePlan`, `propagatePlanChanges`, `skipVisitDate`, `moveVisit`, `canInvoiceVisit` |
+| `PlanDashboard.php` | `getPlanDashboardStats`, `getRecentPlansOnProperty`, `resolveTrackingRequirementsForPlan`, `resolveTrackingRequirements` |
+| `PlanProfitability.php` | `getOverheadPercentage`, `getOverheadSettings`, `getMonthlyOverheadTotal`, `getPlanProfitability`, `getStopProfitabilityBatch` |
+| `PlanEditing.php` | `cleanupOrphanedVisits`, `updateJobPlan`, `replacePlanLineItems` |
+| `PlanCrew.php` | `getPlanCrewAssignments`, `setPlanCrewAssignments`, `getVisitCrewAssignments`, `setVisitCrewAssignments`, `getUnscheduledVisits` |
+| `PlanMaterials.php` | `generateFertilizerVisits`, `calculateMaterialsForVisit`, `getPurchaseTasksForSchedule` |
+
+50 public functions total (each keeps its original name + signature).
+
+## Visit generation flow
+
+1. **Cron** `app/Modules/Jobs/Cron/generate_visits.php` calls `generateVisits()`
+   to materialise `job_visits` up to a rolling horizon (default 42 days;
+   `isVisitHorizonCurrent()` is the cheap read-only "are we caught up?" check at
+   14 days).
+2. `generateVisits()` → `calculateRecurrenceDates()` expands the plan's
+   day-of-week + frequency rules, then `getActiveHolidays()` / `findBumpDate()`
+   shift visits off holidays and blackout dates.
+3. `ensureCalendarStop()` places each visit onto the schedule as a
+   `calendar_stops` card; `getCalendarStops()` is what the schedule page reads.
+4. Pre-sold fertilizer bundles use `generateFertilizerVisits()` with explicit
+   dates instead of recurrence math.
+
+## Critical: the timer / completion path
+
+The clock-out / job-timer endpoints rely on `updateVisitStatus()` (global facade
+in `Plan/VisitLifecycle.php` → `VisitLifecycleService::updateVisitStatus`). If
+`plan-functions.php` is **not loaded**,
+`updateVisitStatus` is silently undefined and visit completion no-ops — the visit
+stays `scheduled` and map pins stay green. Any endpoint that completes a visit
+**must** require the plan-functions chain. See `project_timer_status_persistence`.
+
+## Cross-platform completion sync (added 2026-08-12)
+
+Neither the web/Capacitor schedule page nor the iOS app previously re-fetched
+data on their own — a completion on one device wasn't visible on another
+until a manual reload, and iOS's pull-to-refresh was a separate, since-fixed
+bug (an in-memory day cache that never busted itself, see
+`project_ios_schedule_cache_staleness` in memory / Known-Failure-Patterns).
+Two independent mechanisms now cover this:
+
+- **Polling (live today):** iOS `ScheduleViewModel` silently re-fetches the
+  selected day every 20s while foregrounded (`startPolling()`/`stopPolling()`,
+  paused on `scenePhase` changes). `schedule-pill-workflow.js` polls the
+  existing session-authed `calendar-stops.php` on the same cadence and patches
+  pills via the existing `updatePillVisual()`/`checkStopComplete()` — no new
+  DOM-rendering logic. Crew polls scoped to their own `?crew=` id (that
+  endpoint doesn't default-scope to the caller like the JWT `day.php` does).
+- **Push (built, not yet live):** `VisitLifecycleService::notifyCompletion()`
+  is called from **both** completion write paths (`updateVisitStatus()` here
+  and `pow-actions.php`'s `end_visit`) — one shared method, not two copies —
+  and notifies admins/managers plus any other crew on a multi-crew stop via
+  `PushDispatcher`. Needs `FcmService` (Android) and `ApnsService` (iOS)
+  credentials provisioned in `secrets.php` before anything actually sends.
+
+## Crew service recommendations (added 2026-08-27)
+
+Crew can offer extra work from the job card: photograph what needs doing, tap a
+service chip, and the client gets a priced quote. Built on the existing Field
+Observations tables (migrations 602/605), not a parallel system.
+
+- **Web/Android:** a "Recommend" button in `schedule-pill-workflow.js`'s working
+  drawer opens a chip picker (`openRecommendModal`). Chips come from
+  `/api/schedule/recommendation?mode=options`; photos reuse the existing
+  `uploadObservationPhoto()` path and their `media_id`s are passed to `create`.
+- **iOS:** `Features/Schedule/RecommendationSection.swift`, embedded in
+  `VisitDetailView` next to `JobPhotoSection`. Offline captures queue in
+  `RecommendationQueue` and drain app-wide via `AppPhotoQueueDrainService`.
+
+Available on `scheduled`, `in_progress` **and `completed`** visits on both
+platforms — deliberately wider than the before/after photo gate, because crews
+spot sellable work while packing up, after they have hit Finish. On web this is
+the `completed` case in the drawer switch (`renderCompletedDrawer`).
+
+Queued payloads persist via `Core/Offline/QueueStorage.swift` (Application
+Support, non-purgeable) — **not** `temporaryDirectory`, which iOS reclaims under
+storage pressure without telling the app, silently destroying photo proof that
+had not drained yet. Reads fall back to the legacy temp path for items queued by
+older builds.
+- **Backend:** `FieldRecommendationService` (all the rules) behind
+  `app/Modules/Schedule/Api/recommendation.php`, which uses `requireLoginOrJwt()`
+  so one endpoint serves JWT (iOS) and session+CSRF (Android WebView).
+
+Auto-send is deliberately narrow — the office must flag the product
+(`products.field_auto_send`), the price must not depend on measurements, and it
+must be non-zero. Everything else queues in `/crm/products/recommendations.php`
+for review. It fails closed: any doubt routes to a human.
+
+The quote is a **real** `quotes` row created through `QuoteService`, which is why
+portal display, signature acceptance, decline and follow-up nagging all work
+without new code — and why PM/strata properties route to whoever authorises
+spend, exactly as invoices do.
+
+Needs migration 1114. All new-column reads are `SHOW COLUMNS`-guarded, so the
+code is inert rather than broken if it ships first.
+
+### Ask first or Send quote (added 2026-10-06, migration 1180)
+
+After picking the service and photos there are two buttons, each showing who it
+goes to (`?mode=recipients`). Plan and the owner's decisions:
+`docs/crm/field-ask-first-plan.md`; renders in `docs/crm/renders/field-ask-*.jpg`.
+
+- **Ask first** (`intent: "ask"`) — a short note in Tim's voice, the photos
+  attached (≤4, 1024px JPEG, ≤6 MB) and **no price**, to the person who decides
+  the work: the on-site contact (`OnsiteContactService`), else the site contact.
+  Saved as `field_observations.status = 'ask_draft'`. Only users with
+  `billing.edit` (admin, manager) send it — on the phone (`action: ask_send`; the
+  create response carries `draft` for them) or from the Ask first panel on
+  `/crm/products/recommendations.php` (`js/field-ask-office.js`). Crew drafts wait
+  there. Never auto-sent, including offline replays.
+- **Send quote** (`intent: "quote"`, the default — old app builds send none) is
+  the 1114 path. A service with no price reads "Send to office for pricing" and
+  never auto-sends; `send()` refuses a $0 quote. On a service that already has an
+  open ask, it quotes **that** observation instead of making a second one.
+- Logic: `FieldAskService` (recipient, CASL, wording + learning, photos, send,
+  Sam's view). Email goes through `sendEmail()`'s optional attachment list — a
+  plain letter signed by the sender with name, address and unsubscribe link
+  underneath. CASL: unsubscribed blocks; company-managed property = B2B note;
+  else the consent ledger (`ConsentLedgerService::allows`), else
+  `canSendMarketing()`.
+- Wording: `FieldAskService::DEFAULT_*` + `SERVICES` (fall cleanup = Tim's own,
+  aeration drafted for his approval); per-service override
+  `products.field_ask_pitch` ("Wording per service" on the recommendations page).
+  When the sender edits, the edit is stored with `{placeholders}` in
+  `field_ask_messages.learned_*` and becomes the next draft for that product.
+- After: the send is logged to `sales_messages` (mailbox `field_ask`). A reply
+  from the asked contact (or the billing contact) after `asked_at` puts the ask on
+  Sam's card (`asks` in `?mode=desk`) with **Build the quote** (`ask_build`, price
+  optional) → **Send quote to Darren** (`ask_send_quote`, refuses $0) or Open
+  quote. No reply after 7 days = one "No reply yet" line. Asks are not yes/no
+  parsed; Tim reads the reply.
+
+## Complete & Invoice → "Also unbilled at this address" (added 2026-10-08, migration 1290)
+
+Before the day view's **Complete & Invoice** posts `complete_stop`, `schedule-day-map.js`
+asks `/crm/api/unbilled-work.php?mode=list&visit_id=…` for other unbilled work at the stop's
+property (UnbilledWorkFinder) and, if there is any, shows the `MwUnbilledWork` dialog. Ticked
+visits go as `extra_visits` and are claimed inside the invoice transaction in `pow-actions.php`;
+a "possibly done" visit (skipped/scheduled but timed that day) is marked completed on the real
+day — its `scheduled_date` and calendar stop move there, quietly. Full rules:
+`docs/crm/unbilled-work.md`.
+
+## Safety net
+
+`tests/Unit/Jobs/PlanFunctionsLoadTest.php` is a characterization test asserting
+all 50 functions load with their original arity. Run `vendor/bin/phpunit` before
+every commit. This library otherwise has no behavioural test coverage — treat
+changes to recurrence math and `updateVisitStatus` with extra care.
+
+## Deployment
+
+`app/` is **not** in cPanel auto-deploy (it only ships `public/`). After editing
+any `Plan/*.php` or the aggregator, deploy via `lftp` to
+`/app/Modules/Jobs/Services/` and hit `/crm/api/opcache-reset.php` (OPcache
+`validate_timestamps` is off on production).
+
+## Phase 2 — service extraction (in progress)
+
+Each `Plan/*.php` domain's logic is being moved into a real service class behind
+the unchanged global functions (facade), one domain at a time, so the logic can
+be unit-tested. First done:
+
+| Service | Backs | Tests |
+|---------|-------|-------|
+| `Services/VisitGenerationService.php` | `Plan/VisitGeneration.php` globals | `tests/Unit/Jobs/VisitGenerationServiceTest.php` (pure recurrence math) |
+| `Services/PlanProfitabilityService.php` | `Plan/PlanProfitability.php` globals | `tests/Unit/Jobs/PlanProfitabilityServiceTest.php` (pure overhead/profit/margin math) |
+| `Services/PlanMaterialsService.php` | `Plan/PlanMaterials.php` globals | `tests/Unit/Jobs/PlanMaterialsServiceTest.php` (application-rate parser, purchase-task distribution) |
+| `Services/PlanHelpersService.php` | `Plan/PlanHelpers.php` globals | `tests/Unit/Jobs/PlanHelpersServiceTest.php` (time↔minutes, visit numbering) |
+| `Services/VisitLifecycleService.php` | `Plan/VisitLifecycle.php` globals | `tests/Unit/Jobs/VisitLifecycleServiceTest.php` (status/propagation/move SET builders, invoice eligibility) |
+
+The pure methods (`parseDowList`, `findBumpDate`, `calculateRecurrenceDates`) take
+explicit dates — no DB, no clock — so they are fully deterministic and unit-tested.
+`generateVisits`/`getActiveHolidays` still touch the DB.
+
+---
+_Last decomposed 2026-06-18: 3,200-line monolith → aggregator + 11 `Plan/` files._
+_Phase 2 began 2026-06-18 with VisitGenerationService._
+
+## Android crew schedule matches the iPhone (2026-10-14)
+- **Week strip:** rounded tiles (MON + date), today a solid green tile, a work dot under each day (orange = still to do, green = all done; `WeekStripService::dots()`, the same rule as the iPhone's `week.php`). A holiday shows as a red date, not a red fill.
+- **Stop card header:** property first, then company, then contact (`StopCardText::headline()`); "09:00 est. arrival" and distance on the right; client · crew (jobs.edit) · visit count underneath.
+- **The stop GPS moves to the top** draws its Before / After / Additionals / Gallery strip (`mw-hero-promoted` → `renderStripsForCard`). A one-visit stop shows one action row.
+- **Photos:**
+  - shrunk to 2048 px on the phone (`preparePhoto`), with the capture time sent as `taken_at`; the server uses it when EXIF is gone (`mediaTakenAt`);
+  - never dropped: server errors, odd answers and timeouts queue the photo; retries back off up to an hour and never give up; 'failed' and stuck items go back in line;
+  - Before / After take several shots through the in-app camera and keep the start/finish steps.
+- **An expired login** returns 401 "sign in again" from the service worker (mw-v77), not "offline".
+
+## Whose jobs you see (2026-10-14)
+
+- **Crew** see only the jobs they're on, on the web schedule, the Android and iPhone apps and the
+  "near a job" prompts. Time Clock → Settings → **Crew see every crew's jobs** turns that off; crew
+  then get the same Mine / All crews switch as the office.
+- **Managers and admins** have a **Mine / All crews** switch on the phone schedule (web, Android,
+  iPhone), and on the desktop the crew dropdown still picks one crew. Everyone has a **job type**
+  picker. Both are remembered per person.
+- The rule lives in one place: `app/Modules/Schedule/Services/CrewViewScope.php`.
+
+## Quote visits — appointments that aren't job visits (2026-10-15)
+
+Tim booked a quote visit by phone (Anita Venier, request #72, Fri Oct 16 8:15) and the CRM had nowhere to put it: schedule visits belong to a job plan, and there is no job before the quote.
+
+- **Table** `appointments` (migration 1369): kind (`quote_visit`, trade-neutral), quote request, client, property, date, time, length, who goes, status (booked / done / cancelled), note, `confirmed_at`.
+- **Service** `app/Modules/Schedule/Services/AppointmentService.php`: one booked visit per request (booking again moves it and clears `confirmed_at`), `forRange($from, $to, $crewFilter)` for every schedule, the confirmation email and text (≤160 chars, no links).
+- **Booking**: the quote workflow page, "Book quote visit" under the request (`quote-visit.js` → `/crm/api/appointments.php`). Viewing needs `clients.view`; booking, moving, cancelling and confirming need `schedule.edit` or `jobs.edit`. A green "Visit …" badge sits in the request header so it shows while the details are folded.
+- **Client confirmation**: only on the "Send confirmation" click. Email always; a text only when `hasSmConsent()` says yes.
+- **Where it shows**: as its own cards, never as stops (so completion, invoicing and photos never see it): web week, day and phone views (`jobs/schedule.php`, `mwAppointmentCard()`), the offline copy (`offline-schedule.php` → IndexedDB → `schedule-offline.html`), the iPhone day list (`/api/schedule/day` → `appointments`; `AppointmentCardView`, iOS 1.3.41, kept in memory only — not in the offline disk copy). Crew see only the ones assigned to them (same crew filter as stops).
+- **Sam**: a lead with a booked visit says "Quote visit booked …" instead of "call/email to book".
+- Fixed on the way: the week view's purchase-task mini-cards read `$ds`, left over from an earlier loop, so every column showed the week's last day's tasks; now `$dateStr`.

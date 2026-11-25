@@ -10,6 +10,8 @@
  */
 declare(strict_types=1);
 
+require_once __DIR__ . '/GstReportService.php';
+
 class TaxEngine
 {
     private PDO $db;
@@ -45,7 +47,57 @@ class TaxEngine
         foreach ($rows as $row) {
             $rates[$row['code']] = (float)$row['rate'];
         }
+        // GST has one home: the rate on the Settings page (business_settings.gst_rate), which the
+        // invoice screens already charge with. The ledger and GST report follow it (2026-10-11).
+        $rates['GST'] = self::gstRate($this->db);
         return $rates;
+    }
+
+    /**
+     * The GST rate as a fraction (0.05), from the one editable place — business_settings.gst_rate
+     * (a percent). Falls back to tax_rates, then 5%. Use this anywhere GST is charged or shown.
+     * 0.0 for a business that said it is not registered for GST (gstRegistered): it charges none.
+     */
+    public static function gstRate(PDO $db): float
+    {
+        return self::gstRegistered($db) ? self::configuredGstRate($db) : 0.0;
+    }
+
+    /**
+     * Is this business registered for GST? False only when onboarding recorded 'no' (ops_settings gst_registered);
+     * 'yes', 'unsure', unanswered, or a missing table/row all mean registered — today's behaviour.
+     */
+    public static function gstRegistered(PDO $db): bool
+    {
+        try {
+            $s = $db->prepare("SELECT setting_value FROM ops_settings WHERE setting_key = 'gst_registered'");
+            $s->execute();
+            return $s->fetchColumn() !== 'no';
+        } catch (Throwable $e) { /* no ops_settings table */ }
+        return true;
+    }
+
+    /** $rate as charged: 0.0 for a business not registered for GST, else $rate untouched. */
+    public static function chargedRate(PDO $db, float $rate): float
+    {
+        return self::gstRegistered($db) ? $rate : 0.0;
+    }
+
+    /**
+     * The rate printed on receipts and set in Settings, whether or not the business is registered — what a
+     * supplier's GST line is checked against (a non-registrant still pays it, it just can't claim it back).
+     */
+    public static function configuredGstRate(PDO $db): float
+    {
+        try {
+            $pct = $db->query("SELECT gst_rate FROM business_settings LIMIT 1")->fetchColumn();
+            if ($pct !== false && $pct !== null && is_numeric($pct) && (float)$pct > 0) return round((float)$pct / 100, 4);
+        } catch (Throwable $e) { /* older schema without the column */ }
+        try {
+            $r = $db->query("SELECT rate FROM tax_rates WHERE code = 'GST' AND is_active = 1 ORDER BY id LIMIT 1")->fetchColumn();
+            if ($r !== false && is_numeric($r) && (float)$r > 0) return (float)$r;
+        } catch (Throwable $e) { /* no tax_rates table */ }
+        return 0.05;
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -96,6 +148,12 @@ class TaxEngine
         $subtotal  = $taxRate > 0 ? round($grossTotal / (1 + $taxRate), 2) : $grossTotal;
         $gstAmount = $gst ? round($subtotal * ($rates['GST'] ?? 0.05), 2) : 0.00;
         $pstAmount = $pst ? round($subtotal * ($rates['PST'] ?? 0.07), 2) : 0.00;
+        // The parts must add back to the gross to the cent: the rounding difference goes on the
+        // tax (GST first) — about 1 in 10 amounts were a cent off (review 2026-10-12).
+        $diff = round($grossTotal - ($subtotal + $gstAmount + $pstAmount), 2);
+        if (abs($diff) >= 0.01 && abs($diff) <= 0.02) {
+            if ($gst) $gstAmount = round($gstAmount + $diff, 2); elseif ($pst) $pstAmount = round($pstAmount + $diff, 2); else $subtotal = round($subtotal + $diff, 2);
+        }
 
         return [
             'subtotal'    => $subtotal,
@@ -114,9 +172,9 @@ class TaxEngine
      * Generate a CRA GST/HST return report for a given quarter/period.
      *
      * CRA Lines:
-     *  Line 101 — Total sales and other revenue (incl GST)
+     *  Line 101 — Total sales and other revenue (before GST)
      *  Line 103 — GST/HST collected or collectible
-     *  Line 106 — ITCs (GST paid on business expenses)
+     *  Line 106 — ITCs (approved/posted expenses; meals & entertainment limited)
      *  Line 109 — Net tax owing (Line 103 – Line 106)
      *
      * @param int $year
@@ -124,71 +182,38 @@ class TaxEngine
      */
     public function getGstFilingReport(int $year, int $quarter = 0): array
     {
+        // One calculation for every GST report (2026-10-07): GstReportService. It used to be
+        // read from the ledger here, which disagreed with the CRA Tax Report page and API
+        // (income incl. bank deposits, bank lines repeating a receipt's GST).
         [$dateFrom, $dateTo] = $this->getQuarterRange($year, $quarter);
+        $label = $quarter > 0 ? "Q$quarter $year" : "Full Year $year";
+        $r = (new GstReportService($this->db))->reportForRange($dateFrom, $dateTo, $label);
 
-        // Line 101: Total sales (gross invoice amounts including GST)
-        $salesStmt = $this->db->prepare("
-            SELECT COALESCE(SUM(amount + gst_amount + pst_amount), 0) AS total_sales,
-                   COALESCE(SUM(amount), 0)                           AS net_sales,
-                   COALESCE(SUM(gst_amount), 0)                       AS gst_collected
-            FROM accounting_transactions
-            WHERE type = 'income'
-              AND transaction_date BETWEEN ? AND ?
-              AND status IN ('cleared', 'reconciled')
-        ");
-        $salesStmt->execute([$dateFrom, $dateTo]);
-        $sales = $salesStmt->fetch(PDO::FETCH_ASSOC);
-
-        // Line 106: ITCs — GST paid on business expenses
-        $itcStmt = $this->db->prepare("
-            SELECT COALESCE(SUM(gst_amount), 0) AS gst_itc
-            FROM accounting_transactions
-            WHERE type = 'expense'
-              AND transaction_date BETWEEN ? AND ?
-              AND status IN ('cleared', 'reconciled')
-        ");
-        $itcStmt->execute([$dateFrom, $dateTo]);
-        $itcRow = $itcStmt->fetch(PDO::FETCH_ASSOC);
-
-        $line101 = (float)$sales['total_sales'];   // Total revenue incl tax
-        $line103 = (float)$sales['gst_collected']; // GST collected
-        $line106 = (float)$itcRow['gst_itc'];      // ITCs
-        $line109 = $line103 - $line106;            // Net tax owing (negative = refund)
-
-        // Breakdown by expense category for ITC detail
-        $itcDetailStmt = $this->db->prepare("
-            SELECT
-                coa.name  AS account_name,
-                coa.code  AS account_code,
-                SUM(t.amount)     AS net_amount,
-                SUM(t.gst_amount) AS gst_amount
-            FROM accounting_transactions t
-            JOIN chart_of_accounts coa ON coa.id = t.account_id
-            WHERE t.type = 'expense'
-              AND t.transaction_date BETWEEN ? AND ?
-              AND t.gst_amount > 0
-              AND t.status IN ('cleared', 'reconciled')
-            GROUP BY coa.id, coa.name, coa.code
-            ORDER BY gst_amount DESC
-        ");
-        $itcDetailStmt->execute([$dateFrom, $dateTo]);
-        $itcDetail = $itcDetailStmt->fetchAll(PDO::FETCH_ASSOC);
+        // ITC detail by expense category (the shape the reports page reads).
+        $itcDetail = array_map(fn($c) => [
+            'account_name' => $c['category'],
+            'account_code' => '',
+            'net_amount'   => null,
+            'gst_amount'   => $c['itc'],
+            'gst_paid'     => $c['gst_paid'],
+        ], $r['itc_by_category']);
 
         return [
-            'period_label' => $quarter > 0
-                ? "Q$quarter $year"
-                : "Full Year $year",
+            'period_label' => $label,
             'date_from'    => $dateFrom,
             'date_to'      => $dateTo,
 
             // CRA form lines
-            'line_101'     => round($line101, 2),  // Total sales
-            'line_103'     => round($line103, 2),  // GST/HST collected
-            'line_106'     => round($line106, 2),  // ITCs
-            'line_109'     => round($line109, 2),  // Net owing (positive=owe, negative=refund)
+            'line_101'     => $r['line_101'],  // Sales before GST
+            'line_103'     => $r['line_103'],  // GST/HST collected
+            'line_106'     => $r['line_106'],  // ITCs (approved/posted expenses, meals limited)
+            'line_109'     => $r['line_109'],  // Net owing (positive=owe, negative=refund)
 
-            'net_sales'    => round((float)$sales['net_sales'], 2),
-            'is_refund'    => $line109 < 0,
+            'itc_gross'         => $r['itc_gross'],
+            'meals_limit'       => $r['meals_limit'],
+            'meals_limit_label' => $r['meals_limit_label'],
+            'net_sales'    => $r['line_101'],
+            'is_refund'    => $r['is_refund'],
             'itc_detail'   => $itcDetail,
         ];
     }

@@ -24,6 +24,8 @@ for ($__i = 0; $__i < 7; $__i++) {
 unset($__dir, $__i);
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Services/Messaging/IdentityMail.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 require_once PUBLIC_ROOT . '/crm/includes/functions.php';
 require_once APP_ROOT . '/Modules/Contracts/Services/ContractService.php';
 
@@ -105,21 +107,23 @@ try {
 
         // Build the signing URL for the email
         $scheme  = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-        $host    = $_SERVER['HTTP_HOST'] ?? 'mowology.ca';
+        $host    = $_SERVER['HTTP_HOST'] ?? (parse_url(_idSiteUrl(), PHP_URL_HOST) ?: '');
         $signUrl = "{$scheme}://{$host}/customer/contract-sign.php?token={$signToken}";
 
         // Send email via CRM messaging system
         if (function_exists('sendCrmEmail')) {
             $contract = getContractById($contractId);
-            $subject  = "Your Service Contract — Please Sign";
-            $body     = "Hi {$signerName},\n\n"
-                . "Please review and digitally sign your service contract with Mowology Landscaping.\n\n"
-                . "Contract: " . ($contract['contract_number'] ?? '') . "\n"
-                . ($contract['title'] ? "Title: " . $contract['title'] . "\n" : '')
-                . "\nSign here (link valid for 14 days):\n{$signUrl}\n\n"
-                . "If you have any questions, call us at (778) 846-9273.\n\n"
-                . "Thank you,\nMowology Landscaping Team";
-            sendCrmEmail($signerEmail, $subject, $body, $signerName);
+            require_once APP_ROOT . '/Services/Messaging/EmailWrapper.php';
+            $companyInfo = EmailWrapper::getCompanyInfo();
+            $subject  = "Your " . _idFromName() . " contract is ready to sign";
+            $text     = "Hi {$signerName},\n\n"
+                . "Your service contract is ready. Read it through, and if it matches what we agreed, sign it from the button below. The link works for 14 days.\n\n"
+                . "Contract: " . ($contract['contract_number'] ?? '')
+                . ($contract['title'] ? "\n" . $contract['title'] : '') . "\n\n"
+                . "If anything in it isn't right, reply to this email before you sign and we'll correct it.\n\n"
+                . $companyInfo['company_name'] . "\n" . $companyInfo['company_phone'];
+            $body = EmailWrapper::wrap(EmailWrapper::textToHtml($text), 'Read and sign the contract', $signUrl, $companyInfo);
+            sendCrmEmail($signerEmail, $subject, $body);
         }
 
         echo json_encode([
@@ -147,7 +151,7 @@ try {
 
 } catch (\RuntimeException $e) {
     http_response_code(409);
-    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    echo json_encode(['success' => false, 'error' => ApiResponse::message($e, 'contract-signatures')]);
 } catch (\Throwable $e) {
     http_response_code(500);
     echo json_encode(['success' => false, 'error' => 'Server error — please try again']);

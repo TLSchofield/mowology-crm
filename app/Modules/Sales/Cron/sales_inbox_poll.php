@@ -1,0 +1,213 @@
+<?php
+/**
+ * Sales inbox poll — customer email history for Sam (SalesInboxService).
+ *
+ * Reads office@mowology.ca (INBOX + the Sent folder) READ-ONLY: the mailbox is opened with
+ * OP_READONLY and bodies are fetched with FT_PEEK, so nothing is marked read, moved or
+ * deleted — office@ is a human-read mailbox. Only mail from or to a known contact is kept.
+ * Re-runs are safe: each message is stored once (unique Message-ID).
+ *
+ * Window: the last 3 days normally; 90 days on the first run (or with ?backfill=1 /
+ * --backfill), so quotes already out get their replies.
+ *
+ * Cron (every 15 min) — schedule in cPanel as:
+ *   0,15,30,45 * * * * /usr/local/bin/php /home/mowology/public_html/app/Modules/Sales/Cron/sales_inbox_poll.php
+ * Also runnable in a browser by an admin: /crm/cron/sales_inbox_poll.php
+ */
+
+declare(strict_types=1);
+
+$__dir = __DIR__;
+for ($__i = 0; $__i < 5; $__i++) {
+    $__dir = dirname($__dir);
+    if (is_file($__dir . '/app/Core/paths.php')) {
+        require_once $__dir . '/app/Core/paths.php';
+        break;
+    }
+}
+unset($__dir, $__i);
+require_once APP_ROOT . '/Core/config.php';
+require_once CRM_INCLUDES . '/functions.php';          // brings CrmFunctions.php → recordCronRun()
+require_once APP_ROOT . '/Services/CrmFunctions.php';
+require_once APP_ROOT . '/Modules/Sales/Services/SalesInboxService.php';
+require_once APP_ROOT . '/Services/Mail/MailboxConfig.php';
+require_once APP_ROOT . '/Services/Mail/ImapReader.php';
+
+$isCli = (PHP_SAPI === 'cli');
+if (!$isCli) {
+    require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+    requireLogin();
+    if (!isAdmin()) { http_response_code(403); exit(json_encode(['success' => false, 'error' => 'Admin only'])); }
+    header('Content-Type: application/json; charset=utf-8');
+}
+
+const SALES_POLL_KEY = 'sales_inbox_poll';
+$startMs = (int)(microtime(true) * 1000);
+$log = [];
+$salesLog = function (string $m) use (&$log): void { $log[] = '[' . date('Y-m-d H:i:s') . '] ' . $m; };
+$finish = function (string $status, string $summary, ?string $error = null) use (&$log, $startMs, $isCli): void {
+    recordCronRun(SALES_POLL_KEY, $status, $summary, (int)(microtime(true) * 1000) - $startMs, $error, !$isCli);
+    if ($isCli) { echo implode("\n", $log) . "\n"; exit($status === 'error' ? 1 : 0); }
+    echo json_encode(['success' => $status !== 'error', 'message' => $summary, 'log' => $log]);
+    exit;
+};
+
+if (!function_exists('imap_open')) {
+    $salesLog('FATAL: PHP imap extension not available.');
+    $finish('error', 'PHP imap extension not available.', 'imap missing');
+}
+$office = MailboxConfig::forPurpose('sales')[0] ?? null;   // office@ (SMTP_USER / SMTP_PASS)
+if ($office === null) {
+    $salesLog('office@ credentials (SMTP_USER / SMTP_PASS) not configured.');
+    $finish('warning', 'office@ credentials not configured — nothing read.');
+}
+
+$db = getDB();
+$svc = new SalesInboxService($db);
+if (!$svc->ready()) {
+    $finish('warning', 'Migration 1140 not run yet — nothing read.');
+}
+
+$first = (int)$db->query("SELECT COUNT(*) FROM sales_messages WHERE mailbox LIKE 'office@%'")->fetchColumn() === 0;
+$backfill = $first || ($isCli ? in_array('--backfill', $argv ?? [], true) : !empty($_GET['backfill']));
+$since = date('d-M-Y', strtotime($backfill ? '-90 days' : '-3 days'));
+
+ImapReader::timeouts();
+// Read-only, always (ImapReader: OP_READONLY + FT_PEEK).
+$open = fn(string $folder) => ImapReader::open($office, $folder);
+$body = fn($mbox, int $no): string => ImapReader::textBody($mbox, $no);
+
+$counts = ['stored' => 0, 'dupe' => 0, 'skipped' => 0];
+// Unknown senders (ops_settings.inbox_place_unknown, default off): placed by what they wrote or kept for the owner,
+// never dropped silently. Bodies are read once each, inside a time budget; what is left waits for the next poll.
+$placing = $svc->placementOn();
+if ($placing) $svc->warmIdentityIndex();
+$placeDeadline = microtime(true) + 40;
+$unknown = ['placed' => 0, 'unplaced' => 0, 'noise' => 0, 'lead' => 0, 'later' => 0, 'error' => 0];
+$errors = 0;
+$folders = ['INBOX'];
+
+$inbox = $open('INBOX');
+if ($inbox === false) {
+    $salesLog('ERROR: could not open office@ INBOX: ' . implode('; ', imap_errors() ?: ['unknown']));
+    $finish('error', 'Could not log into office@.', 'imap login failed');
+}
+// The Sent folder's name depends on the server (Sent, INBOX.Sent, Sent Items…).
+$sent = ImapReader::pickSentFolder(ImapReader::folders($inbox, $office));
+if ($sent !== null) $folders[] = $sent;
+@imap_close($inbox);
+
+foreach ($folders as $folder) {
+    $mbox = $open($folder);
+    if ($mbox === false) { $salesLog("ERROR: could not open {$folder}"); $errors++; continue; }
+    $hits = @imap_search($mbox, 'SINCE "' . $since . '"');
+    $hits = is_array($hits) ? $hits : [];
+    $salesLog("{$folder}: " . count($hits) . " message(s) since {$since}");
+    foreach ($hits as $no) {
+        try {
+            $h = @imap_headerinfo($mbox, $no);
+            if (!$h) continue;
+            $msg = [
+                'mailbox'    => 'office@ ' . $folder,
+                'message_id' => $h->message_id ?? null,
+                'from'       => isset($h->fromaddress) ? imap_utf8($h->fromaddress) : '',
+                'to'         => trim((isset($h->toaddress) ? imap_utf8($h->toaddress) : '') . ', ' . (isset($h->ccaddress) ? imap_utf8($h->ccaddress) : ''), ', '),
+                'subject'    => isset($h->subject) ? imap_utf8($h->subject) : '',
+                'body'       => '',   // fetched only for customer mail, below
+                'date'       => $h->date ?? 'now',
+            ];
+            $res = $svc->ingest($msg);
+            $placedNow = false;
+            if ($res === 'skipped') {
+                $counts['skipped']++;
+                if (!$placing || $folder !== 'INBOX') continue;
+                $pr = $svc->placeUnknown($msg, fn() => [$body($mbox, $no), ImapReader::rawHeaders($mbox, $no)], $placeDeadline);
+                if (isset($unknown[$pr])) $unknown[$pr]++;
+                if ($pr !== 'placed') continue;
+                // A strong match is now a stored customer email: carry on to its attachments like any other.
+                $counts['skipped']--;
+                $res = 'stored';
+                $placedNow = true;
+            }
+            // 'dupe' with no text yet: an earlier run stored the row but never got the body — fill it in now.
+            if (!$placedNow && ($res === 'stored' || ($res === 'dupe' && $svc->needsSnippet($svc->lastKey)))) {
+                // Customer mail: now read its text (FT_PEEK) and fill the snippet in.
+                $raw = $body($mbox, $no);
+                $snip = SalesInboxService::snippet($raw);
+                if ($snip !== '') $svc->setSnippet($svc->lastKey, $snip);
+                // Inbound from a known contact: keep the signature too (clues check, migration 1206).
+                if ($svc->lastDirection === 'inbound') {
+                    $sig = SalesInboxService::signature($raw);
+                    if ($sig !== '') $svc->setSignature($svc->lastKey, $sig);
+                }
+            }
+            // Client mail keeps its PDF / photo whatever head it goes to (FT_PEEK) — and a copy of one we kept without
+            // its files (Tim's forward, the iCloud copy) adds them (2026-10-15: VML's 9 signed quotes were dropped).
+            if ($svc->wantsAttachments($svc->lastKey, $res)) {
+                $st = @imap_fetchstructure($mbox, $no);
+                $nFiles = 0;
+                foreach ($st ? ImapReader::attachments($st) : [] as $a) {
+                    $bytes = ImapReader::fetchPart($mbox, $no, $a['pn'], $a['encoding']);
+                    if ($bytes !== '') $svc->keepAttachment($svc->lastKey, $a['filename'], $a['mime'], $bytes);
+                    $nFiles++;
+                }
+                if ($st) $svc->attachmentsScanned($svc->lastKey, $nFiles);   // a full pass — no structure, or an exception above, leaves it for next time
+                if ($res === 'stored' || $res === 'dupe') $svc->afterAttachments($svc->lastKey);
+            }
+            $counts[$res]++;
+        } catch (Throwable $e) {
+            $salesLog("ERROR on message {$no} in {$folder}: " . $e->getMessage());
+            $errors++;
+        }
+    }
+    @imap_close($mbox);
+}
+
+$summary = "Read " . implode(' + ', $folders) . ": {$counts['stored']} new customer email(s), {$counts['dupe']} already kept, {$counts['skipped']} not customer mail.";
+if ($placing) {
+    $summary .= " Unknown senders: {$unknown['placed']} placed on an account, {$unknown['unplaced']} kept for you, {$unknown['lead']} enquiry(ies) to Sam, {$unknown['noise']} noise"
+        . ($unknown['later'] > 0 ? ", {$unknown['later']} left for the next poll (time budget)" : '') . ($unknown['error'] > 0 ? ", {$unknown['error']} failed" : '') . '.';
+}
+
+// Yui (2026-11-10): tell the owner a client wrote. Additive: never fails the poll (the service catches everything).
+try {
+    require_once APP_ROOT . '/Modules/Comms/Services/InboundAlertService.php';
+    (new InboundAlertService(getDB()))->run();
+} catch (Throwable $e) {
+    error_log('[inbound alert] ' . $e->getMessage());
+}
+
+// Yui's supplier rule (SupplierInboxService, migration 1320): supplier mail at office@ and iCloud —
+// account applications go to Otto to fill, the city's licence email is filed. Additive: never
+// fails Sam's poll.
+try {
+    $supFile = APP_ROOT . '/Modules/Comms/Services/SupplierInboxService.php';
+    if (is_file($supFile)) {
+        require_once $supFile;
+        $sup = new SupplierInboxService(getDB());
+        $budget = microtime(true) + 25;
+        $tot = ['heard' => 0, 'forms' => 0, 'licences' => 0, 'lists' => 0];
+        foreach (array_filter([['office@', $office], ['icloud', MailboxConfig::icloud()]], fn($m) => $m[1] !== null) as [$lab, $mb]) {
+            $r = $sup->poll($mb, $lab, $budget);
+            foreach ($tot as $k => $v) $tot[$k] += $r[$k] ?? 0;
+            if ($r['errors'] > 0) { $errors += $r['errors']; $salesLog("Suppliers {$lab}: {$r['errors']} error(s) {$r['note']}"); }
+        }
+        if (array_sum($tot) > 0) $summary .= " Suppliers: {$tot['heard']} email(s), {$tot['forms']} account form(s) for Otto, {$tot['licences']} licence(s) filed, {$tot['lists']} price list(s) imported.";
+    }
+} catch (Throwable $e) {
+    $salesLog('Suppliers: ' . $e->getMessage());
+}
+// Otto (2026-11-03): a new lead's pin and arrival border the moment it has an address, however it arrived
+// (website form, the Kitsilano site, email) — the city lot map first, then the province's. Additive: never fails Sam's poll.
+try {
+    $ottoLead = APP_ROOT . '/Modules/Operations/Services/OttoLeadService.php';
+    if (is_file($ottoLead)) {
+        require_once $ottoLead;
+        $pl = (new OttoLeadService(getDB()))->placeOpenLeads();
+        if ($pl['tried'] > 0) $summary .= " Otto placed {$pl['bordered']} of {$pl['tried']} new lead(s) on the map" . ($pl['pinned'] ? " ({$pl['pinned']} pinned)" : '') . '.';
+    }
+} catch (Throwable $e) {
+    $salesLog('Otto lead placement: ' . $e->getMessage());
+}
+$salesLog($summary);
+$finish($errors > 0 ? 'warning' : 'success', $summary, $errors > 0 ? "{$errors} error(s)" : null);

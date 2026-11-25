@@ -97,13 +97,25 @@ if ($apiKey) {
                     <form method="get" class="form-inline flex-wrap" style="gap:10px">
                         <div class="form-group mb-0">
                             <label class="sr-only">From</label>
-                            <input type="date" name="from" class="form-control form-control-sm"
+                            <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#pt-date-from"
+                                    data-mw-dp-range-group="purchase-tasks-range" data-mw-dp-range-role="start" aria-haspopup="true" aria-expanded="false">
+                                <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                <span class="mw-datepicker-date" data-mw-dp-label></span>
+                                <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                            </button>
+                            <input type="date" id="pt-date-from" name="from" class="form-control form-control-sm" hidden
                                    value="<?= htmlspecialchars($filterFrom) ?>">
                         </div>
                         <span class="text-muted">to</span>
                         <div class="form-group mb-0">
                             <label class="sr-only">To</label>
-                            <input type="date" name="to" class="form-control form-control-sm"
+                            <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#pt-date-to"
+                                    data-mw-dp-range-group="purchase-tasks-range" data-mw-dp-range-role="end" aria-haspopup="true" aria-expanded="false">
+                                <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                <span class="mw-datepicker-date" data-mw-dp-label></span>
+                                <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                            </button>
+                            <input type="date" id="pt-date-to" name="to" class="form-control form-control-sm" hidden
                                    value="<?= htmlspecialchars($filterTo) ?>">
                         </div>
                         <div class="form-group mb-0">
@@ -283,7 +295,12 @@ if ($apiKey) {
                                 <div class="col-sm-6">
                                     <div class="form-group">
                                         <label>Date <span class="text-danger">*</span></label>
-                                        <input type="date" name="task_date" id="ptDate" class="form-control"
+                                        <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#ptDate" aria-haspopup="true" aria-expanded="false">
+                                            <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                            <span class="mw-datepicker-date" data-mw-dp-label></span>
+                                            <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                                        </button>
+                                        <input type="date" name="task_date" id="ptDate" class="form-control" hidden
                                                value="<?= date('Y-m-d') ?>" required>
                                     </div>
                                 </div>
@@ -957,6 +974,8 @@ if ($apiKey) {
         document.getElementById('ptModalLabel').textContent = 'New Purchase Task';
         document.querySelector('[name="action"]').value = 'create';
         document.getElementById('ptDate').value = prefillDate || '<?= date('Y-m-d') ?>';
+        document.getElementById('ptDate').dispatchEvent(new Event('input', { bubbles: true }));
+        document.getElementById('ptDate').dispatchEvent(new Event('change', { bubbles: true }));
         document.getElementById('ptSaveBtnLabel').textContent = 'Create Task';
         $(modal).modal('show');
     }
@@ -969,6 +988,8 @@ if ($apiKey) {
         document.querySelector('[name="action"]').value = 'update';
         document.getElementById('ptTitle').value  = task.title || '';
         document.getElementById('ptDate').value   = task.task_date || '';
+        document.getElementById('ptDate').dispatchEvent(new Event('input', { bubbles: true }));
+        document.getElementById('ptDate').dispatchEvent(new Event('change', { bubbles: true }));
         // Vendor — restore FK selection; fall back to vendor_name match if no vendor_id
         if (task.vendor_id) {
             loadVendors(function () {

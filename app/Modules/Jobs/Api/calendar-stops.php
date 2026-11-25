@@ -2,7 +2,7 @@
 /**
  * Calendar Stops API — fetch day's stops for map/sidebar display
  *
- * GET ?date=YYYY-MM-DD&crew=N (optional crew filter)
+ * GET ?date=YYYY-MM-DD&crew=N or crew=N,M (optional crew filter, one or several)
  * Returns: { success: true, date: "...", stops: [...] }
  */
 declare(strict_types=1);
@@ -22,18 +22,21 @@ if (!defined('APP_ROOT')) {
 
 try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+    require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
     require_once CRM_INCLUDES . '/functions.php';
     require_once CRM_INCLUDES . '/plan-functions.php';
 
     requireLogin();
     $user = getCurrentUser();
+    session_write_close(); // read-only — release session lock immediately
 
     $date = $_GET['date'] ?? date('Y-m-d');
     if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
         throw new Exception('Invalid date format');
     }
 
-    $crewId = isset($_GET['crew']) && $_GET['crew'] !== '' ? (int)$_GET['crew'] : null;
+    require_once APP_ROOT . '/Modules/Schedule/Services/CrewViewScope.php';
+    $crewId = CrewViewScope::pick(array_filter(array_map('trim', explode(',', (string)($_GET['crew'] ?? ''))), 'strlen'));
 
     $calendarData = getCalendarStops($date, $date, $crewId);
     $dayStops = $calendarData[$date] ?? [];
@@ -47,8 +50,18 @@ try {
         return ($a['route_order'] ?? 999) - ($b['route_order'] ?? 999);
     });
 
+    // Office (schedule.edit) sees every crew's day; anyone else only stops they are crew on
+    // (Fable audit 2026-10-12 — any login could read every stop's client, phone and notes).
+    $seesAll = userHasPermission('schedule.edit');
+    $me      = (int)$user['id'];
+
     $stops = [];
     foreach ($dayStops as $stop) {
+        if (!$seesAll) {
+            $crewOnStop = array_map('intval', (array)($stop['crew_ids'] ?? []));
+            if (!empty($stop['crew_id'])) $crewOnStop[] = (int)$stop['crew_id'];
+            if (!in_array($me, $crewOnStop, true)) continue;
+        }
         $visits = [];
         foreach (($stop['visits'] ?? []) as $v) {
             $visits[] = [
@@ -59,6 +72,7 @@ try {
                 'estimated_duration'  => (int)($v['estimated_duration'] ?? 0),
                 'visit_status'        => $v['visit_status'] ?? 'scheduled',
                 'scheduled_time_start'=> $v['scheduled_time_start'] ?? null,
+                'scheduled_time_end'  => $v['scheduled_time_end'] ?? null,
             ];
         }
         $stops[] = [
@@ -79,6 +93,7 @@ try {
             'company_name'      => $stop['company_name'] ?? null,
             'contact_name'      => $stop['contact_name'] ?? null,
             'contact_phone'     => $stop['contact_phone'] ?? null,
+            'onsite_contact'    => $stop['onsite_contact'] ?? null,
             'property_notes'    => $stop['property_notes'] ?? null,
             'stop_notes'        => $stop['stop_notes'] ?? null,
             'lawn_sqft'         => isset($stop['lawn_sqft']) && $stop['lawn_sqft'] > 0 ? (float)$stop['lawn_sqft'] : null,
@@ -94,5 +109,5 @@ try {
     echo json_encode(['error' => 'Database error']);
 } catch (Exception $e) {
     http_response_code(400);
-    echo json_encode(['error' => $e->getMessage()]);
+    echo json_encode(['error' => ApiResponse::message($e, 'calendar-stops')]);
 }

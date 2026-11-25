@@ -23,6 +23,7 @@ if (!defined('APP_ROOT')) {
     }
     unset($__dir, $__i);
 }
+require_once APP_ROOT . '/Core/Uploads.php';
 
 try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
@@ -112,7 +113,7 @@ try {
 
     $photos = [];
     foreach ($rows as $r) {
-        $origUrl  = '/uploads/photos/' . $r['filename'];
+        $origUrl  = uploadsUrl('photos') . '/' . $r['filename'];
         $photos[] = [
             'id'               => (int)$r['id'],
             'type'             => $r['photo_type'],

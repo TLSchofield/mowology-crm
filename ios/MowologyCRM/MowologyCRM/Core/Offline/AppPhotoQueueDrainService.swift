@@ -1,0 +1,85 @@
+//
+//  AppPhotoQueueDrainService.swift
+//  MowologyCRM
+//
+//  Global drain for pending offline job photo uploads.
+//
+//  Problem solved:
+//    JobPhotoSection registered its own mwPingQueueOnline observer, so photos
+//    only drained while that specific screen was visible. A photo captured
+//    offline and then navigated away from was never retried until the user
+//    returned to that exact visit.
+//
+//  Solution:
+//    This singleton mirrors AppTransitionDrainService — it subscribes to
+//    mwPingQueueOnline at the app level and drains ALL pending photo uploads
+//    regardless of which screen is currently visible.
+//    Wire it into MowologyCRMApp alongside AppTransitionDrainService.
+//
+
+import Foundation
+import Combine
+
+@MainActor
+final class AppPhotoQueueDrainService {
+
+    static let shared = AppPhotoQueueDrainService()
+
+    private var apiClient: APIClient?
+    private var sink: AnyCancellable?
+    private var running: Task<Void, Never>?
+
+    private init() {}
+
+    // MARK: - Setup
+
+    /// Call once from MowologyCRMApp after APIClient is available.
+    func configure(apiClient: APIClient) {
+        self.apiClient = apiClient
+
+        sink = NotificationCenter.default.publisher(for: .mwPingQueueOnline)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                Task { await self?.drain() }
+            }
+    }
+
+    // MARK: - Drain
+
+    /// Retries all pending photo uploads. One run at a time: a caller that arrives mid-run
+    /// (a visit card refreshing on reconnect) waits for that run and returns when it is done.
+    func drain() async {
+        if let running { return await running.value }
+        guard let apiClient else { return }
+        let task = Task { await self.drainOnce(using: apiClient) }
+        running = task
+        await task.value
+        running = nil
+    }
+
+    private func drainOnce(using apiClient: APIClient) async {
+
+        if JobPhotoQueue.shared.pendingCount > 0 {
+            print("[AppPhotoQueueDrain] Draining \(JobPhotoQueue.shared.pendingCount) pending photo(s)")
+            await JobPhotoQueue.shared.drain(using: apiClient)
+        }
+
+        // Crew recommendations captured out of signal. Drained here rather than
+        // in RecommendationSection so they retry even when that job card is not
+        // on screen — the sale should not depend on where the user navigated.
+        if RecommendationQueue.shared.pendingCount > 0 {
+            print("[AppPhotoQueueDrain] Draining \(RecommendationQueue.shared.pendingCount) pending recommendation(s)")
+            await RecommendationQueue.shared.drain(using: apiClient)
+        }
+
+        // Jobs and clients (and later tasks, quotes, invoices) made with no signal.
+        if CreateOutbox.shared.hasPending {
+            await CreateOutbox.shared.drain(using: apiClient)
+        }
+
+        // Special-request "Got it" taps and answers made with no signal.
+        if SpecialRequestOutbox.shared.hasPending {
+            await SpecialRequestOutbox.shared.drain(using: apiClient)
+        }
+    }
+}

@@ -7,7 +7,9 @@
  * materials, notes, PDF download/generate, lock/unlock controls.
  */
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
+require_once APP_ROOT . '/Services/Messaging/IdentityMail.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
+require_once APP_ROOT . '/Core/Uploads.php';
 requireLogin();
 $user = getCurrentUser();
 requirePermission('jobs.view');
@@ -94,7 +96,7 @@ $photoGroups = ['before' => [], 'after' => [], 'additional' => [], 'other' => []
 foreach ($photos as $p) {
     $bucket = in_array($p['photo_type'], ['before','after','additional']) ? $p['photo_type'] : 'other';
     // Compute display URLs with fallback to original
-    $origUrl = '/uploads/photos/' . $p['filename'];
+    $origUrl = uploadsUrl('photos') . '/' . $p['filename'];
     $p['_orig_url']  = $origUrl;
     $p['_thumb_url'] = $p['thumb_path'] ?? $origUrl;
     $p['_grid_url']  = $p['grid_path']  ?? $origUrl;
@@ -113,7 +115,7 @@ $shareToken = $stmtToken->fetch(PDO::FETCH_ASSOC);
 $hasActiveToken = $shareToken
     && $shareToken['revoked_at'] === null
     && ($shareToken['expires_at'] === null || strtotime($shareToken['expires_at']) > time());
-$siteUrl = defined('SITE_URL') ? rtrim(SITE_URL, '/') : 'https://mowology.ca';
+$siteUrl = defined('SITE_URL') ? rtrim(SITE_URL, '/') : _idSiteUrl();
 
 // Load notes
 $stmtNotes = $db->prepare("
@@ -138,8 +140,17 @@ $stmtAudit = $db->prepare("
 $stmtAudit->execute([$visitId]);
 $auditLog = $stmtAudit->fetchAll(PDO::FETCH_ASSOC);
 
+// Related activity: crew time, truck pings, invoice, proof-of-work emails
+require_once APP_ROOT . '/Modules/Jobs/Services/VisitActivityService.php';
+$timeEntries  = VisitActivityService::timeEntries($db, $visitId);
+$totalMinutes = VisitActivityService::totalMinutes($timeEntries);
+[$truckFrom, $truckTo] = VisitActivityService::window($timeEntries, $visit['started_at'] ?? null, $visit['completed_at'] ?? null);
+$truck        = VisitActivityService::truckPings($db, $truckFrom, $truckTo);
+$visitInvoice = VisitActivityService::invoice($db, $visitId);
+$powEmails    = VisitActivityService::emails($db, $visitId);
+
 // Decode JSON fields
-$checklist   = !empty($visit['checklist_json'])     ? json_decode($visit['checklist_json'], true)     : [];
+$checklist  = !empty($visit['checklist_json'])     ? json_decode($visit['checklist_json'], true)     : [];
 $materials   = !empty($visit['materials_json'])     ? json_decode($visit['materials_json'], true)     : [];
 $svcData     = !empty($visit['service_data_json'])  ? json_decode($visit['service_data_json'], true)  : [];
 $confBox     = !empty($visit['confidence_box_json'])? json_decode($visit['confidence_box_json'], true): [];
@@ -234,6 +245,8 @@ $activePage = 'jobs';
   <!-- ── LEFT COLUMN: Timeline + GPS + Photos ── -->
   <div class="col-lg-8">
 
+    <?php if ($isAdmin) include dirname(__DIR__) . '/includes/subcontract-panel.php'; ?>
+
     <!-- ── Timeline Card ──────────────────────────────────────────────── -->
     <div class="card mw-card mb-4">
       <div class="card-header"><h5 class="card-title mb-0"><i data-feather="clock" class="mr-2"></i>Visit Timeline</h5></div>
@@ -308,6 +321,86 @@ $activePage = 'jobs';
             </div>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- ── Crew Time Card ─────────────────────────────────────────────── -->
+    <div class="card mw-card mb-4">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="card-title mb-0"><i data-feather="users" class="mr-2"></i>Crew Time</h5>
+        <span class="badge badge-<?= $timeEntries ? 'success' : 'secondary' ?>">
+          <?= floor($totalMinutes / 60) ?>h <?= $totalMinutes % 60 ?>m total
+        </span>
+      </div>
+      <div class="card-body p-0">
+        <?php if (!$timeEntries): ?>
+        <div class="text-muted text-center py-4">No timer entries for this visit.</div>
+        <?php else: ?>
+        <table class="table table-sm mb-0">
+          <thead><tr><th>Crew</th><th>Start</th><th>End</th><th>Minutes</th><th>Start location</th><th>End location</th></tr></thead>
+          <tbody>
+          <?php foreach ($timeEntries as $te): ?>
+            <tr<?= $te['status'] === 'void' ? ' class="text-muted"' : '' ?>>
+              <td><?= htmlspecialchars($te['crew_name'] ?? 'Unknown') ?>
+                <?php if ((int)$te['auto_started']): ?><span class="badge badge-light">auto</span><?php endif; ?>
+                <?php if ($te['status'] !== 'completed'): ?><span class="badge badge-warning"><?= htmlspecialchars($te['status']) ?></span><?php endif; ?>
+              </td>
+              <td><?= date('g:i A', strtotime($te['start_time'])) ?></td>
+              <td><?= $te['end_time'] ? date('g:i A', strtotime($te['end_time'])) : '—' ?></td>
+              <td><?= $te['duration_minutes'] !== null ? (int)$te['duration_minutes'] : '—' ?></td>
+              <td class="small"><?= $te['start_lat'] !== null ? round((float)$te['start_lat'], 5) . ', ' . round((float)$te['start_lng'], 5) : '—' ?></td>
+              <td class="small"><?= $te['end_lat'] !== null ? round((float)$te['end_lat'], 5) . ', ' . round((float)$te['end_lng'], 5) : '—' ?></td>
+            </tr>
+          <?php endforeach; ?>
+          </tbody>
+        </table>
+        <?php endif; ?>
+      </div>
+    </div>
+
+    <!-- ── Truck Card ─────────────────────────────────────────────────── -->
+    <div class="card mw-card mb-4">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="card-title mb-0"><i data-feather="truck" class="mr-2"></i>Truck Trail</h5>
+        <span class="badge badge-<?= $truck['count'] ? 'success' : 'secondary' ?>"><?= (int)$truck['count'] ?> pings</span>
+      </div>
+      <div class="card-body">
+        <?php if (!$truck['count']): ?>
+        <div class="text-muted">No truck pings during this visit's time window.</div>
+        <?php else: ?>
+        <div class="row text-center">
+          <div class="col-4"><div class="text-muted small">First ping</div><div class="font-weight-600"><?= date('g:i A', strtotime($truck['first'])) ?></div></div>
+          <div class="col-4"><div class="text-muted small">Last ping</div><div class="font-weight-600"><?= date('g:i A', strtotime($truck['last'])) ?></div></div>
+          <div class="col-4"><div class="text-muted small">Top speed</div><div class="font-weight-600"><?= $truck['max_kph'] !== null ? round($truck['max_kph']) . ' km/h' : '—' ?></div></div>
+        </div>
+        <div class="text-muted small mt-2">Window: <?= date('g:i A', strtotime($truckFrom)) ?>–<?= date('g:i A', strtotime($truckTo)) ?> (padded 15 min). Company truck only, not crew phones.</div>
+        <?php endif; ?>
+      </div>
+    </div>
+
+    <!-- ── Invoice & Emails Card ──────────────────────────────────────── -->
+    <div class="card mw-card mb-4">
+      <div class="card-header"><h5 class="card-title mb-0"><i data-feather="file-text" class="mr-2"></i>Invoice &amp; Emails</h5></div>
+      <div class="card-body">
+        <?php if ($visitInvoice): ?>
+        <div class="mb-2">
+          <a href="/crm/invoices/view.php?id=<?= (int)$visitInvoice['id'] ?>"><?= htmlspecialchars($visitInvoice['invoice_number']) ?></a>
+          <span class="badge badge-secondary"><?= htmlspecialchars($visitInvoice['status']) ?></span>
+          — $<?= number_format((float)$visitInvoice['total'], 2) ?>, balance $<?= number_format((float)$visitInvoice['balance_due'], 2) ?>
+        </div>
+        <?php else: ?>
+        <div class="text-muted mb-2">Not invoiced yet.</div>
+        <?php endif; ?>
+        <?php if ($powEmails): ?>
+        <ul class="list-unstyled small mb-0">
+          <?php foreach ($powEmails as $em): ?>
+          <li>Proof of work sent to <?= htmlspecialchars($em['recipient']) ?> — <?= date('M j, g:i A', strtotime($em['sent_at'])) ?>
+            <?php if ($em['status'] === 'failed'): ?><span class="badge badge-danger">failed</span><?php endif; ?></li>
+          <?php endforeach; ?>
+        </ul>
+        <?php else: ?>
+        <div class="text-muted small">No proof-of-work emails sent.</div>
+        <?php endif; ?>
       </div>
     </div>
 
@@ -843,7 +936,12 @@ $activePage = 'jobs';
       <div class="modal-body">
         <div class="form-group mb-0">
           <label class="small font-weight-600">New Date</label>
-          <input type="date" class="form-control" id="reschedule-date-input">
+          <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#reschedule-date-input" aria-haspopup="true" aria-expanded="false">
+              <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+              <span class="mw-datepicker-date" data-mw-dp-label></span>
+              <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <input type="date" class="form-control" id="reschedule-date-input" hidden>
           <div class="invalid-feedback" id="reschedule-error-msg"></div>
         </div>
       </div>
@@ -1233,7 +1331,8 @@ $activePage = 'jobs';
           var d    = document.createElement('div');
           d.className = 'pow-note-item mb-2 p-2 rounded';
           d.style.cssText = 'background:#f5faf7;border-left:3px solid var(--mw-lime);';
-          d.innerHTML = '<div class="small">' + content.replace(/\n/g,'<br>') + '</div>'
+          var esc = function (t) { var x = document.createElement('div'); x.textContent = t; return x.innerHTML; };   // as typed, never as HTML
+          d.innerHTML = '<div class="small">' + esc(content).replace(/\n/g,'<br>') + '</div>'
                        + '<div class="text-muted" style="font-size:10px;margin-top:4px;">You · Just now'
                        + (visible ? '<span class="badge badge-info ml-1" style="font-size:9px;">Client visible</span>' : '') + '</div>';
           list.appendChild(d);
@@ -1347,6 +1446,8 @@ $activePage = 'jobs';
       var dateInput = document.getElementById('reschedule-date-input');
       var errMsg    = document.getElementById('reschedule-error-msg');
       dateInput.value = this.dataset.currentDate || '';
+      dateInput.dispatchEvent(new Event('input', { bubbles: true }));
+      dateInput.dispatchEvent(new Event('change', { bubbles: true }));
       dateInput.classList.remove('is-invalid');
       errMsg.textContent = '';
       if (typeof $ !== 'undefined') $('#rescheduleModal').modal('show');

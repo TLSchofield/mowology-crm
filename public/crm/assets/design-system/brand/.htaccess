@@ -1,0 +1,9 @@
+# Unreleased Ittai brand art (wordmark, motion, boards): never served directly — only through
+# /crm/design-asset.php, which needs a signed-in user with settings.edit (2026-11-06).
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+</IfModule>

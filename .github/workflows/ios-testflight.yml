@@ -14,6 +14,11 @@ concurrency:
 jobs:
   build:
     runs-on: macos-15
+    env:
+      # Forward the cert secret into a job-level env so step-level `if:`
+      # conditions can probe it (GitHub Actions forbids referencing
+      # `secrets.X` directly in step-level `if:` expressions).
+      HAS_STORED_CERT: ${{ secrets.IOS_DIST_CERT_P12 != '' && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@v5
 
@@ -25,10 +30,43 @@ jobs:
       - name: Install fastlane
         run: gem install fastlane --no-document
 
+      # ──────────────────────────────────────────────────────────────────────
+      # Stored-cert signing setup (permanent fix — see fastlane/Fastfile).
+      # When the IOS_DIST_CERT_P12 secret is set, decode cert + profile to
+      # disk and export their paths so the Fastfile picks the manual signing
+      # path instead of hitting Apple's Development-cert cap. When unset,
+      # this step is skipped and the Fastfile falls back to the legacy
+      # -allowProvisioningUpdates path. Mirrors monkeymind/.github/workflows/ios.yml.
+      # ──────────────────────────────────────────────────────────────────────
+      - name: Decode stored distribution cert + provisioning profile
+        if: env.HAS_STORED_CERT == 'true'
+        env:
+          IOS_DIST_CERT_P12:        ${{ secrets.IOS_DIST_CERT_P12 }}
+          IOS_PROVISIONING_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/ci-signing
+          echo "$IOS_DIST_CERT_P12" | base64 --decode > ~/ci-signing/dist.p12
+          echo "$IOS_PROVISIONING_PROFILE" | base64 --decode > ~/ci-signing/app.mobileprovision
+          # Extract UUID + Name from the profile so Fastfile can pin them.
+          PROFILE_PLIST=$(security cms -D -i ~/ci-signing/app.mobileprovision)
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print :UUID" /dev/stdin <<< "$PROFILE_PLIST")
+          PROFILE_NAME=$(/usr/libexec/PlistBuddy -c "Print :Name" /dev/stdin <<< "$PROFILE_PLIST")
+          {
+            echo "IOS_DIST_CERT_P12_PATH=$HOME/ci-signing/dist.p12"
+            echo "IOS_PROVISIONING_PROFILE_PATH=$HOME/ci-signing/app.mobileprovision"
+            echo "IOS_PROVISIONING_PROFILE_UUID=$PROFILE_UUID"
+            echo "IOS_PROVISIONING_PROFILE_NAME=$PROFILE_NAME"
+          } >> "$GITHUB_ENV"
+          echo "Decoded profile: $PROFILE_NAME ($PROFILE_UUID)"
+
       - name: Build & upload to TestFlight
         env:
-          ASC_KEY_ID:    ${{ secrets.ASC_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-          ASC_KEY_P8:    ${{ secrets.ASC_KEY_P8 }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          ASC_KEY_ID:              ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID:           ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8:              ${{ secrets.ASC_KEY_P8 }}
+          APPLE_TEAM_ID:           ${{ secrets.APPLE_TEAM_ID }}
+          # Forwarded only if the decode step ran (otherwise empty → fallback)
+          IOS_DIST_CERT_PASSWORD:  ${{ secrets.IOS_DIST_CERT_PASSWORD }}
+          CI_KEYCHAIN_PASSWORD:    ${{ secrets.CI_KEYCHAIN_PASSWORD }}
         run: fastlane ios beta

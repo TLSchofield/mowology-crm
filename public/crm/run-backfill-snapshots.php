@@ -24,6 +24,9 @@ if (($user['role'] ?? '') !== 'admin') {
     http_response_code(403);
     die('Admin only.');
 }
+// A GET only shows a confirm button; the backfill runs on POST + CSRF (Fable review 2026-10-12).
+require_once APP_ROOT . '/Core/AdminActionGuard.php';
+adminActionGuard('the margin snapshot backfill');
 
 header('Content-Type: text/plain; charset=utf-8');
 while (ob_get_level()) ob_end_flush();

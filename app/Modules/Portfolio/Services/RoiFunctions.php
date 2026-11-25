@@ -367,7 +367,9 @@ function logQuoteAcceptedEvent(
 }
 
 /**
- * Update contact lifecycle after first quote request
+ * Record the first quote request date. The stage itself is Sam's (PipelineStageService):
+ * a quote request alone leaves a contact a lead until a quote is actually sent, and a
+ * pinned stage is never touched.
  */
 function updateContactLifecycleOnQuoteRequest(int $contactId): bool {
     try {
@@ -375,13 +377,14 @@ function updateContactLifecycleOnQuoteRequest(int $contactId): bool {
 
         $stmt = $db->prepare("
             UPDATE contacts SET
-                prospect_status = 'prospect',
-                lifecycle_stage = 'opportunity',
                 first_quote_date = CASE WHEN first_quote_date IS NULL THEN NOW() ELSE first_quote_date END
             WHERE id = ?
         ");
 
-        return $stmt->execute([$contactId]);
+        $ok = $stmt->execute([$contactId]);
+        require_once dirname(__DIR__, 2) . '/Sales/Services/PipelineStageService.php';
+        PipelineStageService::onEvent($db, 'contact', $contactId);
+        return $ok;
     } catch (Throwable $e) {
         error_log("updateContactLifecycleOnQuoteRequest error: " . $e->getMessage());
         return false;
@@ -389,7 +392,8 @@ function updateContactLifecycleOnQuoteRequest(int $contactId): bool {
 }
 
 /**
- * Update contact to client status after job creation
+ * Record the first job date after job creation. The stage itself is Sam's
+ * (PipelineStageService), which respects a manual pin.
  */
 function updateContactToClient(int $contactId): bool {
     try {
@@ -397,13 +401,14 @@ function updateContactToClient(int $contactId): bool {
 
         $stmt = $db->prepare("
             UPDATE contacts SET
-                prospect_status = 'client',
-                lifecycle_stage = 'client',
                 first_job_date = CASE WHEN first_job_date IS NULL THEN NOW() ELSE first_job_date END
             WHERE id = ?
         ");
 
-        return $stmt->execute([$contactId]);
+        $ok = $stmt->execute([$contactId]);
+        require_once dirname(__DIR__, 2) . '/Sales/Services/PipelineStageService.php';
+        PipelineStageService::onEvent($db, 'contact', $contactId);
+        return $ok;
     } catch (Throwable $e) {
         error_log("updateContactToClient error: " . $e->getMessage());
         return false;

@@ -1,0 +1,29 @@
+# Mowology
+
+> Mowology is a landscaping and grounds-maintenance company founded in 2012 and based in Vancouver, BC, serving strata councils, property managers, commercial properties and homeowners across Vancouver, Burnaby and Richmond. Every visit ends with a photo-verified service report, crews carry $5M liability insurance, and the company maintains 250+ properties.
+
+Contact: (778) 846-9273 · office@mowology.ca · Mon–Fri 8:00–16:00 Pacific.
+Free quotes: https://mowology.ca/quote
+
+## Services
+
+- [Strata Landscaping Maintenance](https://mowology.ca/services/strata-landscaping-maintenance): Weekly grounds care for strata and multi-unit properties, with photo-verified visits and a dedicated account manager.
+- [Commercial Landscape Maintenance](https://mowology.ca/services/commercial-landscape-maintenance): Scheduled maintenance programs for offices, retail centres and business parks.
+- [Lawn Mowing & Lawn Care](https://mowology.ca/services/professional-lawn-mowing-care): Weekly mowing, edging, fertilizing, aeration and seasonal lawn programs for homes and businesses.
+- [Hedge Trimming & Shaping](https://mowology.ca/services/hedge-trimming): Laurel, cedar, boxwood and other hedges trimmed at the right time of year, with full cleanup.
+- [All Services](https://mowology.ca/services): Seasonal cleanups, garden bed maintenance, pruning, green-waste removal and snow removal for strata and commercial sites.
+
+## Company
+
+- [About Mowology](https://mowology.ca/about): Who we are and how the photo-verified service model works.
+- [Portfolio](https://mowology.ca/portfolio): Before-and-after transformations from properties across Metro Vancouver.
+- [Contact](https://mowology.ca/contact): Phone, email and quote request.
+- [Privacy Policy](https://mowology.ca/privacy): How personal information is handled under PIPEDA.
+
+## Service area
+
+Vancouver (Kitsilano, Point Grey, Dunbar, Kerrisdale, Mount Pleasant, Downtown, West End, Commercial Drive), Burnaby (Metrotown, Brentwood, Lougheed, Deer Lake, Edmonds, Capitol Hill, Heights) and Richmond (City Centre, Steveston, Brighouse, Hamilton, Terra Nova), British Columbia, Canada.
+
+## Optional
+
+- [Sitemap](https://mowology.ca/sitemap.xml): Every indexable page.

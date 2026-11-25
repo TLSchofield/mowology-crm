@@ -11,6 +11,7 @@
  * GET              action=alerts   — get/run alert engine
  * POST (JSON)      action=dismiss_alert, id=X
  * POST (JSON)      action=dismiss_all_alerts
+ * POST (JSON)      action=statement_account_save, id, label, expected, statement_day — statements check list
  */
 declare(strict_types=1);
 header('Content-Type: application/json');
@@ -31,7 +32,21 @@ try {
     requireLogin();
     $user = getCurrentUser();
     requirePermission('expenses.edit');
+    require_once APP_ROOT . '/Core/ApiResponse.php';
 
+    $method = $_SERVER['REQUEST_METHOD'];
+    $input  = [];
+    if ($method !== 'GET' && empty($_FILES)) {
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+        if (!is_array($input)) $input = [];
+    }
+    // Every POST changes something (or spends OCR time): the session token is required, read
+    // BEFORE session_write_close() empties $_SESSION (review round 2, 2026-10-12).
+    if ($method !== 'GET' && !verifyCSRFToken(ApiResponse::csrfToken($input))) {
+        http_response_code(403);
+        echo json_encode(['ok' => false, 'error' => 'Your session token expired — refresh the page and try again.']);
+        exit;
+    }
 
     $db = getDB();
     session_write_close();
@@ -43,17 +58,14 @@ try {
     $importer = new BankImportService($db);
     $alertEng = new AlertEngine($db);
 
-    $method = $_SERVER['REQUEST_METHOD'];
     if ($method === 'GET') {
         $action = $_GET['action'] ?? 'sessions';
+    } elseif (!empty($_FILES)) {
+        $action = $_POST['action'] ?? 'preview';
     } else {
-        // May be multipart (file upload) or JSON
-        if (!empty($_FILES)) {
-            $action = $_POST['action'] ?? 'preview';
-        } else {
-            $input  = json_decode(file_get_contents('php://input'), true) ?? [];
-            $action = $input['action'] ?? '';
-        }
+        // JSON body; a form post (the dashboard's alert buttons) carries action in the query string
+        $input  = $input ?: $_POST;
+        $action = $input['action'] ?? $_GET['action'] ?? '';
     }
 
     switch ($action) {
@@ -91,10 +103,27 @@ try {
 
             $ext      = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
             $bankName = htmlspecialchars($_POST['bank_name'] ?? $_POST['preset'] ?? '');
+            $presetIn = $_POST['preset'] ?? '';
+            // 'bank' | 'credit_card' — drives credit-card routing. Derived from the
+            // selected preset; 'auto' / unknown defaults to bank.
+            $kind     = $importer->getPresetKind($presetIn);
+            // The account picked decides it (2026-10-13): Visa PDFs left on "Auto-detect" were read as
+            // bank statements — duplicate-checked against chequing (26 card lines imported twice) and
+            // signed with bank rules (a Wave fee came in as income).
+            $pickedAccount = (int)($_POST['bank_account_id'] ?? 0);
+            $pickedIsCard  = false;
+            if ($pickedAccount > 0) {
+                try {
+                    $ck = $db->prepare("SELECT 1 FROM bank_statement_accounts WHERE account_id = ? AND kind = 'card' LIMIT 1");
+                    $ck->execute([$pickedAccount]);
+                    $pickedIsCard = (bool)$ck->fetchColumn();
+                } catch (Throwable $e) { /* before the statements list existed */ }
+            }
+            if ($pickedIsCard) $kind = 'credit_card';
 
             if ($ext === 'pdf') {
                 // PDF path — extract text and parse transactions automatically
-                $result = $importer->previewPdf($file['tmp_name'], $bankName);
+                $result = $importer->previewPdf($file['tmp_name'], $bankName, $kind);
                 echo json_encode(['ok' => true, 'preview' => $result]);
                 break;
             }
@@ -102,7 +131,7 @@ try {
             if (in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'heic'], true)) {
                 // Image path — photo or scan of a bank statement
                 $mime   = $file['type'] ?: 'image/jpeg';
-                $result = $importer->previewImage($file['tmp_name'], $mime, $bankName);
+                $result = $importer->previewImage($file['tmp_name'], $mime, $bankName, $kind);
                 echo json_encode(['ok' => true, 'preview' => $result]);
                 break;
             }
@@ -112,7 +141,16 @@ try {
             }
 
             $content  = file_get_contents($file['tmp_name']);
-            $preset   = $_POST['preset'] ?? $importer->detectPreset($file['name']);
+            $preset   = $presetIn;
+
+            // Auto-detect statement type (Vancity bank / TD CC / Vancity CC / …)
+            // from the CSV header row when the user left the format on "Auto-detect".
+            if ($preset === '' || $preset === 'auto') {
+                $firstLine = strtok($content, "\r\n") ?: '';
+                $detected  = $importer->detectStatementType($firstLine, $file['name']);
+                $preset    = $detected !== '' ? $detected : $importer->detectPreset($file['name']);
+            }
+            $kind = $pickedIsCard ? 'credit_card' : $importer->getPresetKind($preset);
             if (!$bankName) $bankName = htmlspecialchars($preset);
 
             // Build column mapping from preset or POST params
@@ -130,15 +168,17 @@ try {
                     if (isset($_POST["col_$k"])) $mapping[$k] = (int)$_POST["col_$k"];
                 }
                 $skipRows = (int)($_POST['skip_rows'] ?? 1);
+                // Custom CSV can still be a credit-card statement.
+                if (($_POST['kind'] ?? '') === 'credit_card') $kind = 'credit_card';
             }
 
             if (empty($mapping['date']) && !isset($mapping['date'])) {
                 throw new Exception('Column mapping must include at least: date, description, and amount or debit/credit');
             }
 
-            $result = $importer->preview($content, $mapping, $skipRows, $bankName);
+            $result = $importer->preview($content, $mapping, $skipRows, $bankName, $kind);
 
-            echo json_encode(['ok' => true, 'preview' => $result, 'preset' => $preset]);
+            echo json_encode(['ok' => true, 'preview' => $result, 'preset' => $preset, 'kind' => $kind]);
             break;
 
         // ── Commit import ──────────────────────────────────────────────────────
@@ -149,7 +189,10 @@ try {
             $bankAccountId = (int)($input['bank_account_id'] ?? 0);
             $skipDupes     = (bool)($input['skip_duplicates'] ?? true);
 
-            if (empty($rows)) throw new Exception('No rows to import');
+            // Statement sections (PDF): every account the statement prints, quiet ones too. A statement
+            // whose lines are all already in may be committed with no rows to record just these.
+            $sections = isset($input['statement_sections']) && is_array($input['statement_sections']) ? $input['statement_sections'] : [];
+            if (empty($rows) && !$sections) throw new Exception('No rows to import');
 
             // Re-validate: ensure account_id is set on every non-duplicate row
             foreach ($rows as &$row) {
@@ -160,15 +203,48 @@ try {
             }
             unset($row);
 
-            $result = $importer->commit($rows, (int)$user['id'], $bankName, $accountName, $skipDupes, $bankAccountId);
+            if ($why = $importer->statementAccountMismatch($sections, $bankAccountId)) throw new Exception($why, 422);
+
+            $balanceCheck = isset($input['balance_check']) && is_array($input['balance_check']) ? $input['balance_check'] : null;
+            $result = $importer->commit($rows, (int)$user['id'], $bankName, $accountName, $skipDupes, $bankAccountId, $balanceCheck);
+            $result['sections'] = $importer->recordSections((int)$result['session_id'], $sections, $bankAccountId);
+            // Statements check: count the "already imported" lines the owner left unticked (they never
+            // reach commit()), and drop today's cached check — the coverage just changed.
+            try {
+                require_once APP_ROOT . '/Modules/Accounting/Services/StatementCoverageService.php';
+                $coverage = new StatementCoverageService($db);
+                $unsent = max(0, (int)($input['already_in_crm'] ?? 0));
+                $coverage->recordSkippedDuplicates((int)$result['session_id'], $unsent);
+                $result['already_in_crm'] = (int)$result['duplicates'] + $unsent;
+                $coverage->forget();
+            } catch (Throwable $e) {
+                error_log('Statements check after import: ' . $e->getMessage());
+            }
             echo json_encode(['ok' => true, 'result' => $result]);
+            break;
+
+        // ── Statements check — the owner's edit of an expected account ────────
+        case 'statement_account_save':
+            require_once APP_ROOT . '/Modules/Accounting/Services/StatementCoverageService.php';
+            $day = $input['statement_day'] ?? null;
+            $res = (new StatementCoverageService($db))->saveAccount(
+                (int)($input['id'] ?? 0), (string)($input['label'] ?? ''), !empty($input['expected']),
+                $day === null || $day === '' ? null : (int)$day
+            );
+            echo json_encode(['ok' => $res['ok'], 'message' => $res['message']]);
             break;
 
         // ── Rollback session ───────────────────────────────────────────────────
         case 'rollback':
+            // Deletes a whole statement's transactions (and their journal entries): billing-level only.
+            if (!userHasPermission('billing.edit')) throw new Exception('Only the office (billing) can undo an import.', 403);
             $sessionId = (int)($input['session_id'] ?? 0);
             if (!$sessionId) throw new Exception('Missing session_id');
-            $deleted = $importer->rollback($sessionId);
+            $deleted = $importer->rollback($sessionId, (int)$user['id']);   // writes its own audit rows
+            try {
+                require_once APP_ROOT . '/Modules/Accounting/Services/StatementCoverageService.php';
+                (new StatementCoverageService($db))->forget();
+            } catch (Throwable $e) { /* the check re-runs tomorrow anyway */ }
             echo json_encode(['ok' => true, 'deleted' => $deleted]);
             break;
 
@@ -218,6 +294,36 @@ try {
             echo json_encode(['ok' => true, 'dismissed' => $count]);
             break;
 
+        // ── Committed-duplicate cleanup (rows already imported more than once) ──
+        case 'find_duplicates':
+            $groups = $importer->findDuplicateGroups();
+            echo json_encode(['ok' => true, 'groups' => $groups]);
+            break;
+
+        case 'remove_duplicate':
+            if (($user['role'] ?? '') !== 'admin') throw new Exception('Admin only', 403);
+            $rowId = (int)($input['row_id'] ?? 0);
+            if (!$rowId) throw new Exception('Missing row_id');
+            $result = $importer->removeDuplicateRow($rowId, (int)$user['id']);
+            logActivityExtended((int)$user['id'], 'Duplicate bank transaction removed',
+                $result['description'] . ' — ' . formatCurrency($result['amount'])
+                . ' (row #' . $result['removed_row_id'] . ', tx #' . $result['removed_tx_id'] . ')');
+            echo json_encode(['ok' => true] + $result);
+            break;
+
+        // ── Statement verification (ground truth for the checks above) ──────────
+        case 'verify_statement':
+            if (($user['role'] ?? '') !== 'admin') throw new Exception('Admin only', 403);
+            $csv = (string)($input['csv'] ?? '');
+            if (trim($csv) === '') throw new Exception('Paste the statement export first.');
+            $counts = $importer->parseVerificationCsv($csv);
+            if (empty($counts)) throw new Exception('Could not parse any transactions — expected "Date,Description,Debits,Credits,Balance" rows.');
+            $n = $importer->recordStatementVerification($counts, (int)$user['id']);
+            logActivityExtended((int)$user['id'], 'Bank statement verification recorded',
+                "{$n} (date, amount) combinations verified against a real statement export");
+            echo json_encode(['ok' => true, 'recorded' => $n]);
+            break;
+
         // ── Budget vs Actual ────────────────────────────────────────────────────
         case 'budget_vs_actual':
             $month = $_GET['month'] ?? date('Y-m');
@@ -238,8 +344,7 @@ try {
     }
 
 } catch (Throwable $e) {
-    $rawCode = (int)$e->getCode(); // PDOException::getCode() returns SQLSTATE string; cast to int first
-    $code    = ($rawCode >= 400 && $rawCode < 600) ? $rawCode : 500;
-    http_response_code($code);
-    echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+    require_once APP_ROOT . '/Core/ApiResponse.php';
+    http_response_code(ApiResponse::status($e));
+    echo json_encode(['ok' => false, 'error' => ApiResponse::message($e, 'bank-import.php')]);
 }

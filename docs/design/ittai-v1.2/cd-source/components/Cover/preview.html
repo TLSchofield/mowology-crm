@@ -1,0 +1,46 @@
+<!-- @dsCard height=288 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap">
+<style>
+body{margin:0;background:var(--page)}
+.cv{position:relative;width:960px;height:288px;overflow:hidden;background:var(--page);font-family:Inter,system-ui,sans-serif}
+.cv svg{position:absolute;left:0;top:0}
+.brand{fill:var(--brand)} .ink{fill:var(--text)} .tint{fill:var(--sunk)} .tenant{fill:var(--tenant)} .att{fill:var(--status-attention)}
+.hx{fill:none;stroke-width:4;stroke-linecap:round}
+.on-dark{stroke:var(--surface)} .on-tint{stroke:var(--text)}
+.txt{position:absolute;left:48px;bottom:32px;max-width:900px}
+h1{margin:0;font-size:64px;line-height:61px;font-weight:600;letter-spacing:-0.02em;color:var(--text)}
+p{margin:12px 0 0;font-size:14px;line-height:20px;color:var(--meta)}
+</style>
+</head>
+<body>
+<div class="cv">
+<!--
+blocks: brand 384×112, text (ink) 192×112, sunk (tint) 256×112, tenant 96×112, status-attention 32×112 — full-bleed top band (space-12 × 2 + space-4 tall)
+arrangement: top-band skeleton (name too wide for the 440 zone), unequal strip of bands left to right, identity colour (brand) largest
+pattern: literal motif row — the Six + One hexagon: six sides with gaps at the corners, round ends, repeated at a 192 px pitch, cut out in surface over dark blocks and in text over the tint
+scales: band 112 = 64+48; pitch 192 = 3 × 64; side stroke 4; side gap from radius-sm-scale dash; no radius on blocks (hairline, square system)
+-->
+<svg width="960" height="112" viewBox="0 0 960 112" aria-hidden="true">
+<rect class="brand" x="0" y="0" width="384" height="112"/>
+<rect class="ink" x="384" y="0" width="192" height="112"/>
+<rect class="tint" x="576" y="0" width="256" height="112"/>
+<rect class="tenant" x="832" y="0" width="96" height="112"/>
+<rect class="att" x="928" y="0" width="32" height="112"/>
+<path class="hx on-dark" pathLength="600" stroke-dasharray="80 20" stroke-dashoffset="-10" d="M76 21.36 L116 21.36 L136 56 L116 90.64 L76 90.64 L56 56 Z"/>
+<path class="hx on-dark" pathLength="600" stroke-dasharray="80 20" stroke-dashoffset="-10" d="M268 21.36 L308 21.36 L328 56 L308 90.64 L268 90.64 L248 56 Z"/>
+<circle cx="288" cy="56" r="10" class="hx on-dark" style="stroke-width:3"/>
+<path class="hx on-dark" pathLength="600" stroke-dasharray="80 20" stroke-dashoffset="-10" d="M460 21.36 L500 21.36 L520 56 L500 90.64 L460 90.64 L440 56 Z"/>
+<path class="hx on-tint" pathLength="600" stroke-dasharray="80 20" stroke-dashoffset="-10" d="M652 21.36 L692 21.36 L712 56 L692 90.64 L652 90.64 L632 56 Z"/>
+<path class="hx on-dark" pathLength="600" stroke-dasharray="80 20" stroke-dashoffset="-10" d="M860 21.36 L900 21.36 L920 56 L900 90.64 L860 90.64 L840 56 Z"/>
+</svg>
+<div class="txt">
+<h1>Ittai Design System</h1>
+<p>Kanso, version 1.1 · seven minds, one office.</p>
+</div>
+</div>
+</body>
+</html>

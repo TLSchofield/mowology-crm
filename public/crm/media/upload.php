@@ -9,6 +9,8 @@ declare(strict_types=1);
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
 require_once dirname(__DIR__) . '/includes/portfolio-functions.php';
+require_once APP_ROOT . '/Core/Uploads.php';
+require_once APP_ROOT . '/Modules/Media/Services/ImageGate.php';
 
 requireLogin();
 $user = getCurrentUser();
@@ -81,7 +83,7 @@ if ($file['error'] !== UPLOAD_ERR_OK) {
 
 try {
     // Ensure upload directory exists
-    $uploadDir = __DIR__ . '/../../uploads/media/original';
+    $uploadDir = uploadsDir('media/original');
     if (!is_dir($uploadDir)) {
         if (!mkdir($uploadDir, 0755, true)) {
             throw new Exception('Cannot create upload directory');
@@ -121,7 +123,7 @@ try {
     $fileSize = filesize($filepath);
 
     // Create media file record
-    $relativePath = '/uploads/media/original/' . $filename;
+    $relativePath = uploadsUrl('media/original') . '/' . $filename;
     $mediaId = createMediaFile(
         $user['id'],
         $visitId,
@@ -154,6 +156,8 @@ try {
         false  // is_before
     );
 
+    $webCopy = (new ImageGate(getDB()))->ensureWebCopy((int)$mediaId, $filepath);
+
     // Return success response
     die(json_encode([
         'success' => true,
@@ -162,7 +166,8 @@ try {
         'filename' => $filename,
         'width' => $width,
         'height' => $height,
-        'taken_at' => $takenAt
+        'taken_at' => $takenAt,
+        'web_copy' => $webCopy['ok'] ? $webCopy['path'] : null
     ]));
 
 } catch (Throwable $e) {
@@ -170,6 +175,6 @@ try {
     http_response_code(500);
     die(json_encode([
         'success' => false,
-        'message' => 'Upload error: ' . $e->getMessage()
+        'message' => 'The photo could not be uploaded. Please try again.'
     ]));
 }

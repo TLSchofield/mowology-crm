@@ -18,6 +18,8 @@ declare(strict_types=1);
  * No external dependencies. Hand-rolled HS256 to match token.php.
  */
 
+require_once __DIR__ . '/AuthFreshness.php';
+
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 /**
@@ -33,12 +35,77 @@ function base64url_decode(string $data): string
  */
 function jwtSecret(): string
 {
-    if (defined('BLUEMOON_JWT_SECRET') && BLUEMOON_JWT_SECRET !== '') {
-        return BLUEMOON_JWT_SECRET;
+    if (defined('BLUEMOON_JWT_SECRET') && strlen((string)BLUEMOON_JWT_SECRET) >= 32) {
+        // Each business signs with its own key, derived from the install's secret, so a token issued at one
+        // business's address is refused at another's (its user #1 is a different person). The original
+        // business keeps the secret itself: existing app sign-ins stay valid (Ittai, 2026-10-23).
+        if (class_exists('Tenant') && !Tenant::isDefault()) {
+            return hash_hmac('sha256', 'tenant:' . Tenant::key(), (string)BLUEMOON_JWT_SECRET);
+        }
+        return (string)BLUEMOON_JWT_SECRET;
     }
-    // Fallback: same derivation as JWT_SECRET_FALLBACK() in token.php
-    $base = defined('DB_PASS') ? DB_PASS : 'bluemoon_fallback';
-    return hash('sha256', $base . '_bluemoon_jwt_v1');
+    // Fail closed (Fable review 2026-10-12): the old fallback derived the key from DB_PASS, so a
+    // missing secret silently signed tokens with something guessable from another leak. Ada's
+    // check (AdaRules::jwtSecretProblem) watches that the secret is set.
+    error_log('JwtAuth: BLUEMOON_JWT_SECRET is missing or shorter than 32 characters — refusing to sign or verify tokens');
+    throw new RuntimeException('JWT secret not configured');
+}
+
+/**
+ * The user behind a token, as the database has them NOW (Fable review 2026-10-12): role and
+ * active flag came from a 30-day token, so a deactivated or demoted user kept their access until
+ * it expired. Cached per request. Returns null when the user is gone or inactive, or when the
+ * token's pwd_v no longer matches the password (changed or reset since it was issued — tokens
+ * without pwd_v, issued before 2026-10-12, are still accepted); throws when the database can't be
+ * asked (callers answer 503, not 401 — a 401 signs the phone out).
+ */
+function jwtCurrentUser(int $userId, ?array $payload = null): ?array
+{
+    static $cache = [];
+    if ($userId <= 0) return null;
+    if (!array_key_exists($userId, $cache)) {
+        if (!function_exists('getDB')) throw new RuntimeException('no database for the JWT user check');
+        $st = getDB()->prepare('SELECT id, email, full_name AS name, role, is_active, password_hash FROM users WHERE id = ? LIMIT 1');
+        $st->execute([$userId]);
+        $u = $st->fetch(PDO::FETCH_ASSOC) ?: null;
+        // Active unless explicitly 0 — the same rule as the sign-in (PhoneSignIn / token.php), which lets NULL in.
+        // Strict === 1 here let a NULL-flagged user sign in and then get 401 on every call.
+        $active = $u !== null && (is_null($u['is_active']) || (int)$u['is_active'] !== 0);
+        $cache[$userId] = $active ? $u : null;
+        // An outside accountant never holds a working app token (Ledger only, 2026-10-13).
+        if ($cache[$userId] !== null && strtolower((string)($u['role'] ?? '')) === 'accountant') $cache[$userId] = null;
+    }
+    $u = $cache[$userId];
+    if ($u === null) return null;
+    if ($payload !== null && !AuthFreshness::jwtPasswordOk($payload, (string)($u['password_hash'] ?? ''))) {
+        return null;
+    }
+    unset($u['password_hash']);
+    return $u;
+}
+
+/** The pwd_v claim to put in a new token for this user (looked up by id). '' when unknown. */
+function jwtPasswordVersionFor(int $userId): string
+{
+    try {
+        $st = getDB()->prepare('SELECT password_hash FROM users WHERE id = ? LIMIT 1');
+        $st->execute([$userId]);
+        return AuthFreshness::passwordVersion((string)($st->fetchColumn() ?: ''));
+    } catch (Throwable $e) {
+        error_log('jwtPasswordVersionFor: ' . $e->getMessage());
+        return '';
+    }
+}
+
+/** Payload → the user array endpoints use, with role/name/email from the database row. */
+function jwtUserFromPayload(array $payload, array $row): array
+{
+    return [
+        'id'    => (int)$row['id'],
+        'email' => (string)($row['email'] ?? $payload['email'] ?? ''),
+        'name'  => (string)($row['name'] ?? $payload['name'] ?? ''),
+        'role'  => (string)($row['role'] ?? 'user'),
+    ];
 }
 
 // ── Core validation ──────────────────────────────────────────────────────────
@@ -72,14 +139,29 @@ function validateJwtToken(string $token): ?array
         return null;
     }
 
-    // Check expiry
-    if (isset($payload['exp']) && time() > (int)$payload['exp']) {
-        return null;  // Token expired
+    // The header must say HS256, and every token must expire: both issuers (generateMowologyJwt, api/auth/token.php)
+    // always set exp, so a token without one is not ours to honour forever (Codex review 2026-10-16).
+    $header = json_decode(base64url_decode($headerB64), true);
+    if (!is_array($header) || ($header['alg'] ?? '') !== 'HS256') {
+        return null;
+    }
+    if (!isset($payload['exp']) || time() > (int)$payload['exp']) {
+        return null;  // No expiry, or expired
     }
 
     // Validate issuer
     if (($payload['iss'] ?? '') !== 'mowology') {
         return null;
+    }
+
+    // A token names the business it was issued for (2026-11-11, the phone sign-in on ittai.ca): one carried to
+    // another business's address is refused even before its key differs. Tokens without biz (older ones, and
+    // generateMowologyJwt's) are judged by the signature alone, as before.
+    if (array_key_exists('biz', $payload)) {
+        $here = class_exists('Tenant') ? Tenant::key() : 'default';
+        if (!is_string($payload['biz']) || $payload['biz'] !== $here) {
+            return null;
+        }
     }
 
     return $payload;
@@ -128,12 +210,16 @@ function getJwtUser(): ?array
         return null;
     }
 
-    return [
-        'id'    => (int)($payload['sub'] ?? 0),
-        'email' => (string)($payload['email'] ?? ''),
-        'name'  => (string)($payload['name'] ?? ''),
-        'role'  => (string)($payload['role'] ?? 'user'),
-    ];
+    try {
+        $row = jwtCurrentUser((int)($payload['sub'] ?? 0), $payload);
+    } catch (Throwable $e) {
+        // A database fault is not a bad token: answer 503 like requireJwt, never 401 (a 401 signs the phone out).
+        error_log('getJwtUser: user check failed: ' . $e->getMessage());
+        http_response_code(503);
+        echo json_encode(['error' => 'Try again in a moment', 'code' => 'user_check_failed']);
+        exit;
+    }
+    return $row ? jwtUserFromPayload($payload, $row) : null;
 }
 
 /**
@@ -159,12 +245,20 @@ function requireJwt(): array
         exit;
     }
 
-    return [
-        'id'    => (int)($payload['sub'] ?? 0),
-        'email' => (string)($payload['email'] ?? ''),
-        'name'  => (string)($payload['name'] ?? ''),
-        'role'  => (string)($payload['role'] ?? 'user'),
-    ];
+    try {
+        $row = jwtCurrentUser((int)($payload['sub'] ?? 0), $payload);
+    } catch (Throwable $e) {
+        error_log('requireJwt: user check failed: ' . $e->getMessage());
+        http_response_code(503);
+        echo json_encode(['error' => 'Try again in a moment', 'code' => 'user_check_failed']);
+        exit;
+    }
+    if ($row === null) {
+        http_response_code(401);
+        echo json_encode(['error' => 'Please sign in again', 'code' => 'inactive_user']);
+        exit;
+    }
+    return jwtUserFromPayload($payload, $row);
 }
 
 /**
@@ -173,4 +267,37 @@ function requireJwt(): array
 function jwtIsAdmin(string $role): bool
 {
     return in_array($role, ['admin', 'manager'], true);
+}
+
+/**
+ * RBAC permission check for a JWT-authenticated request.
+ *
+ * Mirrors userHasPermission() (app/Core/Auth/authz.php) for callers that have no PHP
+ * session — JWT endpoints. getUserPermissions() only *uses* $_SESSION as an optional
+ * cache; with none active it queries user_roles/role_permissions directly, so this
+ * works correctly under JWT with no changes to authz.php itself. Requires authz.php
+ * to already be loaded (it's pulled in by auth.php, which every JWT endpoint using
+ * this function also requires for getDB()/CSRF-adjacent helpers).
+ *
+ * @param array  $jwtUser  Payload from requireJwt() — ['id'=>int, 'role'=>string, ...]
+ * @param string $perm     Permission key, e.g. 'expenses.approve'
+ */
+function jwtUserHasPermission(array $jwtUser, string $perm): bool
+{
+    if (($jwtUser['role'] ?? '') === 'admin') {
+        return true;
+    }
+
+    $userId = (int)($jwtUser['id'] ?? 0);
+    if (!$userId || !function_exists('getUserPermissions')) {
+        return false;
+    }
+
+    $perms = getUserPermissions($userId);
+
+    if (in_array('*', $perms, true)) {
+        return true;
+    }
+
+    return in_array($perm, $perms, true);
 }

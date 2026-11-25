@@ -38,7 +38,8 @@ function mediaUploadFile(
     string $contextType = 'cms',
     ?array $browserGps = null,
     ?string $altText = null,
-    ?string $caption = null
+    ?string $caption = null,
+    ?string $takenAt = null
 ): array {
     $errors = [];
 
@@ -94,6 +95,9 @@ function mediaUploadFile(
     // --- Extract EXIF data ---
     $exifData = mediaExtractExif($file['tmp_name']);
     $capturedAt = $exifData['captured_at'] ?? null;
+    // A photo the phone shrank before upload has no embedded time; the phone sends when it was taken
+    // (crew page preparePhoto(), 2026-10-14). Only used when the photo itself says nothing.
+    if ($capturedAt === null) $capturedAt = mediaTakenAt($takenAt);
     $exifOrientation = $exifData['orientation'] ?? 1;
 
     // --- Determine GPS source ---
@@ -105,6 +109,7 @@ function mediaUploadFile(
     if (!empty($exifData['gps_lat']) && !empty($exifData['gps_lng'])) {
         $gpsLat = $exifData['gps_lat'];
         $gpsLng = $exifData['gps_lng'];
+        $gpsAccuracy = $exifData['gps_accuracy'] ?? null;   // the iPhone camera writes its fix's accuracy (PhotoMetadata.swift)
         $gpsSource = 'exif';
     } elseif ($browserGps && !empty($browserGps['lat']) && !empty($browserGps['lng'])) {
         $gpsLat = (float)$browserGps['lat'];
@@ -201,6 +206,12 @@ function mediaUploadFile(
 
         $mediaId = (int)$db->lastInsertId();
 
+        // Mia's media library tags (season, hero, consent…). Never fails the upload.
+        try {
+            require_once dirname(__DIR__, 2) . '/Modules/Marketing/Services/MediaTagService.php';
+            MediaTagService::onUpload($db, $mediaId);
+        } catch (Throwable $e) { /* non-fatal */ }
+
         return [
             'success' => true,
             'media_id' => $mediaId,
@@ -227,6 +238,18 @@ function createMediaLink(int $mediaId, string $contextType, int $contextId, ?str
 {
     try {
         $db = getDB();
+        // Already linked the same way → nothing to add. A phone that re-sends a photo after a
+        // lost answer (or two offline drains at once) sends the same bytes, which resolve to the
+        // same media_id; inserting again doubled the visit's before/after rows (2026-10-12).
+        $exists = $db->prepare('
+            SELECT 1 FROM media_links
+            WHERE media_id = ? AND context_type = ? AND context_id = ? AND category <=> ?
+            LIMIT 1
+        ');
+        $exists->execute([$mediaId, $contextType, $contextId, $category]);
+        if ($exists->fetchColumn()) {
+            return true;
+        }
         $stmt = $db->prepare('
             INSERT INTO media_links (media_id, context_type, context_id, category, visibility, linked_by)
             VALUES (?, ?, ?, ?, ?, ?)
@@ -271,6 +294,20 @@ function generateMediaUuid(): string
  *
  * @return array ['captured_at' => string|null, 'orientation' => int, 'gps_lat' => float|null, 'gps_lng' => float|null]
  */
+/**
+ * Pure (tested): a client-sent capture time (ISO 8601) as server-local 'Y-m-d H:i:s', or null when it is
+ * missing, unreadable, more than 60 days old or more than 10 minutes in the future.
+ */
+function mediaTakenAt(?string $takenAt, ?int $now = null): ?string
+{
+    $takenAt = trim((string)$takenAt);
+    if ($takenAt === '') return null;
+    $ts = strtotime($takenAt);
+    $now = $now ?? time();
+    if ($ts === false || $ts < $now - 60 * 86400 || $ts > $now + 600) return null;
+    return date('Y-m-d H:i:s', $ts);
+}
+
 function mediaExtractExif(string $filePath): array
 {
     $result = [
@@ -278,6 +315,7 @@ function mediaExtractExif(string $filePath): array
         'orientation' => 1,
         'gps_lat' => null,
         'gps_lng' => null,
+        'gps_accuracy' => null,
     ];
 
     if (!function_exists('exif_read_data')) {
@@ -313,6 +351,13 @@ function mediaExtractExif(string $filePath): array
             $exif['GPS']['GPSLongitude'],
             $exif['GPS']['GPSLongitudeRef'] ?? 'W'
         );
+        // Horizontal positioning error in metres (EXIF 2.31 GPSHPositioningError), when the camera wrote one.
+        // Older PHP builds name it by number (tag 0x001F).
+        $hpe = $exif['GPS']['GPSHPositioningError'] ?? $exif['GPS']['UndefinedTag:0x001F'] ?? null;
+        if ($hpe !== null) {
+            $acc = is_array($hpe) ? 0.0 : mediaEvalRational((string)$hpe);
+            if ($acc > 0 && $acc < 100000) $result['gps_accuracy'] = round($acc, 1);
+        }
     }
 
     return $result;

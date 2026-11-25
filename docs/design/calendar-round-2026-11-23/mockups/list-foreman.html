@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Schedule, list and foreman</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="shared.css">
+<style>.list-layout{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(300px,.65fr);gap:40px}.flat-list{margin:0;padding:0;list-style:none;border-top:1px solid var(--line)}.list-row{display:grid;grid-template-columns:110px minmax(0,1.4fr) minmax(150px,.8fr) auto;align-items:center;gap:16px;min-height:72px;border-bottom:1px solid var(--line)}.list-row time{font-variant-numeric:tabular-nums;color:var(--meta)}.deadline{display:grid;grid-template-columns:52px minmax(0,1fr) auto;align-items:center;gap:12px;min-height:72px;border-bottom:1px solid var(--line)}.deadline-date{font-variant-numeric:tabular-nums;font-weight:600}.deadline p{margin:2px 0 0;color:var(--meta);font-size:12px}.due{font-size:12px;font-weight:600}.due.late{color:var(--status-blocked)}@media(max-width:900px){.list-layout{grid-template-columns:1fr}.list-row{grid-template-columns:90px minmax(0,1fr) auto}.list-row>.service{grid-column:2}.foreman{margin-top:12px}}@media(max-width:520px){.list-row{grid-template-columns:72px minmax(0,1fr)}.list-row>.status{grid-column:2}.deadline{grid-template-columns:44px minmax(0,1fr)}.due{grid-column:2}}</style>
+</head>
+<body>
+<div class="shell">
+<header class="app-header">
+<div class="topline">
+<div class="brand-title">
+<img src="../assets/symbol/ittai-symbol-24.svg" alt="">
+<h1>Schedule</h1>
+</div>
+<div class="tools">
+<button class="outline today-btn">Today</button>
+<div class="date-nav">
+<button class="icon-btn" aria-label="Previous week">‹</button>
+<span class="date-range">Nov 23 to 29, 2026</span>
+<button class="icon-btn" aria-label="Next week">›</button>
+</div>
+<button class="primary">Add job</button>
+</div>
+</div>
+<div class="navline">
+<div class="nav-group">
+<div class="seg">
+<button aria-pressed="true">Week</button>
+<button>Day</button>
+</div>
+<div class="seg">
+<button>Cards</button>
+<button>Timeline</button>
+<button>Map</button>
+<button aria-pressed="true">List</button>
+</div>
+</div>
+<div class="filters">
+<select class="select">
+<option>All services</option>
+</select>
+<select class="select">
+<option>All crews</option>
+</select>
+<a class="hit-link" href="#">Job plans</a>
+</div>
+<button class="outline filters-mobile">Filters</button>
+</div>
+</header>
+<main class="content">
+<div class="list-layout">
+<section>
+<div class="section-head">
+<div>
+<h2>Job list</h2>
+<p>Week of Nov 23 · 41 jobs</p>
+</div>
+</div>
+<ul class="flat-list">
+<li class="list-row">
+<time>Mon 8:00</time>
+<div>
+<b>Alder Test Residence</b>
+<div class="meta">123 Example Street · Crew A</div>
+</div>
+<span class="service">
+<i class="shape circle">
+</i>Lawn care</span>
+<span class="status done">✓ Done</span>
+</li>
+<li class="list-row">
+<time>Mon 9:20</time>
+<div>
+<b>Harbour View Lodge</b>
+<div class="meta">123 Example Street · Crew A</div>
+</div>
+<span class="service">
+<i class="shape triangle">
+</i>Garden maintenance</span>
+<span class="status progress">On site</span>
+</li>
+<li class="list-row">
+<time>Tue 8:00</time>
+<div>
+<b>Birch Lane Property</b>
+<div class="meta">123 Example Street · Crew B</div>
+</div>
+<span class="service">
+<i class="shape square">
+</i>Landscaping</span>
+<span class="status">Scheduled</span>
+</li>
+<li class="list-row">
+<time>Tue 8:30</time>
+<div>
+<b>Cedar Test Strata</b>
+<div class="meta">123 Example Street · Crew C</div>
+</div>
+<span class="service">
+<i class="shape diamond">
+</i>Hedge trimming</span>
+<span class="status attention">Needs attention</span>
+</li>
+<li class="list-row">
+<time>Fri 7:30</time>
+<div>
+<b>Example Dental Office</b>
+<div class="meta">123 Example Street · Crew A</div>
+</div>
+<span class="service">
+<i class="shape ring">
+</i>Snow removal</span>
+<span class="status">Scheduled</span>
+</li>
+</ul>
+</section>
+<aside class="foreman">
+<div class="section-head">
+<div>
+<h2>Foreman deadlines</h2>
+<p>Flat deadlines, ordered by when action is due.</p>
+</div>
+</div>
+<div class="flat-list">
+<article class="deadline">
+<span class="deadline-date">23<br>Nov</span>
+<div>
+<b>Confirm salt stock</b>
+<p>For Wednesday and Thursday night routes</p>
+</div>
+<span class="due late">Due 10:00</span>
+</article>
+<article class="deadline">
+<span class="deadline-date">24<br>Nov</span>
+<div>
+<b>Assign Tuesday overflow</b>
+<p>Five jobs still need a crew</p>
+</div>
+<span class="due">Due 7:30</span>
+</article>
+<article class="deadline">
+<span class="deadline-date">25<br>Nov</span>
+<div>
+<b>Review equipment check</b>
+<p>Crew C snow kit</p>
+</div>
+<span class="due">Due 15:00</span>
+</article>
+<article class="deadline">
+<span class="deadline-date">27<br>Nov</span>
+<div>
+<b>Approve next week plans</b>
+<p>18 draft visits</p>
+</div>
+<span class="due">Due 16:00</span>
+</article>
+</div>
+</aside>
+</div>
+</main>
+</div>
+</body>
+</html>

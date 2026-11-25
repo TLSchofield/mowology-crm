@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ittai</title>
+<meta name="description" content="Ittai (一体) — one team, one business. Coming soon.">
+<meta name="robots" content="noindex">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cg fill='none' stroke='%23233A5E' stroke-width='4.5' stroke-linecap='round'%3E%3Cpath d='M18.96 9.42 A6 6 0 0 1 21.96 8.62 L42.04 8.62 A6 6 0 0 1 45.04 9.42 M45.04 54.58 A6 6 0 0 1 42.04 55.38 L21.96 55.38 A6 6 0 0 1 18.96 54.58 M5.93 32 A6 6 0 0 1 6.73 29 L16.77 11.62 A6 6 0 0 1 18.96 9.42'/%3E%3Ccircle cx='32' cy='32' r='9' stroke-width='4'/%3E%3C/g%3E%3C/svg%3E">
+<style>
+  /* Ittai v1.2 tokens (light / dark), copied from docs/design/ittai-v1.2/tokens.json. No hex outside this block. */
+  :root {
+    --page: #F4F5F3; --surface: #FFFFFF; --line: #D9DFDA;
+    --text: #131D17; --meta: #48534C; --brand: #233A5E;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --page: #0F1512; --surface: #161E1A; --line: #2C3832;
+      --text: #E9EEEA; --meta: #AFB9B3; --brand: #A9B9DA;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--page); }
+  body {
+    margin: 0; min-height: 100vh; min-height: 100dvh;
+    display: grid; place-items: center;
+    padding: 24px 16px;
+    background: var(--page); color: var(--text);
+    font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 16px; line-height: 24px;
+    -webkit-font-smoothing: antialiased;
+  }
+  main {
+    width: 100%; max-width: 480px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+    padding: 48px 32px; text-align: center;
+  }
+  .symbol { width: 64px; height: 64px; color: var(--brand); display: block; margin: 0 auto 24px; }
+  h1 { margin: 0; font-size: 36px; line-height: 44px; font-weight: 600; letter-spacing: -0.01em; }
+  .kanji { margin: 4px 0 0; color: var(--meta); font-size: 16px; line-height: 24px; letter-spacing: 0.2em; }
+  .line { margin: 24px 0 0; font-size: 18px; line-height: 24px; }
+  .soon { margin: 32px 0 0; padding-top: 24px; border-top: 1px solid var(--line); color: var(--meta); font-size: 14px; line-height: 20px; }
+  .legal { margin: 16px 0 0; font-size: 14px; line-height: 20px; }
+  .legal a { color: var(--meta); }
+  @media (max-width: 480px) { main { padding: 40px 24px; } h1 { font-size: 28px; line-height: 36px; } }
+</style>
+</head>
+<body>
+<main>
+  <!-- Frozen Ittai v1.2 symbol, 64 px (spokes show from 48 px) -->
+  <svg class="symbol" viewBox="0 0 64 64" role="img" aria-label="Ittai symbol">
+    <g fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-dasharray="75.34 24.66" stroke-dashoffset="-12.33">
+      <path pathLength="100" d="M18.96 9.42 A6 6 0 0 1 21.96 8.62 L42.04 8.62 A6 6 0 0 1 45.04 9.42"/>
+      <path pathLength="100" d="M45.04 9.42 A6 6 0 0 1 47.23 11.62 L57.27 29 A6 6 0 0 1 58.07 32"/>
+      <path pathLength="100" d="M58.07 32 A6 6 0 0 1 57.27 35 L47.23 52.38 A6 6 0 0 1 45.04 54.58"/>
+      <path pathLength="100" d="M45.04 54.58 A6 6 0 0 1 42.04 55.38 L21.96 55.38 A6 6 0 0 1 18.96 54.58"/>
+      <path pathLength="100" d="M18.96 54.58 A6 6 0 0 1 16.77 52.38 L6.73 35 A6 6 0 0 1 5.93 32"/>
+      <path pathLength="100" d="M5.93 32 A6 6 0 0 1 6.73 29 L16.77 11.62 A6 6 0 0 1 18.96 9.42"/>
+    </g>
+    <g stroke="currentColor" stroke-width="1.3">
+      <line x1="32" y1="20" x2="32" y2="14"/><line x1="42.39" y1="26" x2="47.59" y2="23"/><line x1="42.39" y1="38" x2="47.59" y2="41"/>
+      <line x1="32" y1="44" x2="32" y2="50"/><line x1="21.61" y1="38" x2="16.41" y2="41"/><line x1="21.61" y1="26" x2="16.41" y2="23"/>
+    </g>
+    <circle cx="32" cy="32" r="9" fill="none" stroke="currentColor" stroke-width="2.5"/>
+  </svg>
+  <h1>Ittai</h1>
+  <p class="kanji" lang="ja">一体</p>
+  <p class="line">One team, one business.</p>
+  <p class="soon">Coming soon.</p>
+  <p class="legal"><a href="/terms/">Terms</a> &middot; <a href="/privacy/">Privacy</a></p>
+</main>
+</body>
+</html>

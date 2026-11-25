@@ -32,31 +32,45 @@ $messageType = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'] ?? '')) {
     $action = $_POST['action'] ?? '';
 
-    if ($action === 'pause_contract' && $contract['status'] === 'active') {
-        $db->prepare("UPDATE contracts SET status = 'paused', updated_at = NOW() WHERE id = ?")
-           ->execute([$contractId]);
-        $message     = 'Contract paused.';
-        $messageType = 'success';
-        $contract    = getContractById($contractId);
+    // Changing a contract is office work: jobs.edit (managers hold it, crew hold jobs.view).
+    // Price, billing cycle, payer and PM-billing changes also need billing.edit (Fable review 2026-10-12).
+    if (in_array($action, ['pause_contract', 'resume_contract', 'cancel_contract', 'update_contract'], true)
+        && !userHasPermission('jobs.edit')) {
+        $message     = 'You do not have permission to change contracts.';
+        $messageType = 'error';
+        $action      = '';
     }
 
-    if ($action === 'resume_contract' && $contract['status'] === 'paused') {
-        $db->prepare("UPDATE contracts SET status = 'active', updated_at = NOW() WHERE id = ?")
-           ->execute([$contractId]);
-        $message     = 'Contract resumed.';
-        $messageType = 'success';
+    if (($action === 'pause_contract' && $contract['status'] === 'active') || ($action === 'resume_contract' && $contract['status'] === 'paused')) {
+        $pause = $action === 'pause_contract';
+        $db->prepare("UPDATE contracts SET status = ?, updated_at = NOW() WHERE id = ?")
+           ->execute([$pause ? 'paused' : 'active', $contractId]);
+        if (!$pause && function_exists('pipelineStageEvent')) pipelineStageEvent('contract', (int)$contractId);
+        // A snow contract's daily route pauses and resumes with it.
+        require_once APP_ROOT . '/Modules/Contracts/Services/SnowContractService.php';
+        require_once CRM_INCLUDES . '/plan-functions.php';
+        $routes = (new SnowContractService($db))->pauseRoutesForContract((int)$contractId, (int)$user['id'], $pause);
+        $message     = ($pause ? 'Contract paused.' : 'Contract resumed.')
+                     . ($routes === null ? ' Its route could not be ' . ($pause ? 'paused' : 'resumed') . ' — check the schedule.'
+                       : ($routes > 0 ? ' Its daily route ' . ($pause ? 'is paused too.' : 'is back on the schedule.') : ''));
+        $messageType = $routes === null ? 'warning' : 'success';
         $contract    = getContractById($contractId);
     }
 
     if ($action === 'cancel_contract') {
         $db->prepare("UPDATE contracts SET status = 'cancelled', updated_at = NOW() WHERE id = ?")
            ->execute([$contractId]);
-        $message     = 'Contract cancelled.';
-        $messageType = 'success';
+        // A snow contract's daily route comes off the schedule with it.
+        require_once APP_ROOT . '/Modules/Contracts/Services/SnowContractService.php';
+        require_once CRM_INCLUDES . '/plan-functions.php';
+        $stopped = (new SnowContractService($db))->stopRoutesForContract((int)$contractId);
+        $message     = $stopped === null ? 'Contract cancelled, but its route could not be stopped — check the schedule.' : 'Contract cancelled.';
+        $messageType = $stopped === null ? 'warning' : 'success';
         $contract    = getContractById($contractId);
     }
 
     if ($action === 'update_contract') {
+        $canBilling = userHasPermission('billing.edit');
         $data = [
             'title'                => trim($_POST['title'] ?? ''),
             'billing_cycle'        => $_POST['billing_cycle'] ?? 'monthly',
@@ -69,13 +83,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
             'notes'                => trim($_POST['notes'] ?? ''),
             'contact_id'           => !empty($_POST['contact_id']) ? (int)$_POST['contact_id'] : null,
         ];
+        if (!$canBilling) {
+            // Without billing.edit the money and payer fields stay as they are.
+            $data['billing_cycle']        = $contract['billing_cycle'];
+            $data['billing_amount']       = $contract['billing_amount'] === null ? '' : (string)$contract['billing_amount'];
+            $data['renewal_increase_pct'] = (string)($contract['renewal_increase_pct'] ?? '0');
+            $data['contact_id']           = null; // updateContract leaves contact_id alone when null
+        }
         $result = updateContract($contractId, $data, (int)$user['id']);
 
         // PM-billing write-through: set the property's billing entity, management
         // company, and property-manager person from this one screen, and derive
         // the canonical client_id. One place to configure PM-managed billing.
         $propId = (int)($contract['property_id'] ?? 0);
-        if ($result['success'] && $propId) {
+        if ($result['success'] && $propId && $canBilling) {
             try {
                 $pcols = [];
                 foreach ($db->query("SHOW COLUMNS FROM properties")->fetchAll(PDO::FETCH_COLUMN) as $c) { $pcols[$c] = true; }
@@ -107,6 +128,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
             $messageType = 'error';
         }
     }
+
+    if ($action === 'add_client_credit') {
+        if (!userHasPermission('billing.edit')) {
+            $message     = 'You do not have permission to record payments.';
+            $messageType = 'error';
+        } else {
+            $creditClientId = (int)($contract['client_id'] ?? 0);
+            $depositAmount  = floatval($_POST['credit_amount'] ?? 0);
+            $depositNote    = trim($_POST['credit_note'] ?? '');
+
+            if (!$creditClientId) {
+                $message     = 'This contract has no linked client account yet — cannot record a prepayment.';
+                $messageType = 'error';
+            } elseif ($depositAmount <= 0) {
+                $message     = 'Enter an amount greater than zero.';
+                $messageType = 'error';
+            } else {
+                require_once APP_ROOT . '/Modules/Accounting/Services/ClientCreditService.php';
+                try {
+                    $creditSvc = new ClientCreditService($db);
+                    $creditSvc->addDeposit(
+                        $creditClientId,
+                        $depositAmount,
+                        $depositNote !== '' ? $depositNote : 'Prepayment recorded from contract',
+                        (int)$user['id']
+                    );
+                    logActivityExtended((int)$user['id'], 'Client credit recorded', formatCurrency($depositAmount) . ' — ' . ($depositNote ?: 'Prepayment'));
+                    $message     = 'Recorded ' . formatCurrency($depositAmount) . ' as prepaid credit.';
+                    $messageType = 'success';
+                } catch (Throwable $e) {
+                    error_log('add_client_credit error: ' . $e->getMessage());
+                    $message     = 'Could not record the credit. Please try again.';
+                    $messageType = 'error';
+                }
+            }
+        }
+    }
 }
 
 // Flash message from redirect
@@ -134,6 +192,13 @@ $billing = $billingStmt->fetch(PDO::FETCH_ASSOC) ?: [
     'total_billed' => 0, 'total_collected' => 0, 'total_outstanding' => 0,
     'invoice_count' => 0, 'open_count' => 0,
 ];
+
+// ── Client prepaid credit balance (client-scoped — not tied to this contract alone) ──
+$clientCreditBalance = null;
+if (!empty($contract['client_id'])) {
+    require_once APP_ROOT . '/Modules/Accounting/Services/ClientCreditService.php';
+    $clientCreditBalance = (new ClientCreditService($db))->getBalance((int)$contract['client_id']);
+}
 
 $recentInvStmt = $db->prepare("
     SELECT i.id, i.invoice_number, i.issue_date, i.total, i.status
@@ -258,7 +323,7 @@ if ($hasPropCoords && !$hasBorder) {
           <a href="../contracts_appstack.php" class="mw-back-link">&larr; All Contracts</a>
 
           <?php if ($message): ?>
-              <div class="alert alert-<?php echo $messageType === 'error' ? 'danger' : ($messageType === 'info' ? 'info' : 'success'); ?> mb-3">
+              <div class="alert alert-<?php echo $messageType === 'error' ? 'danger' : ($messageType === 'info' ? 'info' : ($messageType === 'warning' ? 'warning' : 'success')); ?> mb-3">
                   <?php echo htmlspecialchars($message); ?>
               </div>
           <?php endif; ?>
@@ -315,6 +380,10 @@ if ($hasPropCoords && !$hasBorder) {
                       ? '../jobs/create-from-quote.php?quote_id=' . (int)$contract['quote_id'] . '&contract_id=' . $contractId
                       : '../jobs/create.php?contract_id=' . $contractId . '&property_id=' . (int)$contract['property_id'] . '&contact_id=' . (int)$contract['contact_id'];
                   ?>
+                  <a href="pdf.php?id=<?php echo $contractId; ?>&amp;inline=1" target="_blank" rel="noopener"
+                     class="btn btn-outline-secondary" title="Open the contract as a PDF to print or email">
+                      <i data-feather="printer" style="width:14px;height:14px;"></i> PDF
+                  </a>
                   <a href="<?php echo $addPlanUrl; ?>" class="btn btn-primary">
                       <i data-feather="plus" style="width:14px;height:14px;"></i> Add Plan
                   </a>
@@ -608,6 +677,30 @@ if ($hasPropCoords && !$hasBorder) {
                           <span><strong><?php echo (int)$billing['invoice_count']; ?></strong> total</span>
                       </div>
 
+                      <?php if ($clientCreditBalance !== null): ?>
+                          <div class="mw-billing-section-label mt-3">Client Prepaid Credit</div>
+                          <div class="mw-billing-stats">
+                              <div class="mw-billing-stat">
+                                  <div class="mw-billing-stat-label">Available Balance</div>
+                                  <div class="mw-billing-stat-value <?php echo $clientCreditBalance > 0 ? 'is-green' : ''; ?>">
+                                      $<?php echo number_format($clientCreditBalance, 2); ?>
+                                  </div>
+                              </div>
+                          </div>
+                          <?php if (userHasPermission('billing.edit')): ?>
+                          <form method="POST" class="form-inline mt-2" style="gap:8px;">
+                              <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+                              <input type="hidden" name="action" value="add_client_credit">
+                              <div class="input-group input-group-sm mr-2" style="width:130px;">
+                                  <div class="input-group-prepend"><span class="input-group-text">$</span></div>
+                                  <input type="number" step="0.01" min="0.01" name="credit_amount" class="form-control" placeholder="Amount" required>
+                              </div>
+                              <input type="text" name="credit_note" class="form-control form-control-sm mr-2" style="width:220px;" placeholder="e.g. Cheque #1042, paid 2026-04-15">
+                              <button type="submit" class="btn btn-sm btn-outline-primary">Record Prepayment</button>
+                          </form>
+                          <?php endif; ?>
+                      <?php endif; ?>
+
                       <?php if (!empty($recentInvoices)): ?>
                           <div class="mw-billing-section-label">Recent Invoices</div>
                           <div class="mw-billing-invoice-list">
@@ -800,35 +893,55 @@ if ($hasPropCoords && !$hasBorder) {
                   <div class="card mb-4">
                       <div class="card-header"><h5 class="card-title mb-0">Origin &amp; Audit</h5></div>
                       <div class="card-body">
-                          <dl class="row mb-0">
+                          <ul class="mw-audit-list">
                               <?php if ($contract['quote_id']): ?>
-                                  <dt class="col-sm-4"><span class="mw-icon-box"><i data-feather="file-text" class="mw-detail-icon"></i></span> Source Quote</dt>
-                                  <dd class="col-sm-8">
-                                      <a href="../quotes/view.php?id=<?php echo (int)$contract['quote_id']; ?>">
-                                          <?php echo htmlspecialchars($contract['quote_number'] ?? 'View Quote'); ?>
-                                      </a>
-                                  </dd>
+                                  <li class="mw-audit-row">
+                                      <span class="mw-icon-box"><i data-feather="file-text"></i></span>
+                                      <div class="mw-audit-meta">
+                                          <span class="mw-audit-label">Source Quote</span>
+                                          <span class="mw-audit-value">
+                                              <a href="../quotes/view.php?id=<?php echo (int)$contract['quote_id']; ?>">
+                                                  <?php echo htmlspecialchars($contract['quote_number'] ?? 'View Quote'); ?>
+                                              </a>
+                                          </span>
+                                      </div>
+                                  </li>
                               <?php endif; ?>
-                              <dt class="col-sm-4"><span class="mw-icon-box"><i data-feather="user" class="mw-detail-icon"></i></span> Created By</dt>
-                              <dd class="col-sm-8"><?php echo htmlspecialchars($contract['created_by_name'] ?? '—'); ?></dd>
-                              <dt class="col-sm-4"><span class="mw-icon-box"><i data-feather="calendar" class="mw-detail-icon"></i></span> Created</dt>
-                              <dd class="col-sm-8"><?php echo date('M j, Y', strtotime($contract['created_at'])); ?></dd>
-                              <dt class="col-sm-4"><span class="mw-icon-box"><i data-feather="refresh-cw" class="mw-detail-icon"></i></span> Auto-Renew</dt>
-                              <dd class="col-sm-8">
-                                  <?php if ($contract['auto_renew'] ?? 0): ?>
-                                      <span style="color:var(--mw-green);font-weight:600;">Enabled</span>
-                                      <?php if (($contract['renewal_increase_pct'] ?? 0) > 0): ?>
-                                          <span class="text-muted"> &mdash; +<?php echo number_format((float)$contract['renewal_increase_pct'], 1); ?>% on renewal</span>
+                              <li class="mw-audit-row">
+                                  <span class="mw-icon-box"><i data-feather="user"></i></span>
+                                  <div class="mw-audit-meta">
+                                      <span class="mw-audit-label">Created By</span>
+                                      <span class="mw-audit-value"><?php echo htmlspecialchars($contract['created_by_name'] ?? '—'); ?></span>
+                                  </div>
+                              </li>
+                              <li class="mw-audit-row">
+                                  <span class="mw-icon-box"><i data-feather="calendar"></i></span>
+                                  <div class="mw-audit-meta">
+                                      <span class="mw-audit-label">Created</span>
+                                      <span class="mw-audit-value"><?php echo date('M j, Y', strtotime($contract['created_at'])); ?></span>
+                                  </div>
+                              </li>
+                              <li class="mw-audit-row">
+                                  <span class="mw-icon-box"><i data-feather="refresh-cw"></i></span>
+                                  <div class="mw-audit-meta">
+                                      <span class="mw-audit-label">Auto-Renew</span>
+                                      <?php if ($contract['auto_renew'] ?? 0): ?>
+                                          <span class="mw-audit-value mw-audit-value--on">Enabled<?php if (($contract['renewal_increase_pct'] ?? 0) > 0): ?><span class="mw-audit-value--muted"> &mdash; +<?php echo number_format((float)$contract['renewal_increase_pct'], 1); ?>% on renewal</span><?php endif; ?></span>
+                                      <?php else: ?>
+                                          <span class="mw-audit-value mw-audit-value--muted">Off</span>
                                       <?php endif; ?>
-                                  <?php else: ?>
-                                      <span class="text-muted">Off</span>
-                                  <?php endif; ?>
-                              </dd>
+                                  </div>
+                              </li>
                               <?php if (!empty($contract['last_renewed_at'])): ?>
-                                  <dt class="col-sm-4"><span class="mw-icon-box"><i data-feather="clock" class="mw-detail-icon"></i></span> Last Renewed</dt>
-                                  <dd class="col-sm-8"><?php echo date('M j, Y', strtotime($contract['last_renewed_at'])); ?></dd>
+                                  <li class="mw-audit-row">
+                                      <span class="mw-icon-box"><i data-feather="clock"></i></span>
+                                      <div class="mw-audit-meta">
+                                          <span class="mw-audit-label">Last Renewed</span>
+                                          <span class="mw-audit-value"><?php echo date('M j, Y', strtotime($contract['last_renewed_at'])); ?></span>
+                                      </div>
+                                  </li>
                               <?php endif; ?>
-                          </dl>
+                          </ul>
                       </div>
                   </div>
               </div>
@@ -910,7 +1023,7 @@ if ($hasPropCoords && !$hasBorder) {
                             </div>
                             <div class="col-sm-6">
                                 <label class="form-label">Management Company</label>
-                                <select name="property_manager_id" class="form-control">
+                                <select name="property_manager_id" class="form-control mw-searchable" data-placeholder="Search companies…" data-none-label="No management company">
                                     <option value="">— none —</option>
                                     <?php foreach ($pmCompanies as $co):
                                         $sel = (int)($propBilling['property_manager_id'] ?? 0) === (int)$co['id'] ? ' selected' : '';
@@ -923,7 +1036,7 @@ if ($hasPropCoords && !$hasBorder) {
                         <div class="row mt-2">
                             <div class="col-sm-6">
                                 <label class="form-label">Property Manager <small class="text-muted">(person)</small></label>
-                                <select name="site_contact_id" class="form-control">
+                                <select name="site_contact_id" class="form-control mw-searchable" data-placeholder="Search contacts…" data-none-label="No contact">
                                     <option value="">— none —</option>
                                     <?php foreach ($pmContacts as $c):
                                         $cl = trim(($c['first_name'] ?? '') . ' ' . ($c['last_name'] ?? ''));
@@ -956,14 +1069,24 @@ if ($hasPropCoords && !$hasBorder) {
                         <div class="col-sm-4">
                             <div class="form-group">
                                 <label class="form-label">Start Date <span class="text-danger">*</span></label>
-                                <input type="date" name="start_date" class="form-control" required
+                                <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#start_date" aria-haspopup="true" aria-expanded="false">
+                                    <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                    <span class="mw-datepicker-date" data-mw-dp-label></span>
+                                    <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                                </button>
+                                <input type="date" id="start_date" name="start_date" class="form-control" required hidden
                                        value="<?php echo htmlspecialchars($contract['start_date'] ?? ''); ?>">
                             </div>
                         </div>
                         <div class="col-sm-4">
                             <div class="form-group">
                                 <label class="form-label">End Date <small class="text-muted">(optional)</small></label>
-                                <input type="date" name="end_date" class="form-control"
+                                <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#end_date" aria-haspopup="true" aria-expanded="false">
+                                    <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                    <span class="mw-datepicker-date" data-mw-dp-label></span>
+                                    <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                                </button>
+                                <input type="date" id="end_date" name="end_date" class="form-control" hidden
                                        value="<?php echo htmlspecialchars($contract['end_date'] ?? ''); ?>">
                             </div>
                         </div>
@@ -974,7 +1097,12 @@ if ($hasPropCoords && !$hasBorder) {
                         <div class="col-sm-6">
                             <div class="form-group">
                                 <label class="form-label">Renewal Date</label>
-                                <input type="date" name="renewal_date" class="form-control"
+                                <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#renewal_date" aria-haspopup="true" aria-expanded="false">
+                                    <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                    <span class="mw-datepicker-date" data-mw-dp-label></span>
+                                    <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                                </button>
+                                <input type="date" id="renewal_date" name="renewal_date" class="form-control" hidden
                                        value="<?php echo htmlspecialchars($contract['renewal_date'] ?? ''); ?>">
                                 <small class="form-text text-muted">Cron auto-renews on or after this date.</small>
                             </div>

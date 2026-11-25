@@ -1,5 +1,9 @@
-# Deny direct web access to migration files
-<FilesMatch "\.sql$">
+# Migration SQL files — nothing in this folder is ever served over the web (deny all; security audit
+# 2026-10-12). Apache 2.2 and 2.4 syntax both, matching the other deny-all folders.
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
     Order allow,deny
     Deny from all
-</FilesMatch>
+</IfModule>

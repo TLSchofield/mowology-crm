@@ -1,0 +1,751 @@
+<?php
+/**
+ * AdaRules — the pure decisions behind Ada, head of Technology (unit tested).
+ *
+ * Ada keeps the system working and tells Charlie when it is not. She reads, she never fixes:
+ * every problem carries one evidence line and a hand-off — to a developer session (code) or
+ * to Tim (anything behind his login: cPanel cron lines, reconnecting an account, users).
+ * Rules, not AI. Skill: .claude/skills/ada-technology/.
+ *
+ * A check is: ['system', 'group', 'name', 'state' => red|amber|unknown|green|info,
+ *              'last_worked' => ?Y-m-d H:i:s, 'evidence', 'handoff' => ?string,
+ *              'handoff_to' => developer|tim|null, 'problem' => slug].
+ *   red      something that should work does not (failing, missed its schedule)
+ *   amber    worth a look (recovered after failing, slow, never scheduled, unused logins)
+ *   unknown  Ada cannot tell — the job keeps no record of its runs
+ *   info     not a problem, shown on the page only (renamed or retired jobs)
+ *
+ * No namespace / no autoloader in production: require_once and `new`.
+ */
+class AdaRules
+{
+    public const HEAD = 'ada';
+    /** A job is missed when it has not run for this many of its intervals (+ grace). */
+    public const MISSED_INTERVALS = 2;
+    public const GRACE_MINUTES = 10;
+    /** A job that failed within this many days, then recovered, stays amber. */
+    public const RECOVERED_DAYS = 3;
+    /** "Slow" looks at runs from this many days back (was 14: an old spike hid a fix for two weeks). */
+    public const SLOW_DAYS = 3;
+    /** A run longer than this share of the job's interval is slow (runs start to overlap). */
+    public const SLOW_SHARE = 0.8;
+    /** A login unused this long, with no phone seen either, is worth a look. */
+    public const STALE_LOGIN_DAYS = 90;
+    /** Brief: at most this many problem lines (plus one "can't tell" summary). */
+    public const BRIEF_MAX = 5;
+    /** Consecutive 'warning' runs that count as failing (checks.md). */
+    public const WARNING_STREAK = 3;
+
+    public const STATE_ORDER = ['red' => 0, 'amber' => 1, 'unknown' => 2, 'green' => 3, 'info' => 4];
+
+    /** Cost of waiting (operating-rules.md): 0 money in or out, auth, backups, audit; 1 crew in the field; 2 the rest. */
+    public const COST_MONEY = '/^(stripe|posture:(stripe-webhook|payment-mail|db-privileges|backup-|audit-copy|drift|blocked-paths)|security:|cron:(autopay|etransfer|yardi|interac|stripe|invoice|contract_billing|sync_ledger|bank|payroll|audit_export|security_posture))/';
+    public const COST_CREW = '/^(apple:push|trackimo|pulse:|errors:|cron:(tracking|trackimo|push|generate_visits|schedule|pulse_check|charlie_morning_brief|icloud_inbox))/';
+    public const AGE_SHOWN_DAYS = 2;          // "— for N days" from this many days
+    public const ACCESS_REVIEW_DAYS = 90;     // audit-support: periodic access recertification
+    public const TREND_DAYS = 14;             // nightly count snapshots kept
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // The cron registry (public/crm/database_appstack.php $crons) — read as text, never run
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * The registry rows from the Database Manager page source.
+     * @return array<string, array{key: string, title: string, expr: string, app: string, run: ?string}>
+     */
+    public static function parseRegistry(string $src): array
+    {
+        $out = [];
+        if (!preg_match_all("/\['key'\s*=>\s*'([a-z0-9_]+)'(.*?)\],?\s*\n/s", $src, $m, PREG_SET_ORDER)) return $out;
+        foreach ($m as $row) {
+            $f = static function (string $name) use ($row): ?string {
+                return preg_match("/'" . $name . "'\s*=>\s*(['\"])(.*?)(?<!\\\\)\\1/s", $row[2], $x) ? stripslashes($x[2]) : null;
+            };
+            $expr = $f('expr');
+            $app = $f('app');
+            if ($expr === null || $app === null) continue;
+            $out[$row[1]] = [
+                'key'   => $row[1],
+                'title' => html_entity_decode((string)($f('title') ?? $row[1]), ENT_QUOTES),
+                'expr'  => $expr,
+                'app'   => $app,
+                'run'   => $f('run'),
+            ];
+        }
+        return $out;
+    }
+
+    /** The command prefix the Database Manager shows for every job ($CRON_BASE). */
+    public static function parseCronBase(string $src): ?string
+    {
+        return preg_match('/\$CRON_BASE\s*=\s*\'([^\']+)\'/', $src, $m) ? $m[1] : null;
+    }
+
+    /**
+     * The exact cPanel cron entry for a job, as the Database Manager builds it ($CRON_BASE . app):
+     * the five timing fields cPanel asks for one by one, the command, and the whole line.
+     * @return ?array{minute: string, hour: string, day: string, month: string, weekday: string, command: string, line: string}
+     */
+    public static function cronConfig(array $reg, ?string $base): ?array
+    {
+        $f = preg_split('/\s+/', trim((string)$reg['expr']));
+        if (count($f) !== 5 || !$base) return null;
+        $command = $base . $reg['app'];
+        return ['minute' => $f[0], 'hour' => $f[1], 'day' => $f[2], 'month' => $f[3], 'weekday' => $f[4],
+                'command' => $command, 'line' => implode(' ', $f) . ' ' . $command];
+    }
+
+    /**
+     * Roughly how often a cron expression fires, in minutes (the longest normal gap).
+     * Only the shapes the registry uses: "*", "* /n", lists and single values.
+     */
+    public static function intervalMinutes(string $expr): ?int
+    {
+        $p = preg_split('/\s+/', trim($expr));
+        if (count($p) !== 5) return null;
+        [$min, $hour, $dom, , $dow] = $p;
+        if ($dom !== '*' && $dom !== '?') return 31 * 1440;                 // monthly
+        if ($dow !== '*' && $dow !== '?') {                                  // weekly (or a few days a week)
+            return (int)round(7 * 1440 / max(1, self::countOf($dow, 7)));
+        }
+        if ($hour === '*') {
+            if ($min === '*') return 1;
+            if (preg_match('#^\*/(\d+)$#', $min, $x)) return max(1, (int)$x[1]);
+            return (int)round(60 / max(1, self::countOf($min, 60)));
+        }
+        if (preg_match('#^\*/(\d+)$#', $hour, $x)) return max(1, (int)$x[1]) * 60;
+        return (int)round(1440 / max(1, self::countOf($hour, 24)));
+    }
+
+    private static function countOf(string $field, int $range): int
+    {
+        $n = 0;
+        foreach (explode(',', $field) as $part) {
+            if (preg_match('/^(\d+)-(\d+)$/', $part, $x)) $n += max(1, (int)$x[2] - (int)$x[1] + 1);
+            elseif (preg_match('#^\*/(\d+)$#', $part, $x)) $n += (int)ceil($range / max(1, (int)$x[1]));
+            else $n++;
+        }
+        return $n;
+    }
+
+    /** Does a cron script's text record its runs in cron_runs? (cron_runs_log is a different table.) */
+    public static function scriptRecords(string $code): bool
+    {
+        return (bool)preg_match('/recordCronRun\s*\(|\bcron_runs\b/', $code);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // (1) Scheduled jobs
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * One registered job.
+     * @param array $reg   a parseRegistry() row
+     * @param ?array $stats null when cron_runs has no row for the key, else
+     *   [last_at, last_ok_at, last_status, last_error, max_ms, recent => [[status, ran_at, error], …] newest first]
+     * @param bool $records the script's text records its runs
+     * @param bool $filesExist the script files the registry names are on the server
+     */
+    public static function cronCheck(array $reg, ?array $stats, bool $records, bool $filesExist, string $now, ?string $cronBase = null, ?array $fix = null): array
+    {
+        $config = self::cronConfig($reg, $cronBase);
+        $line = $config ? "\n\nThe cPanel line should read exactly:\n" . $config['line'] : '';
+        $key = (string)$reg['key'];
+        $name = (string)($reg['title'] ?? $key);
+        $every = self::intervalMinutes((string)$reg['expr']);
+        $runPath = (string)($reg['run'] ?? $reg['app']);
+        $base = ['system' => 'cron:' . $key, 'group' => 'Scheduled jobs', 'name' => $name,
+                 'last_worked' => $stats['last_ok_at'] ?? null];
+
+        if (!$filesExist) {
+            return $base + self::verdict('red', 'missing-script',
+                "{$name}: the script it runs ({$runPath}) is not on the server.",
+                "Ada: cron '{$key}' points at {$runPath}, which is missing on production. Restore or deploy it, or remove the registry entry in public/crm/database_appstack.php.",
+                'developer');
+        }
+
+        // Marked fixed and nothing has run since: wait one full cycle for the next run, then judge as usual
+        // (a job that still has not run after that is "missed" again).
+        if ($fix !== null && (int)($fix['runs'] ?? 0) === 0) {
+            $sinceFix = self::minutesBetween((string)$fix['at'], $now);
+            if ($sinceFix !== null && ($every === null || $sinceFix <= self::MISSED_INTERVALS * $every + self::GRACE_MINUTES)) {
+                return $base + self::verdict('info', 'awaiting-run',
+                    "{$name}: marked fixed " . self::ago((string)$fix['at'], $now) . "; waiting for its next run to check it.", null, null);
+            }
+        }
+
+        if ($stats === null) {
+            if (!$records) {
+                return $base + self::verdict('unknown', 'no-record',
+                    "{$name}: doesn't record its runs, so Ada can't tell whether it works.",
+                    "Ada: cron '{$key}' ({$reg['app']}) never calls recordCronRun(). Add recordCronRun('{$key}', …) at the end of the script (success and failure paths) so its runs can be checked.",
+                    'developer');
+            }
+            return $base + self::verdict('amber', 'never-ran',
+                "{$name}: no run on record, ever — most likely it is not in the cPanel schedule (or it only records when it has work).",
+                "cPanel → Cron Jobs: check there is a line for this job, matching exactly. If there is, run it once from the Database Manager's Crons tab and see what it says." . $line,
+                'tim') + ['config' => $config];
+        }
+
+        $age = self::minutesBetween((string)$stats['last_at'], $now);
+        $recent = (array)($stats['recent'] ?? []);
+
+        if (($stats['last_status'] ?? '') === 'error') {
+            $fails = 0;
+            foreach ($recent as $r) { if (($r[0] ?? '') !== 'error') break; $fails++; }
+            $since = $stats['last_ok_at'] ? ' Last worked ' . self::ago((string)$stats['last_ok_at'], $now) . '.' : ' It has not worked on record.';
+            $err = self::shortError((string)($stats['last_error'] ?? ''));
+            $base['bad_since'] = (string)($recent[max(0, $fails - 1)][1] ?? $stats['last_at']);
+            return $base + self::verdict('red', 'failing',
+                "{$name}: failed its last " . ($fails > 1 ? "{$fails} runs" : 'run') . ($err !== '' ? " — \"{$err}\"" : '') . '.' . $since,
+                "Ada: cron '{$key}' ({$reg['app']}) is failing" . ($err !== '' ? " with \"{$err}\"" : '') . ". Read its cron_runs rows and fix the cause; prove it with one run from the Database Manager.",
+                'developer');
+        }
+
+        // 3+ 'warning' runs in a row is failing, as checks.md says (Fable review 2026-10-12 — it
+        // used to read green while a job warned every run).
+        $warns = 0;
+        foreach ($recent as $r) { if (($r[0] ?? '') !== 'warning') break; $warns++; }
+        if ($warns >= self::WARNING_STREAK) {
+            $w = self::shortError((string)($recent[0][2] ?? ''));
+            $base['bad_since'] = (string)($recent[$warns - 1][1] ?? $stats['last_at']);
+            return $base + self::verdict('red', 'failing',
+                "{$name}: warned on its last {$warns} runs" . ($w !== '' ? " — \"{$w}\"" : '') . '.',
+                "Ada: cron '{$key}' ({$reg['app']}) has ended in 'warning' {$warns} runs in a row" . ($w !== '' ? " (\"{$w}\")" : '') . ". Read its cron_runs rows and fix the cause.",
+                'developer');
+        }
+
+        if ($every !== null && $age !== null && $age > self::MISSED_INTERVALS * $every + self::GRACE_MINUTES) {
+            if (!$records) {
+                return $base + self::verdict('unknown', 'no-record',
+                    "{$name}: last run on record " . self::ago((string)$stats['last_at'], $now) . ", and its script no longer records runs — Ada can't tell if it still works.",
+                    "Ada: cron '{$key}' ({$reg['app']}) does not call recordCronRun(), and its last cron_runs row is " . $stats['last_at'] . ". Add recordCronRun('{$key}', …) so its runs can be checked, then confirm it is in the cPanel schedule." . $line,
+                    'developer') + ['config' => $config];
+            }
+            // Bad from the moment it crossed the missed line, not from its last run (Codex 2026-11-03).
+            $base['bad_since'] = date('Y-m-d H:i:s', strtotime((string)$stats['last_at']) + (self::MISSED_INTERVALS * $every + self::GRACE_MINUTES) * 60);
+            return $base + self::verdict('red', 'missed',
+                "{$name}: should run " . self::everyWords($every) . ", last ran " . self::ago((string)$stats['last_at'], $now) . '.',
+                "cPanel → Cron Jobs: check the line for this job is still there, matching exactly. Its last recorded run was {$stats['last_at']}." . $line,
+                'tim') + ['config' => $config];
+        }
+
+        $errors = 0;
+        $lastErr = '';
+        foreach ($recent as $r) {
+            if (($r[0] ?? '') !== 'error') continue;
+            $d = self::minutesBetween((string)($r[1] ?? ''), $now);
+            if ($d === null || $d > self::RECOVERED_DAYS * 1440) continue;
+            $errors++;
+            if ($lastErr === '') $lastErr = self::shortError((string)($r[2] ?? ''));
+        }
+        if ($errors > 0) {
+            return $base + self::verdict('amber', 'recovered',
+                "{$name}: working again, but failed {$errors} time" . ($errors === 1 ? '' : 's') . ' in the last ' . self::RECOVERED_DAYS . ' days' . ($lastErr !== '' ? " (\"{$lastErr}\")" : '') . '.',
+                "Ada: cron '{$key}' failed {$errors}× in " . self::RECOVERED_DAYS . " days" . ($lastErr !== '' ? " with \"{$lastErr}\"" : '') . " before recovering. Find why, so it does not come back.",
+                'developer');
+        }
+
+        $maxMs = (int)($stats['max_ms'] ?? 0);
+        if ($every !== null && $maxMs > 0 && $maxMs > self::SLOW_SHARE * $every * 60000) {
+            return $base + self::verdict('amber', 'slow',
+                "{$name}: one run took " . self::duration($maxMs) . ' in the last ' . self::SLOW_DAYS . ' days, for a job that runs ' . self::everyWords($every) . ' — runs can overlap.',
+                "Ada: cron '{$key}' took up to " . self::duration($maxMs) . " (interval {$every} min). Find the slow step; cap its work per run.",
+                'developer');
+        }
+
+        return $base + self::verdict('green', 'ok', "{$name}: last ran " . self::ago((string)$stats['last_at'], $now) . ', worked.', null, null);
+    }
+
+    /** A cron key with runs on record that the registry does not list (renamed, retired or unlisted). */
+    public static function unlistedCron(string $key, string $lastAt, string $now): array
+    {
+        $age = self::minutesBetween($lastAt, $now) ?? PHP_INT_MAX;
+        $recent = $age <= 2 * 1440;
+        return ['system' => 'cron:' . $key, 'group' => 'Scheduled jobs', 'name' => $key, 'last_worked' => $lastAt]
+            + self::verdict('info', $recent ? 'unlisted' : 'retired',
+                $recent ? "{$key}: runs (last " . self::ago($lastAt, $now) . ") but is not in the Database Manager's cron list."
+                        : "{$key}: last ran " . self::ago($lastAt, $now) . ' and is not in the cron list — renamed or retired.',
+                $recent ? "Ada: cron key '{$key}' records runs but has no entry in \$crons (public/crm/database_appstack.php). Add one so it can be checked." : null,
+                $recent ? 'developer' : null);
+    }
+
+    /**
+     * Jobs that keep no record but whose work shows elsewhere: job key => the connection check
+     * whose green state proves the job is running (a second source, as the skill asks).
+     */
+    public const PROXIES = ['trackimo_poll' => 'trackimo', 'push_drain' => 'apple:push'];
+
+    /**
+     * A "can't tell" job becomes green when its proxy connection is green AND did real work
+     * ('ok'). A 'quiet' proxy proves nothing — a dead drain and an idle one look the same
+     * (security audit 2026-10-12 #23).
+     */
+    public static function applyProxies(array $checks): array
+    {
+        $bySystem = [];
+        foreach ($checks as $c) $bySystem[$c['system']] = $c;
+        foreach ($checks as $i => $c) {
+            $key = substr((string)$c['system'], 5);
+            if (strpos((string)$c['system'], 'cron:') !== 0 || $c['state'] !== 'unknown' || !isset(self::PROXIES[$key])) continue;
+            $proxy = $bySystem[self::PROXIES[$key]] ?? null;
+            if (!$proxy || $proxy['state'] !== 'green' || ($proxy['problem'] ?? '') !== 'ok') continue;
+            $checks[$i] = array_merge($c, [
+                'state' => 'green', 'problem' => 'ok-by-proxy', 'last_worked' => $proxy['last_worked'],
+                'evidence' => "{$c['name']}: keeps no record of its runs, but its work shows — " . lcfirst((string)$proxy['evidence']),
+            ]);
+        }
+        return $checks;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // (2) Outside connections
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /** Facebook / Instagram / Google Business: what SocialAccountHealth stored (active accounts only). */
+    public static function socialCheck(string $platform, ?array $health, string $now): array
+    {
+        $label = ['facebook' => 'Facebook', 'instagram' => 'Instagram', 'gbp' => 'Google Business Profile'][$platform] ?? ucfirst($platform);
+        $base = ['system' => 'social:' . $platform, 'group' => 'Connections', 'name' => $label];
+        if ($health === null) {
+            return $base + ['last_worked' => null] + self::verdict('unknown', 'unchecked',
+                "{$label}: connected, but its health has never been checked.",
+                "Ada: social account '{$platform}' has no meta_json['health']. SocialAccountHealth::sweep() runs from social_publisher — check it reaches this account.",
+                'developer');
+        }
+        $checked = (string)($health['checked_at'] ?? '');
+        if (($health['status'] ?? '') === 'ok') {
+            $age = self::minutesBetween($checked, $now);
+            if ($age !== null && $age > 1440) {
+                return $base + ['last_worked' => $checked] + self::verdict('amber', 'stale-check',
+                    "{$label}: last checked " . self::ago($checked, $now) . ' — the hourly check has stopped.',
+                    "Ada: SocialAccountHealth for '{$platform}' last ran {$checked}. It runs from the social_publisher cron — check that cron.",
+                    'developer');
+            }
+            return $base + ['last_worked' => $checked] + self::verdict('green', 'ok', "{$label}: reached " . self::ago($checked, $now) . '.', null, null);
+        }
+        $reason = (string)($health['reason'] ?? 'error');
+        return $base + ['last_worked' => null] + self::verdict('red', 'down',
+            "{$label}: not working since at least " . self::ago($checked, $now) . " ({$reason}).",
+            "Settings → Social accounts: reconnect {$label}. Ada's evidence: " . self::shortError((string)($health['detail'] ?? $reason)),
+            'tim');
+    }
+
+    /** Google Search Console: the newest sync. */
+    public static function gscCheck(?array $last, string $now): array
+    {
+        $base = ['system' => 'google:search-console', 'group' => 'Connections', 'name' => 'Google Search Console'];
+        if ($last === null) {
+            return $base + ['last_worked' => null] + self::verdict('unknown', 'never', 'Google Search Console: no sync on record.', null, null);
+        }
+        $at = (string)($last['completed_at'] ?: $last['started_at']);
+        if (($last['status'] ?? '') !== 'success') {
+            return $base + ['last_worked' => null] + self::verdict('red', 'failing',
+                'Google Search Console: last sync failed ' . self::ago($at, $now) . ' — "' . self::shortError((string)($last['error_message'] ?? '')) . '".',
+                "Ada: gsc_sync_history #{$last['id']} status {$last['status']}: " . self::shortError((string)($last['error_message'] ?? '')) . '. Check the Google service account and the property.',
+                'developer');
+        }
+        $age = self::minutesBetween($at, $now);
+        if ($age !== null && $age > 3 * 1440) {
+            return $base + ['last_worked' => $at] + self::verdict('amber', 'stale',
+                'Google Search Console: last synced ' . self::ago($at, $now) . ' (it syncs nightly).',
+                'Ada: no gsc_sync_history row for 3+ days. Check the nightly sync cron.', 'developer');
+        }
+        return $base + ['last_worked' => $at] + self::verdict('green', 'ok',
+            'Google Search Console: synced ' . self::ago($at, $now) . ', ' . (int)$last['rows_processed'] . ' rows.', null, null);
+    }
+
+    /** Pending pushes older than this many minutes mean the drain is not draining. */
+    public const PUSH_STUCK_MINUTES = 30;
+
+    /**
+     * Apple push: the last 48 hours of push_queue, plus pending rows that should have gone out.
+     * $stuckPending = rows still 'pending' whose scheduled_at is more than PUSH_STUCK_MINUTES old;
+     * any such row is red — a dead queue used to show green 'quiet' (security audit 2026-10-12 #23).
+     */
+    public static function pushCheck(int $sent, int $failed, ?string $lastSentAt, ?string $lastError, string $now,
+                                     int $stuckPending = 0, ?string $oldestPendingAt = null): array
+    {
+        $base = ['system' => 'apple:push', 'group' => 'Connections', 'name' => 'Apple push notifications', 'last_worked' => $lastSentAt];
+        if ($stuckPending > 0) {
+            return $base + self::verdict('red', 'stuck',
+                "Apple push: {$stuckPending} notification" . ($stuckPending === 1 ? '' : 's') . ' waiting to send'
+                    . ($oldestPendingAt ? ', the oldest since ' . self::ago($oldestPendingAt, $now) : '')
+                    . ($lastSentAt ? ' (last sent ' . self::ago($lastSentAt, $now) . ')' : '') . ' — the send queue has stopped.',
+                "Ada: push_queue has {$stuckPending} 'pending' rows scheduled more than " . self::PUSH_STUCK_MINUTES
+                    . ' minutes ago. Check the push_drain cron (cPanel schedule, CronLock) and ApnsService.',
+                'developer');
+        }
+        if ($failed > 0 && $failed >= max(3, $sent * 0.2)) {
+            return $base + self::verdict('red', 'failing',
+                "Apple push: {$failed} of " . ($sent + $failed) . ' notifications failed in the last 48 hours' . ($lastError ? " (\"" . self::shortError($lastError) . "\")" : '') . '.',
+                "Ada: push_queue has {$failed} failed in 48 h" . ($lastError ? " — \"" . self::shortError($lastError) . "\"" : '') . '. Check the APNs key in secrets.php and ApnsService.',
+                'developer');
+        }
+        if ($sent + $failed === 0) {
+            return $base + self::verdict('green', 'quiet', 'Apple push: nothing to send in the last 48 hours' . ($lastSentAt ? ' (last sent ' . self::ago($lastSentAt, $now) . ')' : '') . '.', null, null);
+        }
+        return $base + self::verdict('green', 'ok', "Apple push: {$sent} sent in 48 hours" . ($failed ? ", {$failed} failed" : '') . '.', null, null);
+    }
+
+    /**
+     * The app's sign-in key (BLUEMOON_JWT_SECRET). Since 2026-10-12 there is no fallback key, so a
+     * missing or short secret means nobody can sign in on the iPhone. Only the length is looked at —
+     * the value never leaves secrets.php.
+     */
+    public static function jwtSecretCheck(?int $length): array
+    {
+        $base = ['system' => 'secret:jwt', 'group' => 'Security', 'name' => 'App sign-in key', 'last_worked' => null];
+        if ($length === null) {
+            return $base + self::verdict('red', 'missing', 'App sign-in key: BLUEMOON_JWT_SECRET is not set — the iPhone app cannot sign anyone in.',
+                'secrets.php: define BLUEMOON_JWT_SECRET (64 random characters). Every phone will have to sign in again.', 'tim');
+        }
+        if ($length < 32) {
+            return $base + self::verdict('red', 'weak', "App sign-in key: BLUEMOON_JWT_SECRET is only {$length} characters — the server now refuses to use it.",
+                'secrets.php: replace BLUEMOON_JWT_SECRET with 64 random characters. Every phone will have to sign in again.', 'tim');
+        }
+        return $base + self::verdict('green', 'ok', 'App sign-in key: set (' . $length . ' characters).', null, null);
+    }
+
+    /** Stripe: the newest payment (a proxy — there is no key-health record). */
+    public static function stripeCheck(?string $lastAt, int $last30, string $now): array
+    {
+        $base = ['system' => 'stripe', 'group' => 'Connections', 'name' => 'Stripe payments', 'last_worked' => $lastAt];
+        $age = $lastAt ? self::minutesBetween($lastAt, $now) : null;
+        if ($age === null || $age > 21 * 1440) {
+            return $base + self::verdict('amber', 'quiet',
+                'Stripe: no card payment ' . ($lastAt ? 'since ' . self::ago($lastAt, $now) : 'on record') . ' — quiet season, or the webhook has stopped.',
+                'Ada: newest stripe_payments row is ' . ($lastAt ?: 'none') . '. Check Stripe → Developers → Webhooks for failed deliveries to /api/stripe/webhook.php.',
+                'tim');
+        }
+        return $base + self::verdict('green', 'ok', "Stripe: {$last30} payments in 30 days, last " . self::ago($lastAt, $now) . '.', null, null);
+    }
+
+    /** Trackimo (truck GPS): the newest position fetched. Business hours = Mon–Sat 7–18. */
+    public static function trackimoCheck(?string $lastFetched, string $now): array
+    {
+        $base = ['system' => 'trackimo', 'group' => 'Connections', 'name' => 'Truck GPS (Trackimo)', 'last_worked' => $lastFetched];
+        $age = $lastFetched ? self::minutesBetween($lastFetched, $now) : null;
+        $ts = strtotime($now);
+        $working = (int)date('N', $ts) <= 6 && (int)date('G', $ts) >= 7 && (int)date('G', $ts) < 18;
+        $limit = $working ? 30 : 24 * 60;
+        if ($age === null || $age > $limit) {
+            return $base + self::verdict('red', 'stale',
+                'Truck GPS: no truck position ' . ($lastFetched ? 'since ' . self::ago($lastFetched, $now) : 'on record') . '.',
+                'Ada: newest vehicle_location_pings.fetched_at is ' . ($lastFetched ?: 'none') . '. trackimo_poll records no runs — run it once by hand and read its output; check the Trackimo login in secrets.php.',
+                'developer');
+        }
+        return $base + self::verdict('green', 'ok', 'Truck GPS: last position ' . self::ago($lastFetched, $now) . '.', null, null);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // (3) Security — first slice
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Active logins nobody has used: no web/app login AND no phone seen for STALE_LOGIN_DAYS.
+     * @param array $users [[id, name, role, last_login, seen], …] active, non-tablet users
+     */
+    public static function loginsCheck(array $users, string $now): array
+    {
+        $stale = [];
+        foreach ($users as $u) {
+            $latest = max((string)($u['last_login'] ?? ''), (string)($u['seen'] ?? ''));
+            $age = $latest !== '' ? self::minutesBetween($latest, $now) : null;
+            if ($age === null || $age > self::STALE_LOGIN_DAYS * 1440) {
+                $stale[] = trim((string)($u['name'] ?? '')) ?: ('user #' . (int)$u['id']);
+            }
+        }
+        $base = ['system' => 'security:logins', 'group' => 'Security', 'name' => 'Unused logins', 'last_worked' => null];
+        if (!$stale) {
+            return $base + self::verdict('green', 'ok', 'Logins: every active login was used in the last ' . self::STALE_LOGIN_DAYS . ' days.', null, null);
+        }
+        $n = count($stale);
+        return $base + self::verdict('amber', 'stale',
+            "Logins: {$n} active login" . ($n === 1 ? '' : 's') . ' unused for ' . self::STALE_LOGIN_DAYS . '+ days (' . implode(', ', $stale) . ').',
+            'Settings → Users: switch off any login for someone who no longer works here (' . implode(', ', $stale) . '). An unused login is a door nobody watches.',
+            'tim');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Charlie's brief
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public static function sortChecks(array $checks): array
+    {
+        usort($checks, fn($a, $b) => [self::STATE_ORDER[$a['state']] ?? 9, self::costRank((string)$a['system'], (string)$a['group']), $a['group'], $a['name'], $a['system']]
+                                 <=> [self::STATE_ORDER[$b['state']] ?? 9, self::costRank((string)$b['system'], (string)$b['group']), $b['group'], $b['name'], $b['system']]);
+        return $checks;
+    }
+
+    /** 0 money/auth/backups/audit · 1 crew in the field · 2 marketing, reports and the rest (operating-rules.md). */
+    public static function costRank(string $system, string $group = ''): int
+    {
+        if (preg_match(self::COST_MONEY, $system)) return 0;
+        if (preg_match(self::COST_CREW, $system)) return 1;
+        return 2;
+    }
+
+    /** Whole days a problem has stood, from its first bad moment; null when unknown. */
+    public static function ageDays(?string $since, string $now): ?int
+    {
+        if ($since === null || $since === '') return null;
+        $m = self::minutesBetween($since, $now);
+        return $m === null ? null : (int)floor($m / 1440);
+    }
+
+    /**
+     * When a check first went bad: red_since (nightly rows), the oldest consecutive bad run (cron rows),
+     * or null. Pure — reads only what the check carries.
+     */
+    public static function badSince(array $c): ?string
+    {
+        if (!empty($c['red_since'])) return (string)$c['red_since'];
+        if (!empty($c['bad_since'])) return (string)$c['bad_since'];
+        return null;
+    }
+
+    /** "… — for 17 days" appended to an evidence line once a problem is old enough to say so. */
+    public static function withAge(string $evidence, ?string $since, string $now): string
+    {
+        $d = self::ageDays($since, $now);
+        if ($d === null || $d < self::AGE_SHOWN_DAYS) return $evidence;
+        return rtrim($evidence, '.') . " — for {$d} days.";
+    }
+
+    /**
+     * The one line that says what a cron verdict was based on — so the page shows what Ada looked at.
+     * $stats['runs'] = runs considered, ['since'] = oldest of them, ['max_ms'] = slowest.
+     */
+    public static function cronBasis(?array $stats, ?array $fix, string $now): string
+    {
+        $at = date('g:i a', strtotime($now));
+        if ($stats === null) return "Checked {$at} · no run on record";
+        if ($fix !== null && (int)($fix['runs'] ?? 0) === 0) return "Checked {$at} · no run since it was marked fixed";
+        $n = (int)($stats['runs'] ?? count((array)($stats['recent'] ?? [])));
+        $parts = ["Checked {$at}", $fix !== null ? "{$n} run" . ($n === 1 ? '' : 's') . ' since it was marked fixed'
+                                                 : "last {$n} run" . ($n === 1 ? '' : 's')];
+        if (!empty($stats['since'])) $parts[1] .= ' (from ' . date('M j, g:i a', strtotime((string)$stats['since'])) . ')';
+        if ((int)($stats['max_ms'] ?? 0) > 0) $parts[] = 'slowest ' . self::duration((int)$stats['max_ms']);
+        return implode(' · ', $parts);
+    }
+
+    /** Charlie's contract: red and amber as lines (red first), then one line for "can't tell". */
+    public static function briefItems(array $checks, string $today): array
+    {
+        $items = [];
+        $unknown = [];
+        foreach (self::sortChecks($checks) as $c) {
+            if ($c['state'] === 'unknown') { $unknown[] = $c['name']; continue; }
+            if ($c['state'] !== 'red' && $c['state'] !== 'amber') continue;
+            if (count($items) >= self::BRIEF_MAX) continue;
+            $since = self::badSince($c);
+            $items[] = [
+                'key'      => 'ada:' . $c['system'] . ':' . $c['problem'],
+                'kind'     => 'ada:' . $c['problem'],
+                'text'     => self::withAge((string)$c['evidence'], $since, $today . ' 23:59:59'),
+                'url'      => '/crm/ada_appstack.php#' . rawurlencode($c['system']),
+                'priority' => $c['state'] === 'red' ? 1 : 2,
+                'since'    => $since !== null ? substr($since, 0, 10) : $today,
+            ];
+        }
+        if ($unknown) {
+            $n = count($unknown);
+            $items[] = [
+                'key'      => 'ada:cant-tell:' . $n,
+                'kind'     => 'ada:cant-tell',
+                'text'     => "{$n} scheduled job" . ($n === 1 ? " doesn't" : "s don't") . ' record their runs, so Ada can\'t tell if they work.',
+                'url'      => '/crm/ada_appstack.php',
+                'priority' => 3,
+                'since'    => $today,
+            ];
+        }
+        return $items;
+    }
+
+    /** @return array{red: int, amber: int, unknown: int, green: int, info: int} */
+    public static function counts(array $checks): array
+    {
+        $n = ['red' => 0, 'amber' => 0, 'unknown' => 0, 'green' => 0, 'info' => 0];
+        foreach ($checks as $c) { if (isset($n[$c['state']])) $n[$c['state']]++; }
+        return $n;
+    }
+
+    /** @param ?array $yesterday the previous day's counts (trend: status-report's "what changed since last time") */
+    public static function headline(array $counts, ?array $yesterday = null): string
+    {
+        if ($counts['red'] + $counts['amber'] === 0) {
+            $was = $yesterday ? (int)$yesterday['red'] + (int)$yesterday['amber'] : 0;
+            return 'Everything Ada watches is working.' . ($was > 0 ? " (Yesterday: {$was} to look at.)" : '');
+        }
+        $parts = [];
+        if ($counts['red']) $parts[] = $counts['red'] . ' broken' . self::trendWords((int)$counts['red'], $yesterday['red'] ?? null);
+        if ($counts['amber']) $parts[] = $counts['amber'] . ' to look at' . self::trendWords((int)$counts['amber'], $yesterday['amber'] ?? null);
+        return implode(', ', $parts) . '.';
+    }
+
+    /** " (one fewer than yesterday)" / " (2 more than yesterday)" / "" when unchanged or unknown. */
+    public static function trendWords(int $today, $yesterday): string
+    {
+        if ($yesterday === null) return '';
+        $d = $today - (int)$yesterday;
+        if ($d === 0) return '';
+        $n = abs($d) === 1 ? 'one' : (string)abs($d);
+        return ' (' . $n . ($d < 0 ? ' fewer' : ' more') . ' than yesterday)';
+    }
+
+    /**
+     * Nightly count history: {day => {red, amber, unknown, green, reds: [system…]}}, newest last, TREND_DAYS kept.
+     * One entry per day — a second run the same day replaces it.
+     */
+    public static function trendAppend(array $history, string $day, array $counts, array $redSystems): array
+    {
+        $history[$day] = ['red' => (int)$counts['red'], 'amber' => (int)$counts['amber'], 'unknown' => (int)$counts['unknown'],
+                          'green' => (int)$counts['green'], 'reds' => array_values($redSystems)];
+        ksort($history);
+        return array_slice($history, -self::TREND_DAYS, null, true);
+    }
+
+    /** The newest snapshot strictly before $today (yesterday's, or the last one taken). */
+    public static function trendYesterday(array $history, string $today): ?array
+    {
+        $best = null;
+        foreach ($history as $day => $c) if ((string)$day < $today) $best = $c;
+        return $best;
+    }
+
+    /** How many hand-offs wait on whom: ['tim' => n, 'developer' => n]. */
+    public static function handoffCounts(array $checks): array
+    {
+        $n = ['tim' => 0, 'developer' => 0];
+        foreach ($checks as $c) {
+            if (!in_array($c['state'], ['red', 'amber', 'unknown'], true) || empty($c['handoff'])) continue;
+            $to = (string)($c['handoff_to'] ?? '');
+            if (isset($n[$to])) $n[$to]++;
+        }
+        return $n;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Access review (audit-support: periodic access recertification)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /** A stable fingerprint of who holds what: ids, roles, active flags — changes when the roster does. */
+    public static function rosterHash(array $users): string
+    {
+        $rows = [];
+        foreach ($users as $u) $rows[] = (int)$u['id'] . ':' . (string)$u['role'] . ':' . (int)($u['is_active'] ?? 1);
+        sort($rows);
+        return substr(sha1(implode('|', $rows)), 0, 16);
+    }
+
+    /**
+     * @param array  $users      admin and manager logins {id, name, role, is_active, last_login}
+     * @param ?array $lastReview {at, by, hash} from the last time Tim pressed Reviewed; null = never
+     */
+    public static function accessReviewCheck(array $users, ?array $lastReview, string $now): array
+    {
+        $active = array_values(array_filter($users, static fn($u) => (int)($u['is_active'] ?? 1) === 1));
+        $base = ['system' => 'security:access-review', 'group' => 'Security', 'name' => 'Who can sign in as admin or manager',
+                 'last_worked' => $lastReview['at'] ?? null, 'roster_hash' => self::rosterHash($active), 'reviewable' => true];
+        $list = [];
+        foreach ($active as $u) {
+            $list[] = (string)$u['name'] . ' (' . (string)$u['role'] . (!empty($u['is_vehicle_tablet']) ? ', a truck tablet' : '')
+                    . ($u['last_login'] ? ', last signed in ' . self::ago((string)$u['last_login'], $now) : ', never signed in') . ')';
+        }
+        $n = count($active);
+        $who = "{$n} login" . ($n === 1 ? '' : 's') . ' can change the books, clients and settings: ' . implode('; ', $list) . '.';
+        $handoff = 'Read the list on System Health. Switch off anyone who should not have it (Settings → Users), then press Reviewed — Ada asks again in ' . self::ACCESS_REVIEW_DAYS . ' days or when the list changes.';
+        if ($lastReview === null || empty($lastReview['at'])) {
+            return $base + self::verdict('amber', 'never-reviewed', 'Never reviewed. ' . $who, $handoff, 'tim');
+        }
+        $days = self::ageDays((string)$lastReview['at'], $now) ?? 0;
+        if (($lastReview['hash'] ?? '') !== $base['roster_hash']) {
+            return $base + self::verdict('amber', 'roster-changed', 'The list changed since you reviewed it ' . self::ago((string)$lastReview['at'], $now) . '. ' . $who, $handoff, 'tim');
+        }
+        if ($days > self::ACCESS_REVIEW_DAYS) {
+            return $base + self::verdict('amber', 'review-due', "Last reviewed {$days} days ago — due every " . self::ACCESS_REVIEW_DAYS . ' days. ' . $who, $handoff, 'tim');
+        }
+        return $base + self::verdict('green', 'ok', 'Reviewed ' . self::ago((string)$lastReview['at'], $now) . ' by ' . ((string)($lastReview['by'] ?? '') ?: 'you') . "; unchanged since ({$n} login" . ($n === 1 ? '' : 's') . ').', null, null);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Evidence grade (audit-support: undated evidence is insufficient)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /** Does this check's evidence carry a time — "ago", "just now", a date, "for N days" — or a last_worked? */
+    public static function evidenceDated(string $evidence, ?string $lastWorked): bool
+    {
+        if ($lastWorked !== null && $lastWorked !== '') return true;
+        return (bool)preg_match('/\b(\d+ (min|hour|hours|days?) ago|just now|yesterday|today|in \d+ (h|days?)\b|for \d+ days|since \w+|last \d+ (h|days?|runs?)|\d{4}-\d{2}-\d{2}|(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{1,2}\b|\(\d+ days\)|\d+\+ days|\d+ h\b|never|ever|checked \d{1,2}:\d{2}|\d{1,2}:\d{2} ?[ap]m)\b/i', $evidence);
+    }
+
+    /** One info row naming the problem checks whose evidence has no date. Null when every line is dated. */
+    public static function evidenceCheck(array $checks): ?array
+    {
+        $undated = [];
+        foreach ($checks as $c) {
+            if (!in_array($c['state'] ?? '', ['red', 'amber', 'unknown'], true)) continue;
+            // Nightly rows are dated by their check time; a red by when it turned red.
+            $when = $c['last_worked'] ?? $c['checked_at'] ?? $c['red_since'] ?? null;
+            if (!self::evidenceDated((string)($c['evidence'] ?? ''), $when)) $undated[] = (string)$c['name'];
+        }
+        if (!$undated) return null;
+        $n = count($undated);
+        return ['system' => 'ada:evidence', 'group' => 'Ada', 'name' => 'Evidence without a date', 'last_worked' => null]
+            + self::verdict('info', 'undated', "{$n} finding" . ($n === 1 ? ' reports' : 's report') . ' without saying when (' . implode(', ', array_slice($undated, 0, 6)) . ($n > 6 ? ', …' : '') . ') — treat them as unproven until they do.',
+                "Ada: give these checks a dated evidence line or a last_worked value (AdaRules::evidenceDated): " . implode(', ', $undated) . '.', 'developer');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Words
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private static function verdict(string $state, string $problem, string $evidence, ?string $handoff, ?string $to): array
+    {
+        return ['state' => $state, 'problem' => $problem, 'evidence' => $evidence, 'handoff' => $handoff, 'handoff_to' => $to];
+    }
+
+    public static function minutesBetween(string $from, string $to): ?int
+    {
+        $a = strtotime($from);
+        $b = strtotime($to);
+        return ($a === false || $b === false || $from === '') ? null : (int)floor(($b - $a) / 60);
+    }
+
+    public static function ago(string $at, string $now): string
+    {
+        $m = self::minutesBetween($at, $now);
+        if ($m === null) return 'at an unknown time';
+        if ($m < 2) return 'just now';
+        if ($m < 120) return "{$m} min ago";
+        if ($m < 48 * 60) return (int)floor($m / 60) . ' hours ago';
+        $days = (int)floor($m / 1440);
+        return $days < 45 ? "{$days} days ago" : 'on ' . date('M j', strtotime($at));
+    }
+
+    public static function everyWords(int $minutes): string
+    {
+        if ($minutes <= 1) return 'every minute';
+        if ($minutes < 60) return "every {$minutes} min";
+        if ($minutes < 1440) return $minutes % 60 === 0 ? 'every ' . ($minutes / 60 === 1 ? 'hour' : ($minutes / 60) . ' hours') : "every {$minutes} min";
+        if ($minutes < 7 * 1440) return $minutes === 1440 ? 'daily' : 'every ' . round($minutes / 1440) . ' days';
+        if ($minutes < 28 * 1440) return 'weekly';
+        return 'monthly';
+    }
+
+    public static function duration(int $ms): string
+    {
+        $s = (int)round($ms / 1000);
+        return $s < 120 ? "{$s} s" : round($s / 60) . ' min';
+    }
+
+    /** One readable line of an error, no paths or secrets-looking strings. */
+    public static function shortError(string $e): string
+    {
+        $e = trim(preg_replace('/\s+/', ' ', $e));
+        $e = preg_replace('#/home/[^\s:]+#', '…', $e);
+        $e = preg_replace('/\b[A-Za-z0-9_\-]{32,}\b/', '…', $e);   // token-shaped strings
+        return mb_strlen($e) > 120 ? mb_substr($e, 0, 117) . '…' : $e;
+    }
+}

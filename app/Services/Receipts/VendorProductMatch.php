@@ -33,9 +33,13 @@ function matchVendorProducts(int $vendorId, string $ocrText, array $parsed): arr
     $db = getDB();
 
     // Load vendor's known products
+    // product_id is the CRM products.id a catalog row was trained to (train-as-you-link).
+    // It was never selected before, so a recognised catalog item could only ever hint the
+    // category — it never pre-linked the line item on the next receipt.
     $stmt = $db->prepare("
         SELECT id, name, category, unit, price_per_unit,
-               alt_unit, alt_price, bag_price, ocr_aliases
+               alt_unit, alt_price, bag_price, ocr_aliases,
+               product_id AS crm_product_id
         FROM vendor_products
         WHERE vendor_id = ? AND is_active = 1
         ORDER BY name
@@ -95,11 +99,44 @@ function matchVendorProducts(int $vendorId, string $ocrText, array $parsed): arr
     }
 
     // 3) Enhance the parsed total/GST if they're missing — use bare numbers near labels
-    $parsed = enhanceAmountsFromBareNumbers($parsed, $lines, $productMatches, $products);
+    $vendorStmt = $db->prepare("SELECT gst_exempt FROM vendors WHERE id = ? LIMIT 1");
+    $vendorStmt->execute([$vendorId]);
+    $vendorGstExempt = (bool)$vendorStmt->fetchColumn();
+    $parsed = enhanceAmountsFromBareNumbers($parsed, $lines, $productMatches, $products, $vendorGstExempt);
 
     // 4) Rebuild line_items from product matches if parser found none
     if (empty($parsed['line_items']) && !empty($productMatches)) {
         $parsed['line_items'] = buildLineItemsFromMatches($productMatches);
+    }
+
+    // 5) Carry the CRM product id on each match, and pre-link line items whose
+    //    name is what a confident (≥80) catalog match matched on. This is what turns
+    //    train-as-you-link into next-scan behaviour instead of only a category hint.
+    $productsById = [];
+    foreach ($products as $p) { $productsById[$p['id']] = $p; }
+    foreach ($productMatches as &$pm) {
+        $pm['crm_product_id'] = isset($productsById[$pm['product_id']]['crm_product_id']) && $productsById[$pm['product_id']]['crm_product_id'] !== null
+            ? (int)$productsById[$pm['product_id']]['crm_product_id'] : null;
+    }
+    unset($pm);
+    if (!empty($parsed['line_items'])) {
+        foreach ($parsed['line_items'] as &$li) {
+            if (!empty($li['product_id']) || !empty($li['is_adjustment'])) continue;
+            $liKey = strtoupper(trim((string)($li['name'] ?? '')));
+            if (strlen($liKey) < 3) continue;
+            foreach ($productMatches as $pm) {
+                if (empty($pm['crm_product_id']) || (int)($pm['confidence'] ?? 0) < 80) continue;
+                $mt = strtoupper(trim((string)($pm['matched_text'] ?? '')));
+                $pn = strtoupper(trim((string)($pm['product_name'] ?? '')));
+                if ($liKey === $mt || $liKey === $pn
+                    || (strlen($mt) >= 4 && (strpos($liKey, $mt) !== false || strpos($mt, $liKey) !== false))) {
+                    $li['product_id']     = $pm['crm_product_id'];
+                    $li['product_source'] = 'catalog';
+                    break;
+                }
+            }
+        }
+        unset($li);
     }
 
     $parsed['product_matches'] = $productMatches;
@@ -415,11 +452,15 @@ function pairMatchesWithAmounts(array $matches, array $lines, array $products): 
  * If the standard parser couldn't find a total (because "56.70" OCR'd as "6043"),
  * try to reconstruct it from product match amounts + known GST rate.
  */
-function enhanceAmountsFromBareNumbers(array $parsed, array $lines, array $productMatches, array $products): array
+function enhanceAmountsFromBareNumbers(array $parsed, array $lines, array $productMatches, array $products, bool $vendorGstExempt = false): array
 {
     // If total already found with decimal, trust it
     if ($parsed['total'] !== null) {
         return $parsed;
+    }
+
+    if ($vendorGstExempt) {
+        $parsed['gst'] = number_format(0, 2, '.', '');
     }
 
     $lineCount = count($lines);
@@ -436,7 +477,9 @@ function enhanceAmountsFromBareNumbers(array $parsed, array $lines, array $produ
             }
         }
         if ($hasAmount && $itemTotal > 0) {
-            $gst = round($itemTotal * 0.05, 2);
+            require_once APP_ROOT . '/Modules/Accounting/Services/TaxEngine.php';
+            require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptAmountRules.php';
+            $gst = ReceiptAmountRules::calculatedGst($itemTotal, TaxEngine::gstRate(), $vendorGstExempt);
             $parsed['subtotal'] = number_format($itemTotal, 2, '.', '');
             $parsed['gst'] = number_format($gst, 2, '.', '');
             $parsed['total'] = number_format($itemTotal + $gst, 2, '.', '');
@@ -497,7 +540,9 @@ function enhanceAmountsFromBareNumbers(array $parsed, array $lines, array $produ
                                     }
                                 }
                                 if ($itemTotal > 0) {
-                                    $expectedGST = $itemTotal * 0.05;
+                                    require_once APP_ROOT . '/Modules/Accounting/Services/TaxEngine.php';
+                                    require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptAmountRules.php';
+                                    $expectedGST = ReceiptAmountRules::calculatedGst($itemTotal, TaxEngine::gstRate(), $vendorGstExempt);
                                     if (abs($candidate - $expectedGST) < 1.00) {
                                         $parsed['gst'] = number_format($candidate, 2, '.', '');
                                         $parsed['gst_source'] = 'vendor_product_match';

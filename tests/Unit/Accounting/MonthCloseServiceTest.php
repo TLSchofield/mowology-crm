@@ -1,0 +1,44 @@
+<?php
+use PHPUnit\Framework\TestCase;
+
+final class MonthCloseServiceTest extends TestCase
+{
+    public function testAMonthIsExactOnlyWhenEverythingIs(): void
+    {
+        $clean = ['statements_ok' => true, 'drift' => ['1010 Chequing' => 0.0, '1025 GST Reserves' => 0.004], 'receipts' => 0, 'bank_lines' => 0];
+        $this->assertSame([], MonthCloseService::blockers($clean));
+
+        // January 2026 on 2026-10-14: statements fine, but the books were off and receipts open.
+        $jan = ['statements_ok' => true, 'drift' => ['1010 Chequing' => -48.88], 'receipts' => 1, 'receipts_amount' => 30.0, 'bank_lines' => 13];
+        $b = MonthCloseService::blockers($jan);
+        $this->assertSame(['1010 Chequing: books are $48.88 below the bank', '1 open receipt ($30.00)', '13 bank lines still to sort'], $b);
+        $this->assertContains('a statement is missing or doesn\'t check out', MonthCloseService::blockers(['statements_ok' => false] + $clean));
+    }
+
+    public function testReceiptsOnNoBankLineAreNamedWithTheWayOut(): void
+    {
+        $m = ['statements_ok' => true, 'drift' => [], 'receipts' => 3, 'receipts_amount' => 90.0, 'receipts_unmatched' => 2, 'bank_lines' => 0];
+        $this->assertSame(['3 open receipts ($90.00) — 2 on no bank or card line: if you paid personally, choose "Paid personally (owner)" and approve'],
+            MonthCloseService::blockers($m));
+    }
+
+    public function testAMonthWaitsFifteenDaysAfterItEnds(): void
+    {
+        $this->assertSame('2026-10-15', MonthCloseService::graceUntil('2026-09'));
+        $sep = ['month' => '2026-09', 'statements_ok' => true, 'drift' => [], 'receipts' => 0, 'bank_lines' => 0];
+        $this->assertSame(['waiting until 2026-10-15 for late statements and receipts'], MonthCloseService::blockers($sep, '2026-10-14'));
+        $this->assertSame([], MonthCloseService::blockers($sep, '2026-10-15'));
+    }
+
+    public function testSettlementStatesBecomeBlockersAndAnUnreadMonthSaysSo(): void
+    {
+        $clean = ['statements_ok' => true, 'drift' => [], 'receipts' => 0, 'bank_lines' => 0, 'grace_until' => '2026-01-01'];
+        $this->assertSame([], MonthCloseService::blockers($clean + ['settlements' => null], '2026-11-03'));
+        $this->assertSame([], MonthCloseService::blockers($clean + ['settlements' => ['counts' => ['reconciled' => 4], 'error' => null]], '2026-11-03'));
+        $b = MonthCloseService::blockers($clean + ['settlements' => ['counts' => ['missing_in_ledger' => 1], 'error' => null]], '2026-11-03');
+        $this->assertSame(['1 Stripe payout not on any bank line — a statement may be missing'], $b);
+        $b = MonthCloseService::blockers($clean + ['settlements' => ['counts' => [], 'error' => 'Stripe could not be read: key']], '2026-11-03');
+        $this->assertSame(['Stripe payouts could not be checked (Stripe could not be read: key)'], $b);
+    }
+}
+

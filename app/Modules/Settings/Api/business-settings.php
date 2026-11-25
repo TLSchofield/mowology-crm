@@ -26,6 +26,7 @@ if (!defined('APP_ROOT')) {
 header('Content-Type: application/json');
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 require_once CRM_INCLUDES . '/functions.php';
 
 requireLogin();
@@ -40,6 +41,14 @@ try {
         getBusinessSettings($db);
 
     } elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        $rawBody = file_get_contents('php://input');
+        $jsonBody = json_decode($rawBody, true) ?? [];
+        $csrfToken = $jsonBody['csrf_token'] ?? $_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+        if (!verifyCSRFToken($csrfToken)) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+            exit;
+        }
         // POST update settings
         updateBusinessSettings($db, $user);
 
@@ -55,7 +64,7 @@ try {
 } catch (Exception $e) {
     error_log("Error in business settings API: " . $e->getMessage());
     http_response_code(500);
-    echo json_encode(['error' => $e->getMessage()]);
+    echo json_encode(['error' => ApiResponse::message($e, 'business-settings')]);
 }
 
 /**
@@ -227,10 +236,10 @@ function updateBusinessSettings($db, $user) {
 function getDefaultSettings() {
     return [
         'id' => 1,
-        'company_name' => 'Mowology Landscaping',
+        'company_name' => '',
         'company_phone' => '',
-        'company_email' => 'info@mowology.ca',
-        'company_website' => 'https://mowology.ca',
+        'company_email' => '',
+        'company_website' => '',
         'company_address' => '',
         'gst_registration' => '',
         'pst_registration' => '',
@@ -244,7 +253,7 @@ function getDefaultSettings() {
         'time_format' => '12h',
         'first_day_of_week' => '1',
         'logo_path' => '',
-        'logo_alt_text' => 'Mowology Logo',
+        'logo_alt_text' => '',
         'brand_color_primary' => '#2D8659',
         'brand_color_secondary' => '#7FD858',
         'invoice_footer_text' => '',

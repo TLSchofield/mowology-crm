@@ -12,9 +12,10 @@ declare(strict_types=1);
  *
  * Body: { "visit_id": 42 }
  *
- * Response 200: { "success": true, "is_flagged": true }
+ * Response 200: { "success": true, "is_flagged": true, "visit_endorsed": true, "endorsed_by": ["Name"] }
+ *   is_flagged = the caller's own endorsement; visit_endorsed = anyone's.
  *
- * Crew can only toggle visits assigned to them; admin can toggle any.
+ * Crew can toggle visits assigned to them or to a stop they are on; admin can toggle any.
  * Locked visits (status = completed/cancelled) cannot be unflagged by crew.
  */
 
@@ -59,7 +60,7 @@ $isAdmin = jwtIsAdmin($jwtUser['role']);
 // ── Load visit ────────────────────────────────────────────────────────────────
 try {
     $db   = getDB();
-    $stmt = $db->prepare('SELECT id, assigned_crew_id, status, is_flagged FROM job_visits WHERE id = ? LIMIT 1');
+    $stmt = $db->prepare('SELECT id, stop_id, assigned_crew_id, status, is_flagged FROM job_visits WHERE id = ? LIMIT 1');
     $stmt->execute([$visitId]);
     $visit = $stmt->fetch(PDO::FETCH_ASSOC);
 } catch (Throwable $e) {
@@ -75,7 +76,10 @@ if (!$visit) {
 }
 
 // ── Ownership check ───────────────────────────────────────────────────────────
-if (!$isAdmin && (int)($visit['assigned_crew_id'] ?? 0) !== $jwtUser['id']) {
+// Anyone on the stop's crew may endorse, not only the lead the visit is assigned to.
+require_once APP_ROOT . '/Modules/Jobs/Services/VisitWorkService.php';
+$stopCrew = (new VisitWorkService($db))->stopCrewIds(isset($visit['stop_id']) ? (int)$visit['stop_id'] : null);
+if (!VisitWorkService::canAccess($visit, (int)$jwtUser['id'], $isAdmin, $stopCrew)) {
     http_response_code(403);
     echo json_encode(['error' => 'Not your visit']);
     exit;
@@ -89,16 +93,28 @@ if (!$isAdmin && in_array(strtolower((string)$visit['status']), $lockedStatuses,
     exit;
 }
 
-// ── Toggle ────────────────────────────────────────────────────────────────────
-$newFlag = $visit['is_flagged'] ? 0 : 1;
+// ── Toggle — each crew member has their own endorsement ───────────────────────
+require_once APP_ROOT . '/Modules/Jobs/Services/VisitEndorsementService.php';
 
 try {
-    $db->prepare('UPDATE job_visits SET is_flagged = ? WHERE id = ?')
-       ->execute([$newFlag, $visitId]);
+    $result = (new VisitEndorsementService($db))->toggle($visitId, (int)$jwtUser['id'], $isAdmin);
 } catch (Throwable $e) {
+    error_log('[schedule/visit-flag] ' . $e->getMessage());
     http_response_code(500);
     echo json_encode(['error' => 'Could not update flag']);
     exit;
 }
 
-echo json_encode(['success' => true, 'is_flagged' => (bool)$newFlag]);
+// Endorsed → into the portfolio approval queue (idempotent; no-op until both photos exist).
+if ($result['mine']) {
+    require_once APP_ROOT . '/Modules/Jobs/Services/VisitLifecycleService.php';
+    VisitLifecycleService::queueForPortfolio($visitId, (int)$jwtUser['id']);
+}
+
+// is_flagged is THIS user's heart; visit_endorsed is "anyone endorsed".
+echo json_encode([
+    'success'        => true,
+    'is_flagged'     => $result['mine'],
+    'visit_endorsed' => $result['endorsed'],
+    'endorsed_by'    => $result['endorsed_by'],
+]);

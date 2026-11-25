@@ -18,6 +18,20 @@ requirePermission('marketing.view');
 
 $canEdit = userHasPermission('marketing.edit');
 
+// Prepared drafts: hand-written articles under app/Modules/Marketing/Drafts/*.php
+// (same shape as ArticleGeneratorService output). Loading one skips the Claude
+// call and drops straight into Step 2 for review + publish.
+$preparedDrafts = [];
+foreach (glob(APP_ROOT . '/Modules/Marketing/Drafts/*.php') ?: [] as $__draftFile) {
+    $__d = include $__draftFile;
+    if (is_array($__d) && !empty($__d['title']) && !empty($__d['body_html'])) {
+        $__d['key'] = $__d['key'] ?? basename($__draftFile, '.php');
+        $__d['word_count'] = str_word_count(strip_tags((string)$__d['body_html']));
+        $preparedDrafts[$__d['key']] = $__d;
+    }
+}
+unset($__draftFile, $__d);
+
 $pageTitle  = 'Content Engine';
 $activePage = 'marketing';
 ?>
@@ -106,6 +120,30 @@ $activePage = 'marketing';
                     </div>
                 </div>
 
+                <?php if ($preparedDrafts): ?>
+                <div class="mt-4 p-3 border rounded bg-light">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h6 class="mb-0">Prepared drafts <span class="text-muted fw-normal small">(written for you, no AI call needed)</span></h6>
+                        <span class="text-muted small"><?= count($preparedDrafts) ?> ready</span>
+                    </div>
+                    <div class="list-group list-group-flush">
+                        <?php foreach ($preparedDrafts as $__key => $__draft): ?>
+                        <div class="list-group-item bg-transparent px-0 d-flex flex-wrap justify-content-between align-items-center gap-3">
+                            <div class="flex-grow-1 overflow-hidden text-break">
+                                <div class="fw-semibold"><?= h($__draft['title']) ?></div>
+                                <div class="text-muted small">
+                                    <?= h($__draft['keyword'] ?? '') ?> &middot; <?= (int)$__draft['word_count'] ?> words &middot; /blog/<?= h($__draft['slug'] ?? $__key) ?>
+                                </div>
+                            </div>
+                            <?php if ($canEdit): ?>
+                            <button class="btn btn-sm btn-outline-success flex-shrink-0" onclick="loadPreparedDraft(<?= h(json_encode((string)$__key)) ?>)">Load &rarr;</button>
+                            <?php endif; ?>
+                        </div>
+                        <?php endforeach; unset($__key, $__draft); ?>
+                    </div>
+                </div>
+                <?php endif; ?>
+
                 <div class="mt-4 d-flex gap-2 align-items-center">
                     <?php if ($canEdit): ?>
                     <button class="btn btn-success px-4" id="ceBtnGenerate" onclick="generateArticle()">
@@ -157,6 +195,34 @@ $activePage = 'marketing';
             <!-- Right: Sidebar -->
             <div class="col-lg-4">
 
+                <!-- Photos: choose from the media library -->
+                <div class="card border-0 shadow-sm mb-3">
+                    <div class="card-header bg-white border-bottom py-3">
+                        <span class="fw-semibold">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="me-1"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                            Photos
+                        </span>
+                    </div>
+                    <div class="card-body p-3">
+                        <p class="text-muted small mb-2">Pick from the media library (Portfolio uploads) or upload a new one.</p>
+                        <div class="mb-3">
+                            <div class="small fw-semibold mb-1">Hero image <span class="text-muted fw-normal">(top of article + social preview)</span></div>
+                            <div id="ceHeroPreview" class="d-none mb-2">
+                                <img id="ceHeroImg" src="" alt="" class="img-fluid rounded border" style="max-height:120px;">
+                            </div>
+                            <div class="d-flex gap-2">
+                                <button type="button" class="btn btn-sm btn-outline-success" onclick="chooseHeroImage()">Choose hero image</button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary d-none" id="ceHeroClear" onclick="clearHeroImage()">Remove</button>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="small fw-semibold mb-1">Photos in the article</div>
+                            <p class="text-muted small mb-2">Click where you want it in the Article Body, then:</p>
+                            <button type="button" class="btn btn-sm btn-outline-success" onclick="insertArticlePhoto()">Insert photo at cursor</button>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Photo prompts -->
                 <div class="card border-0 shadow-sm mb-3">
                     <div class="card-header bg-white border-bottom py-3">
@@ -195,15 +261,42 @@ $activePage = 'marketing';
                     </div>
                 </div>
 
-                <!-- Publish button -->
+                <!-- Publish to the website -->
                 <?php if ($canEdit): ?>
                 <div class="card border-0 shadow-sm border border-success" style="border-width:2px!important;">
                     <div class="card-body p-3">
-                        <h6 class="mb-2">Ready to publish?</h6>
-                        <p class="text-muted small mb-3">Add photos, review the copy, then publish and amplify.</p>
-                        <button class="btn btn-success w-100" onclick="showStep(3)">
-                            Publish &amp; Amplify →
+                        <h6 class="mb-2">Publish to mowology.ca</h6>
+                        <p class="text-muted small mb-3">Creates the page at <code>/blog/&lt;slug&gt;</code> with BlogPosting + FAQ schema, then amplify it.</p>
+                        <div class="mb-2">
+                            <label class="form-label small fw-semibold mb-1">URL slug</label>
+                            <div class="input-group input-group-sm">
+                                <span class="input-group-text">/blog/</span>
+                                <input type="text" id="ceSlug" class="form-control" placeholder="from-the-title">
+                            </div>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label small fw-semibold mb-1">Byline</label>
+                            <input type="text" id="ceAuthor" class="form-control form-control-sm" value="<?= h(trim((string)($user['name'] ?? (($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? ''))))) ?>">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label small fw-semibold mb-1">Visibility</label>
+                            <select id="ceStatus" class="form-select form-select-sm" onchange="syncPublishLabel()">
+                                <option value="published">Publish now</option>
+                                <option value="draft">Save as draft (edit in CMS first)</option>
+                            </select>
+                        </div>
+                        <button class="btn btn-success w-100" id="ceBtnPublish" onclick="publishArticle()">
+                            <span class="spinner-border spinner-border-sm d-none me-1" id="cePublishSpinner"></span>
+                            <span id="cePublishLabel">Publish Article</span>
                         </button>
+                        <div id="cePublishError" class="alert alert-danger small mt-2 mb-0 d-none"></div>
+                        <div id="cePublishResult" class="small mt-3 d-none">
+                            <div class="alert alert-success mb-2 py-2">
+                                <strong id="cePublishedState">Live:</strong> <a id="cePublishedLink" href="#" target="_blank" rel="noopener"></a>
+                            </div>
+                            <a id="ceEditInCmsLink" href="#" class="btn btn-sm btn-outline-secondary w-100 mb-2">Edit in CMS</a>
+                            <button class="btn btn-sm btn-primary w-100" onclick="showStep(3)">Amplify →</button>
+                        </div>
                     </div>
                 </div>
                 <?php endif; ?>
@@ -309,8 +402,183 @@ const ceState = {
     suggestedLinks: [],
     photoPrompts: [],
     wordCount: 0,
-    articleUrl: '',  // set after CMS publish (future)
+    articleUrl: '',  // set by publishArticle()
+    pageId: 0,       // CMS page id set by publishArticle()
+    keyword: '', city: '', serviceType: '', season: '',
+    ogImagePath: '',  // hero image (site-relative), set via chooseHeroImage()
 };
+
+// ── Photos: media library → hero / inline figure ─────────────────────────
+async function articleImageInfo(media) {
+    // Resolve the best responsive variant for a media asset (falls back to the original).
+    try {
+        const r = await fetch('/crm/api/article-image.php?media_id=' + encodeURIComponent(media.id), { credentials: 'same-origin' });
+        const d = await r.json();
+        if (d.success) return d;
+    } catch (e) { /* fall through */ }
+    return { hero: media.file_path, inline: media.file_path, inline_webp: null, alt: media.alt_text || '', caption: '', width: null, height: null };
+}
+
+function chooseHeroImage() {
+    if (typeof openMediaPicker !== 'function') { showError('cePublishError', 'Media picker not available on this page.'); return; }
+    openMediaPicker(async function (media) {
+        const info = await articleImageInfo(media);
+        ceState.ogImagePath = info.hero || media.file_path;
+        const img = document.getElementById('ceHeroImg');
+        img.src = info.thumb || info.inline || ceState.ogImagePath;
+        img.alt = info.alt || '';
+        document.getElementById('ceHeroPreview').classList.remove('d-none');
+        document.getElementById('ceHeroClear').classList.remove('d-none');
+    });
+}
+
+function clearHeroImage() {
+    ceState.ogImagePath = '';
+    document.getElementById('ceHeroPreview').classList.add('d-none');
+    document.getElementById('ceHeroClear').classList.add('d-none');
+}
+
+function insertArticlePhoto() {
+    if (typeof openMediaPicker !== 'function') { showError('cePublishError', 'Media picker not available on this page.'); return; }
+    const ta = document.getElementById('ceBodyHtml');
+    const pos = ta.selectionStart || ta.value.length;   // remember the cursor before the modal steals focus
+    openMediaPicker(async function (media) {
+        const info = await articleImageInfo(media);
+        const alt  = (info.alt || '').replace(/"/g, '&quot;');
+        const dims = (info.width && info.height) ? ' width="' + info.width + '" height="' + info.height + '"' : '';
+        const img  = info.inline_webp
+            ? '<picture><source type="image/webp" srcset="' + info.inline_webp + '"><img src="' + info.inline + '" alt="' + alt + '" loading="lazy"' + dims + '></picture>'
+            : '<img src="' + info.inline + '" alt="' + alt + '" loading="lazy"' + dims + '>';
+        const cap  = info.caption ? '<figcaption>' + escHtml(info.caption) + '</figcaption>' : '<figcaption></figcaption>';
+        const html = '\n<figure class="article-figure">' + img + cap + '</figure>\n';
+        // Insert on a line boundary so we never land inside a tag.
+        let at = pos;
+        const nextNl = ta.value.indexOf('\n', at);
+        if (nextNl !== -1 && at > 0 && ta.value[at - 1] !== '\n') at = nextNl + 1;
+        ta.value = ta.value.slice(0, at) + html + ta.value.slice(at);
+        ceState.bodyHtml = ta.value;
+        ta.focus();
+        ta.setSelectionRange(at + html.length, at + html.length);
+    });
+}
+
+// ── Prepared drafts (server-embedded) ────────────────────────────────────
+const cePreparedDrafts = <?= json_encode(array_map(fn($d) => [
+    'title' => $d['title'], 'slug' => $d['slug'] ?? '', 'meta_description' => $d['meta_description'] ?? '',
+    'body_html' => $d['body_html'], 'faq_items' => $d['faq_items'] ?? [], 'suggested_links' => $d['suggested_links'] ?? [],
+    'photo_prompts' => $d['photo_prompts'] ?? [], 'keyword' => $d['keyword'] ?? '', 'city' => $d['city'] ?? '',
+    'service_type' => $d['service_type'] ?? '', 'season' => $d['season'] ?? '', 'word_count' => $d['word_count'] ?? 0,
+], $preparedDrafts), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP) ?: '{}' ?>;
+
+// Button text follows the Visibility choice so "Save as draft" never reads as "Publish".
+function syncPublishLabel() {
+    const status = document.getElementById('ceStatus').value;
+    const label  = document.getElementById('cePublishLabel');
+    if (!label) return;
+    if (ceState.pageId) {
+        label.textContent = status === 'published' ? 'Republish (save changes)' : 'Update draft';
+    } else {
+        label.textContent = status === 'published' ? 'Publish Article' : 'Save as Draft (not public)';
+    }
+}
+
+function loadPreparedDraft(key) {
+    const d = cePreparedDrafts[key];
+    if (!d) return;
+    ceState.title          = d.title || '';
+    ceState.metaDesc       = d.meta_description || '';
+    ceState.bodyHtml       = d.body_html || '';
+    ceState.faqItems       = d.faq_items || [];
+    ceState.suggestedLinks = d.suggested_links || [];
+    ceState.photoPrompts   = d.photo_prompts || [];
+    ceState.wordCount      = d.word_count || 0;
+    ceState.keyword        = d.keyword || '';
+    ceState.city           = d.city || '';
+    ceState.serviceType    = d.service_type || '';
+    ceState.season         = d.season || '';
+    ceState.schemaJson     = '';
+    ceState.pageId         = 0;
+    ceState.articleUrl     = '';
+    clearHeroImage();
+
+    document.getElementById('ceTitle').value      = ceState.title;
+    document.getElementById('ceMetaDesc').value   = ceState.metaDesc;
+    document.getElementById('ceBodyHtml').value   = ceState.bodyHtml;
+    document.getElementById('ceSchemaJson').value = '';
+    const slugEl = document.getElementById('ceSlug');
+    if (slugEl) slugEl.value = d.slug || slugFromTitle(ceState.title);
+    const pr = document.getElementById('cePublishResult');
+    if (pr) pr.classList.add('d-none');
+    updateMetaCharCount();
+    document.getElementById('ceWordCountBadge').textContent = ceState.wordCount.toLocaleString() + ' words';
+    renderPhotoPrompts(ceState.photoPrompts);
+    renderSuggestedLinks(ceState.suggestedLinks);
+    syncPublishLabel();
+    showStep(2);
+}
+
+// ── Publish to CMS (/blog/<slug>) ────────────────────────────────────────
+function slugFromTitle(t) {
+    return (t || '').toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
+}
+
+async function publishArticle() {
+    ceState.title    = document.getElementById('ceTitle').value.trim();
+    ceState.metaDesc = document.getElementById('ceMetaDesc').value.trim();
+    ceState.bodyHtml = document.getElementById('ceBodyHtml').value;
+
+    const btn     = document.getElementById('ceBtnPublish');
+    const spinner = document.getElementById('cePublishSpinner');
+    const label   = document.getElementById('cePublishLabel');
+    hideError('cePublishError');
+
+    if (!ceState.title || !ceState.bodyHtml.trim()) {
+        showError('cePublishError', 'The article needs a title and a body.');
+        return;
+    }
+
+    btn.disabled = true;
+    spinner.classList.remove('d-none');
+    try {
+        const res = await fetch('/crm/api/publish-article.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                page_id:          ceState.pageId || 0,
+                title:            ceState.title,
+                body_html:        ceState.bodyHtml,
+                meta_description: ceState.metaDesc,
+                slug:             document.getElementById('ceSlug').value.trim(),
+                author:           document.getElementById('ceAuthor').value.trim(),
+                status:           document.getElementById('ceStatus').value,
+                keyword:          ceState.keyword,
+                city:             ceState.city,
+                service_type:     ceState.serviceType,
+                season:           ceState.season,
+                faq_items:        ceState.faqItems,
+                og_image_path:    ceState.ogImagePath || '',
+            }),
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error || 'Publish failed');
+
+        ceState.pageId     = data.page_id;
+        ceState.articleUrl = data.url;
+        document.getElementById('ceSlug').value = (data.slug || '').replace(/^blog\//, '');
+        const link = document.getElementById('cePublishedLink');
+        link.href = data.url; link.textContent = data.url;
+        const st = document.getElementById('cePublishedState');
+        if (st) st.textContent = data.status === 'published' ? 'Live:' : 'Saved as draft (not public yet):';
+        document.getElementById('ceEditInCmsLink').href = data.edit_url;
+        document.getElementById('cePublishResult').classList.remove('d-none');
+        syncPublishLabel();
+    } catch (err) {
+        showError('cePublishError', err.message);
+    } finally {
+        btn.disabled = false;
+        spinner.classList.add('d-none');
+    }
+}
 
 // ── Step navigation ──────────────────────────────────────────────────────
 function showStep(n) {
@@ -359,6 +627,16 @@ async function generateArticle() {
         ceState.title         = data.title || '';
         ceState.metaDesc      = data.meta_description || '';
         ceState.bodyHtml      = data.body_html || '';
+        ceState.keyword       = keyword;
+        ceState.city          = city;
+        ceState.serviceType   = serviceType;
+        ceState.season        = (document.getElementById('ceSeason') || {}).value || '';
+        ceState.pageId        = 0;
+        ceState.articleUrl    = '';
+        const slugEl = document.getElementById('ceSlug');
+        if (slugEl) slugEl.value = slugFromTitle(data.title || '');
+        const pr = document.getElementById('cePublishResult');
+        if (pr) pr.classList.add('d-none');
         ceState.schemaJson    = data.schema_json || '';
         ceState.faqItems      = data.faq_items || [];
         ceState.suggestedLinks = data.suggested_links || [];
@@ -410,17 +688,21 @@ async function runCascade() {
     spinner.classList.remove('d-none');
     hideError('ceCascadeError');
 
-    // Note: article_id is 0 here — in the future this will be the CMS page ID
-    // created when the article is published to the CMS. For now the cascade
-    // runs from the in-memory draft.
+    if (!ceState.pageId || !ceState.articleUrl) {
+        showError('ceCascadeError', 'Publish the article to mowology.ca first (Step 2) so the channels can link to it.');
+        btn.disabled = false;
+        spinner.classList.add('d-none');
+        return;
+    }
+
     try {
         const res = await fetch('/crm/api/cascade.php', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
             body: JSON.stringify({
-                article_id:       0,
+                article_id:       ceState.pageId,
                 title:            ceState.title,
-                url:              ceState.articleUrl || 'https://mowology.ca/blog/',
+                url:              ceState.articleUrl,
                 body_html:        ceState.bodyHtml,
                 meta_description: ceState.metaDesc,
                 channels,
@@ -530,4 +812,6 @@ function escHtml(str) {
 document.getElementById('ceMetaDesc').addEventListener('input', updateMetaCharCount);
 </script>
 
+<?php include dirname(__DIR__) . '/cms/block-forms/media-picker-modal.php'; ?>
+<script>window.csrfToken = window.csrfToken || (document.querySelector('meta[name="csrf-token"]') || {}).content || '';</script>
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

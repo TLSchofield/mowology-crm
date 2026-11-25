@@ -165,6 +165,168 @@ class QuoteServiceTest extends TestCase
         $this->assertNull($result['contact_id']);
     }
 
+    // ── preferManagingContact() ──────────────────────────────────────────────
+
+    private function managedQuote(int $siteContactEmployer): array
+    {
+        return [
+            'company_id'               => 4,
+            'contact_id'               => 2,
+            'contact_first'            => 'Jodi',
+            'contact_last'             => 'Peacock',
+            'contact_email'            => 'invoices@vml.example',
+            'contact_phone'            => '604-263-1766',
+            'prop_contact_id'          => 9,
+            'prop_contact_first'       => 'Alena',
+            'prop_contact_last'        => 'Radosovska',
+            'prop_contact_email'       => 'alena@vml.example',
+            'prop_contact_phone'       => '604-263-0000',
+            'prop_contact_employer_id' => $siteContactEmployer,
+            'qr_email'                 => null,
+            'qr_phone'                 => null,
+            'qr_first_name'            => null,
+            'qr_last_name'             => null,
+            'qr_contact_id'            => null,
+            'billing_email'            => 'invoices@vml.example',
+            'billing_phone'            => null,
+            'company_name'             => 'Vancouver Management',
+        ];
+    }
+
+    /** @test */
+    public function quote_goes_to_the_property_manager_who_works_for_the_company(): void
+    {
+        $quote  = QuoteService::preferManagingContact($this->managedQuote(4));
+        $result = $this->service()->resolveContact($quote);
+
+        $this->assertSame('alena@vml.example', $result['email']);
+        $this->assertSame('Alena Radosovska',  $result['name']);
+        $this->assertSame(9,                    $result['contact_id']);
+        $this->assertSame('Alena Radosovska',  $this->service()->resolveDisplayName($quote));
+    }
+
+    /** @test */
+    public function site_contact_from_outside_the_company_does_not_displace_company_contact(): void
+    {
+        $quote  = QuoteService::preferManagingContact($this->managedQuote(0));
+        $result = $this->service()->resolveContact($quote);
+
+        $this->assertSame('invoices@vml.example', $result['email']);
+        $this->assertSame('Jodi Peacock',         $result['name']);
+    }
+
+    /** @test */
+    public function site_contact_employed_by_a_different_company_is_ignored(): void
+    {
+        $quote = QuoteService::preferManagingContact($this->managedQuote(99));
+        $this->assertSame('invoices@vml.example', $this->service()->resolveContact($quote)['email']);
+    }
+
+    /** @test */
+    public function quote_request_contact_still_wins_over_the_manager(): void
+    {
+        $quote = $this->managedQuote(4);
+        $quote['qr_email']      = 'asker@example.com';
+        $quote['qr_first_name'] = 'Asker';
+        $quote['qr_last_name']  = 'Person';
+        $quote['qr_contact_id'] = 11;
+
+        $result = $this->service()->resolveContact(QuoteService::preferManagingContact($quote));
+        $this->assertSame('asker@example.com', $result['email']);
+    }
+
+    // ── contractSigningHtml() ────────────────────────────────────────────────
+
+    /** @test */
+    public function contract_email_requires_online_signature_and_no_paper(): void
+    {
+        $html = QuoteService::contractSigningHtml("TERM\n\nNo slip and fall liability.", 'https://x.test/q?t=1', 'office@example.com');
+
+        $this->assertStringContainsString('must be signed online', $html);
+        $this->assertStringContainsString('href="https://x.test/q?t=1"', $html);
+        $this->assertStringContainsString('nothing to print or send back', $html);
+        $this->assertStringContainsString('mailto:office@example.com', $html);
+        $this->assertStringNotContainsString('On paper', $html);
+    }
+
+    /** @test */
+    public function contract_email_prints_every_terms_paragraph_escaped(): void
+    {
+        $html = QuoteService::contractSigningHtml("TERM\n\nLine one\nLine two\n\n<script>x</script> & co", 'u', 'e@x.test');
+
+        $this->assertStringContainsString('Terms &amp; Conditions', $html);
+        $this->assertStringContainsString('>TERM</p>', $html);
+        $this->assertStringContainsString('Line one<br />', $html);
+        $this->assertStringContainsString('&lt;script&gt;x&lt;/script&gt; &amp; co', $html);
+        $this->assertStringNotContainsString('<script>', $html);
+    }
+
+    /** @test */
+    public function contract_email_without_terms_still_carries_the_requirement(): void
+    {
+        $html = QuoteService::contractSigningHtml('   ', 'u', 'e@x.test');
+        $this->assertStringContainsString('must be signed online', $html);
+        $this->assertStringNotContainsString('<strong>Terms &amp; Conditions</strong>', $html);
+    }
+
+    // ── resolveDisplayName() ──────────────────────────────────────────────────
+
+    /** @test */
+    public function resolveDisplayName_prefers_an_individual_person_when_no_strata(): void
+    {
+        $quote = [
+            'qr_first_name' => 'Alice', 'qr_last_name' => 'Smith',
+            'contact_first' => 'Bob', 'contact_last' => 'Jones',
+            'prop_contact_first' => null, 'prop_contact_last' => null,
+            'company_name' => 'ACME Corp',
+            'property_billing_entity' => null,
+        ];
+
+        // No strata entity → a real person wins (residential unaffected).
+        $this->assertSame('Alice Smith', $this->service()->resolveDisplayName($quote));
+    }
+
+    /** @test */
+    public function resolveDisplayName_strata_entity_wins_alone_over_person_and_company(): void
+    {
+        $quote = [
+            'qr_first_name' => 'Alice', 'qr_last_name' => 'Smith',
+            'contact_first' => null, 'contact_last' => null,
+            'prop_contact_first' => null, 'prop_contact_last' => null,
+            'company_name' => 'FirstService Residential',
+            'property_billing_entity' => 'Strata Plan VR15/40',
+        ];
+
+        // Strata: just the strata name — no "C/O company", no on-site person.
+        $this->assertSame('Strata Plan VR15/40', $this->service()->resolveDisplayName($quote));
+    }
+
+    /** @test */
+    public function resolveDisplayName_falls_back_to_company_name(): void
+    {
+        $quote = [
+            'qr_first_name' => null, 'qr_last_name' => null,
+            'contact_first' => null, 'contact_last' => null,
+            'prop_contact_first' => null, 'prop_contact_last' => null,
+            'company_name' => 'ACME Corp',
+            'property_billing_entity' => null,
+        ];
+
+        $this->assertSame('ACME Corp', $this->service()->resolveDisplayName($quote));
+    }
+
+    /** @test */
+    public function resolveDisplayName_returns_na_when_nothing_resolvable(): void
+    {
+        $quote = array_fill_keys([
+            'qr_first_name', 'qr_last_name', 'contact_first', 'contact_last',
+            'prop_contact_first', 'prop_contact_last', 'company_name',
+            'property_billing_entity',
+        ], null);
+
+        $this->assertSame('N/A', $this->service()->resolveDisplayName($quote));
+    }
+
     // ── calculateTotals() ─────────────────────────────────────────────────────
 
     /** @test */

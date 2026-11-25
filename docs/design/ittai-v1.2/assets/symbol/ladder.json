@@ -1,0 +1,36 @@
+{
+ "spoke_min_px": 48,
+ "rows": [
+  {
+   "file": "ittai-symbol-16.svg",
+   "from_px": 0,
+   "spokes": false
+  },
+  {
+   "file": "ittai-symbol-24.svg",
+   "from_px": 24,
+   "spokes": false
+  },
+  {
+   "file": "ittai-symbol-32.svg",
+   "from_px": 32,
+   "spokes": false
+  },
+  {
+   "file": "ittai-symbol-48.svg",
+   "from_px": 48,
+   "spokes": true
+  },
+  {
+   "file": "ittai-symbol-64.svg",
+   "from_px": 64,
+   "spokes": true
+  }
+ ],
+ "favicon": "favicon.svg",
+ "colours": {
+  "light": "#233A5E",
+  "field": "#233A5E",
+  "dark": "#A9B9DA"
+ }
+}

@@ -1,6 +1,13 @@
 # Disable directory browsing
 Options -Indexes
 
+# Pass the Authorization header to PHP. cPanel/mod_php strips it unless a rewrite copies it into the environment;
+# /crm/api/app-vitals.php reads the mobile JWT from it (public/api/.htaccess does the same for /api/).
+# Without this, every app vitals upload answered 401 no_auth and the iPhone signed the crew out (2026-11-18).
+RewriteEngine On
+RewriteCond %{HTTP:Authorization} .+
+RewriteRule ^ - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
 # Prevent LiteSpeed and browser caching of all CRM pages (authenticated, dynamic content)
 <IfModule mod_headers.c>
     Header set Cache-Control "no-store, no-cache, must-revalidate"

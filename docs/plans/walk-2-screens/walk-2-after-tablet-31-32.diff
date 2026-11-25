@@ -1,0 +1,937 @@
+diff --git a/android/app/build.gradle b/android/app/build.gradle
+index b7bc595..8b918be 100644
+--- a/android/app/build.gradle
++++ b/android/app/build.gradle
+@@ -222,6 +222,10 @@ dependencies {
+     implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.7.0'
+     implementation 'androidx.lifecycle:lifecycle-viewmodel-ktx:2.7.0'
+     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
++    // Saved login (Ittai only, 2026-11-04): Android Credential Manager — offers "Save password?" after sign-up/sign-in
++    // and the saved login on the sign-in screen. 1.2.2 is the line that builds on compileSdk 34 + Kotlin 1.9.22.
++    implementation 'androidx.credentials:credentials:1.2.2'
++    implementation 'androidx.credentials:credentials-play-services-auth:1.2.2'
+     // org.json is part of Android, but the JVM unit tests run against a stub android.jar.
+     testImplementation 'org.json:json:20231013'
+ }
+diff --git a/android/app/src/main/java/ca/mowology/crew/auth/AuthHandoff.kt b/android/app/src/main/java/ca/mowology/crew/auth/AuthHandoff.kt
+new file mode 100644
+index 0000000..ef39a66
+--- /dev/null
++++ b/android/app/src/main/java/ca/mowology/crew/auth/AuthHandoff.kt
+@@ -0,0 +1,11 @@
++package ca.mowology.crew.auth
++
++/** Pure: which email (if any) to carry from one auth form to the other. */
++object AuthHandoff {
++    /** Returns the email to copy into the target field, or null to leave the target alone. */
++    fun carry(from: String, target: String): String? {
++        val email = from.trim()
++        if (target.isNotBlank() || !SignUpLogic.emailValid(email)) return null
++        return email
++    }
++}
+diff --git a/android/app/src/main/java/ca/mowology/crew/auth/PasswordGen.kt b/android/app/src/main/java/ca/mowology/crew/auth/PasswordGen.kt
+new file mode 100644
+index 0000000..992a085
+--- /dev/null
++++ b/android/app/src/main/java/ca/mowology/crew/auth/PasswordGen.kt
+@@ -0,0 +1,20 @@
++package ca.mowology.crew.auth
++
++import java.security.SecureRandom
++import java.util.Random
++
++object PasswordGen {
++    private const val UPPER = "ABCDEFGHJKLMNPQRSTUVWXYZ"
++    private const val LOWER = "abcdefghijkmnpqrstuvwxyz"
++    private const val DIGITS = "23456789"
++    private const val ALPHABET = UPPER + LOWER + DIGITS
++
++    fun generate(random: Random = SecureRandom()): String {
++        while (true) {
++            val raw = CharArray(16) { ALPHABET[random.nextInt(ALPHABET.length)] }
++            if (raw.any(UPPER::contains) && raw.any(LOWER::contains) && raw.any(DIGITS::contains)) {
++                return raw.concatToString().chunked(4).joinToString("-")
++            }
++        }
++    }
++}
+diff --git a/android/app/src/main/java/ca/mowology/crew/auth/SavedLogin.kt b/android/app/src/main/java/ca/mowology/crew/auth/SavedLogin.kt
+new file mode 100644
+index 0000000..13e1772
+--- /dev/null
++++ b/android/app/src/main/java/ca/mowology/crew/auth/SavedLogin.kt
+@@ -0,0 +1,65 @@
++package ca.mowology.crew.auth
++
++import android.app.Activity
++import android.content.Context
++import android.content.ContextWrapper
++import android.util.Log
++import androidx.credentials.CreatePasswordRequest
++import androidx.credentials.CredentialManager
++import androidx.credentials.GetCredentialRequest
++import androidx.credentials.GetPasswordOption
++import androidx.credentials.PasswordCredential
++import androidx.credentials.exceptions.CreateCredentialException
++import androidx.credentials.exceptions.GetCredentialCancellationException
++import androidx.credentials.exceptions.GetCredentialException
++import androidx.credentials.exceptions.NoCredentialException
++
++object SavedLoginLogic {
++    fun shouldOfferSave(isIttai: Boolean, email: String, password: String): Boolean =
++        isIttai && email.isNotBlank() && password.isNotBlank()
++
++    fun shouldPick(isIttai: Boolean, alreadyPickedThisLaunch: Boolean, fieldsEmpty: Boolean): Boolean =
++        isIttai && !alreadyPickedThisLaunch && fieldsEmpty
++}
++
++object SavedLogin {
++    private const val TAG = "SavedLogin"
++
++    suspend fun offerSave(activity: Activity, email: String, password: String) {
++        try {
++            CredentialManager.create(activity).createCredential(activity, CreatePasswordRequest(email, password))
++        } catch (e: CreateCredentialException) {
++            Log.i(TAG, "Password save was not completed: ${e.javaClass.simpleName}")
++        } catch (e: Exception) {
++            Log.i(TAG, "Password save was not completed: ${e.javaClass.simpleName}")
++        }
++    }
++
++    suspend fun pick(activity: Activity): Pair<String, String>? = try {
++        val request = GetCredentialRequest(
++            listOf(GetPasswordOption()),
++            preferImmediatelyAvailableCredentials = true
++        )
++        val credential = CredentialManager.create(activity).getCredential(activity, request).credential
++        (credential as? PasswordCredential)?.let { it.id to it.password }
++    } catch (e: NoCredentialException) {
++        null
++    } catch (e: GetCredentialCancellationException) {
++        null
++    } catch (e: GetCredentialException) {
++        null
++    } catch (e: Exception) {
++        null
++    }
++}
++
++fun Context.findActivity(): Activity? {
++    var current = this
++    while (current is ContextWrapper) {
++        if (current is Activity) return current
++        val next = current.baseContext
++        if (next === current) break
++        current = next
++    }
++    return current as? Activity
++}
+diff --git a/android/app/src/main/java/ca/mowology/crew/auth/SignInActivity.kt b/android/app/src/main/java/ca/mowology/crew/auth/SignInActivity.kt
+index cbab0d6..dcb9aff 100644
+--- a/android/app/src/main/java/ca/mowology/crew/auth/SignInActivity.kt
++++ b/android/app/src/main/java/ca/mowology/crew/auth/SignInActivity.kt
+@@ -99,11 +99,11 @@ class SignInActivity : ComponentActivity() {
+                 else if (onboarding) ca.mowology.crew.onboarding.OnboardingFlow(onboardingVm, startAt = onboardingStart,
+                     onDone = { NativeDayLauncher.open(this); finish() }, ownBanner = true)
+                 else if (creatingBusiness && signUpState.stage == Stage.CODE) SignUpCodeScreen(signUpVm, onBack = {})
+-                else if (creatingBusiness) SignUpScreen(signUpVm, onBack = { if (ca.mowology.crew.config.ServerConfig.isIttai) welcome = true else NativeDayLauncher.openWeb(this, null) }, onSignIn = { creatingBusiness = false })
++                else if (creatingBusiness) SignUpScreen(signUpVm, onBack = { if (ca.mowology.crew.config.ServerConfig.isIttai) welcome = true else NativeDayLauncher.openWeb(this, null) }, onSignIn = { carryEmailToSignIn(); creatingBusiness = false })
+                 else SignInScreen(vm,
+                     onSignedIn = { NativeDayLauncher.open(this); finish() },
+                     onUseWeb = { NativeDayLauncher.openWeb(this, NativeDayLauncher.SCHEDULE_URL) },
+-                    onCreateBusiness = if (SignUpViewModel.unavailable) null else ({ creatingBusiness = true }),
++                    onCreateBusiness = if (SignUpViewModel.unavailable) null else ({ carryEmailToSignUp(); creatingBusiness = true }),
+                     signUpUnavailable = SignUpViewModel.unavailable,
+                     onOpenSaved = saved?.let { d -> {
+                         // Codex I3 #1: finish only when the day screen really started; otherwise stay, drop the option, say so.
+@@ -130,4 +130,13 @@ class SignInActivity : ComponentActivity() {
+         NativeAuthLauncher.signInShowing = false
+         super.onPause()
+     }
++
++    /** Switching between sign-in and sign-up keeps the email already typed (Tim, 2026-11-04). Never overwrites a typed value. */
++    private fun carryEmailToSignIn() {
++        AuthHandoff.carry(signUpVm.state.value.input.email, vm.state.value.credential)?.let(vm::credential)
++    }
++    private fun carryEmailToSignUp() {
++        val s = signUpVm.state.value
++        AuthHandoff.carry(vm.state.value.credential, s.input.email)?.let { signUpVm.update(s.input.copy(email = it)) }
++    }
+ }
+diff --git a/android/app/src/main/java/ca/mowology/crew/auth/SignInScreen.kt b/android/app/src/main/java/ca/mowology/crew/auth/SignInScreen.kt
+index c125717..5de815b 100644
+--- a/android/app/src/main/java/ca/mowology/crew/auth/SignInScreen.kt
++++ b/android/app/src/main/java/ca/mowology/crew/auth/SignInScreen.kt
+@@ -81,8 +81,28 @@ fun SignInScreen(vm: SignInViewModel, onSignedIn: () -> Unit, onUseWeb: () -> Un
+     val focus = LocalFocusManager.current
+     val passwordFocus = remember { FocusRequester() }
+     val context = androidx.compose.ui.platform.LocalContext.current
++    val savedLoginOn = ca.mowology.crew.config.ServerConfig.isIttai
+ 
+     LaunchedEffect(state.signedIn) { if (state.signedIn) onSignedIn() }
++    LaunchedEffect(savedLoginOn) {
++        if (!savedLoginOn) return@LaunchedEffect
++        val shouldPick = SavedLoginLogic.shouldPick(ca.mowology.crew.config.ServerConfig.isIttai,
++            vm.alreadyPickedThisLaunch(), vm.fieldsEmpty())
++        if (!shouldPick) return@LaunchedEffect
++        val activity = context.findActivity() ?: return@LaunchedEffect
++        // Set before opening the provider UI: cancellation, dismissal and recomposition can never reopen it.
++        vm.markPickAttempted()
++        SavedLogin.pick(activity)?.let { (email, password) -> vm.useSavedLogin(email, password) }
++    }
++    LaunchedEffect(state.savePending) {
++        if (!state.savePending) return@LaunchedEffect
++        val activity = context.findActivity()
++        if (savedLoginOn && !state.signedInFromSavedLogin && activity != null &&
++            SavedLoginLogic.shouldOfferSave(ca.mowology.crew.config.ServerConfig.isIttai, state.credential, state.password)) {
++            SavedLogin.offerSave(activity, state.credential, state.password)
++        }
++        vm.finishSignIn()
++    }
+ 
+     Column(
+         Modifier.fillMaxSize().background(it.page).safeDrawingPadding().imePadding()
+diff --git a/android/app/src/main/java/ca/mowology/crew/auth/SignInViewModel.kt b/android/app/src/main/java/ca/mowology/crew/auth/SignInViewModel.kt
+index 878309b..fec8023 100644
+--- a/android/app/src/main/java/ca/mowology/crew/auth/SignInViewModel.kt
++++ b/android/app/src/main/java/ca/mowology/crew/auth/SignInViewModel.kt
+@@ -2,6 +2,7 @@ package ca.mowology.crew.auth
+ 
+ import android.app.Application
+ import androidx.lifecycle.AndroidViewModel
++import androidx.lifecycle.SavedStateHandle
+ import androidx.lifecycle.viewModelScope
+ import kotlinx.coroutines.Dispatchers
+ import kotlinx.coroutines.flow.MutableStateFlow
+@@ -18,11 +19,13 @@ data class SignInState(
+     val error: String? = null,
+     /** Why the person is here (expired, rejected) — shown once, above the fields. */
+     val reason: String? = null,
+-    val signedIn: Boolean = false
++    val signedIn: Boolean = false,
++    val savePending: Boolean = false,
++    val signedInFromSavedLogin: Boolean = false
+ )
+ 
+ /** Mirrors iOS LoginViewModel: validate, call the session, show one error line, clear it as they type. */
+-class SignInViewModel(app: Application) : AndroidViewModel(app) {
++class SignInViewModel(app: Application, private val savedState: SavedStateHandle) : AndroidViewModel(app) {
+     private val ctx get() = getApplication<Application>()
+     private val _state = MutableStateFlow(SignInState(reason = NativeAuthSession.signInReason(app)))
+     val state: StateFlow<SignInState> = _state
+@@ -30,8 +33,15 @@ class SignInViewModel(app: Application) : AndroidViewModel(app) {
+     fun credential(v: String) = _state.update { it.copy(credential = v, error = null) }
+     fun password(v: String) = _state.update { it.copy(password = v, error = null) }
+     fun toggleShowPassword() = _state.update { it.copy(showPassword = !it.showPassword) }
++    fun alreadyPickedThisLaunch(): Boolean = savedState["saved_login_pick_attempted"] ?: false
++    fun markPickAttempted() { savedState["saved_login_pick_attempted"] = true }
++    fun fieldsEmpty(): Boolean = _state.value.credential.isBlank() && _state.value.password.isBlank()
++    fun useSavedLogin(email: String, password: String) {
++        _state.update { it.copy(credential = email, password = password, error = null) }
++        signIn(fromSavedLogin = true)
++    }
+ 
+-    fun signIn() {
++    fun signIn(fromSavedLogin: Boolean = false) {
+         val s = _state.value
+         if (s.loading) return
+         NativeAuthLogic.validateInput(s.credential, s.password)?.let { msg -> _state.update { it.copy(error = msg) }; return }
+@@ -40,11 +50,15 @@ class SignInViewModel(app: Application) : AndroidViewModel(app) {
+             val outcome = withContext(Dispatchers.IO) { NativeAuthSession.signIn(ctx, s.credential, s.password) }
+             when (outcome) {
+                 is NativeAuthLogic.SignInOutcome.Ok ->
+-                    // The password leaves memory with the screen; nothing keeps it.
+-                    _state.update { it.copy(loading = false, password = "", signedIn = true, reason = null) }
++                    _state.update { it.copy(loading = true, savePending = true,
++                        signedInFromSavedLogin = fromSavedLogin, reason = null) }
+                 is NativeAuthLogic.SignInOutcome.Failed ->
+                     _state.update { it.copy(loading = false, error = outcome.error.message) }
+             }
+         }
+     }
++
++    fun finishSignIn() = _state.update {
++        if (!it.savePending) it else it.copy(loading = false, password = "", savePending = false, signedIn = true)
++    }
+ }
+diff --git a/android/app/src/main/java/ca/mowology/crew/auth/SignUpCodeScreen.kt b/android/app/src/main/java/ca/mowology/crew/auth/SignUpCodeScreen.kt
+index 418ce05..38c5789 100644
+--- a/android/app/src/main/java/ca/mowology/crew/auth/SignUpCodeScreen.kt
++++ b/android/app/src/main/java/ca/mowology/crew/auth/SignUpCodeScreen.kt
+@@ -30,6 +30,16 @@ import ca.mowology.crew.ui.ittai.*
+ 
+ @Composable fun SignUpCodeScreen(vm: SignUpViewModel, onBack: () -> Unit) {
+     val s by vm.state.collectAsState(); val focus = LocalFocusManager.current
++    val context = androidx.compose.ui.platform.LocalContext.current
++    LaunchedEffect(s.savePending) {
++        if (!s.savePending) return@LaunchedEffect
++        val activity = context.findActivity()
++        if (activity != null &&
++            SavedLoginLogic.shouldOfferSave(ca.mowology.crew.config.ServerConfig.isIttai, s.input.email, s.input.password)) {
++            SavedLogin.offerSave(activity, s.input.email.trim(), s.input.password)
++        }
++        vm.finishConfirm()
++    }
+     Column(Modifier.fillMaxSize().background(It.palette.page).safeDrawingPadding().imePadding().verticalScroll(rememberScrollState()).padding(ItSpace.s4),
+         verticalArrangement = Arrangement.spacedBy(ItSpace.s3)) {
+         ItTenantBanner(); ItTopBar("Check your email", onBack = { vm.changeEmail(); onBack() })
+diff --git a/android/app/src/main/java/ca/mowology/crew/auth/SignUpLogic.kt b/android/app/src/main/java/ca/mowology/crew/auth/SignUpLogic.kt
+index 55395d8..7436343 100644
+--- a/android/app/src/main/java/ca/mowology/crew/auth/SignUpLogic.kt
++++ b/android/app/src/main/java/ca/mowology/crew/auth/SignUpLogic.kt
+@@ -4,7 +4,7 @@ import org.json.JSONObject
+ 
+ object SignUpLogic {
+     data class Input(
+-        val fullName: String, val mobile: String, val email: String,
++        val firstName: String, val lastName: String, val mobile: String, val email: String,
+         val password: String, val confirm: String
+     )
+ 
+@@ -21,28 +21,38 @@ object SignUpLogic {
+     }
+ 
+     fun validate(i: Input): Map<String, String> = buildMap {
+-        val name = i.fullName.trim()
+-        if (name.length !in 2..80 || !name.contains(' ')) put("full_name", "Enter your full name.")
++        if (i.firstName.trim().length !in 1..40) put("first_name", "Enter your first name.")
++        if (i.lastName.trim().length !in 1..40) put("last_name", "Enter your last name.")
+         if (normaliseMobile(i.mobile) == null) put("mobile", "Enter your mobile number (10 digits).")
+         if (!emailValid(i.email)) put("email", "Enter a valid email address.")
+         if (i.password.length < 10) put("password", "Use at least 10 characters.")
+         if (i.confirm != i.password) put("confirm", "Passwords must match.")
+     }
+ 
+-    fun body(i: Input): JSONObject = JSONObject()
+-        .put("full_name", i.fullName.trim())
++    private fun names(i: Input): Triple<String, String, String> {
++        val first = i.firstName.trim()
++        val last = i.lastName.trim()
++        return Triple(first, last, "$first $last")
++    }
++
++    fun body(i: Input): JSONObject = names(i).let { (first, last, full) -> JSONObject()
++        .put("first_name", first)
++        .put("last_name", last)
++        .put("full_name", full)
+         .put("mobile", normaliseMobile(i.mobile))
+         .put("email", i.email.trim().lowercase())
+         .put("password", i.password)
+-        .put("audience", "mobile")
++        .put("audience", "mobile") }
+ 
+-    fun confirmBody(i: Input, code: String): JSONObject = JSONObject()
++    fun confirmBody(i: Input, code: String): JSONObject = names(i).let { (first, last, full) -> JSONObject()
+         .put("email", i.email.trim().lowercase())
+         .put("code", code)
+-        .put("full_name", i.fullName.trim())
++        .put("first_name", first)
++        .put("last_name", last)
++        .put("full_name", full)
+         .put("mobile", normaliseMobile(i.mobile))
+         .put("password", i.password)
+-        .put("audience", "mobile")
++        .put("audience", "mobile") }
+ 
+     fun serverMessage(code: Int): String = when (code) {
+         404 -> "Sign-up is not available on this server yet."
+@@ -50,14 +60,21 @@ object SignUpLogic {
+         429 -> NativeAuthLogic.SignInError.RATE_LIMITED.message
+         502 -> "The code could not be sent. Try again in a minute."
+         0 -> NativeAuthLogic.SignInError.NETWORK.message
+-        else -> NativeAuthLogic.SignInError.SERVER.message
++        else -> SERVER_PROBLEM
+     }
+ 
++    /** Sign-up has no password check, so the sign-in wording ("nothing is wrong with your password") would mislead here. */
++    const val SERVER_PROBLEM = "The server had a problem. Nothing you entered is wrong — try again in a minute."
++
+     fun fieldErrors(json: JSONObject?): Map<String, String> {
+         val fields = json?.optJSONObject("fields") ?: return emptyMap()
+-        return fields.keys().asSequence().mapNotNull { key ->
+-            fields.optString(key).takeIf(String::isNotBlank)?.let { key to it }
+-        }.toMap()
++        val result = linkedMapOf<String, String>()
++        fields.keys().asSequence().forEach { key ->
++            val value = fields.optString(key).takeIf(String::isNotBlank) ?: return@forEach
++            val field = when (key) { "full_name", "first_name" -> "first_name"; else -> key }
++            if (field !in result || key == "first_name") result[field] = value
++        }
++        return result
+     }
+ 
+     fun sent(json: JSONObject?): List<String> {
+diff --git a/android/app/src/main/java/ca/mowology/crew/auth/SignUpScreen.kt b/android/app/src/main/java/ca/mowology/crew/auth/SignUpScreen.kt
+index db0a0eb..dc28bc4 100644
+--- a/android/app/src/main/java/ca/mowology/crew/auth/SignUpScreen.kt
++++ b/android/app/src/main/java/ca/mowology/crew/auth/SignUpScreen.kt
+@@ -10,7 +10,6 @@ import androidx.compose.foundation.verticalScroll
+ import androidx.compose.material3.Text
+ import androidx.compose.material3.TextButton
+ import androidx.compose.runtime.*
+-import androidx.compose.runtime.saveable.rememberSaveable
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.autofill.AutofillType
+ import androidx.compose.ui.platform.LocalFocusManager
+@@ -21,21 +20,39 @@ import ca.mowology.crew.ui.ittai.*
+ @Composable
+ fun SignUpScreen(vm: SignUpViewModel, onBack: () -> Unit, onSignIn: () -> Unit) {
+     val s by vm.state.collectAsState(); val i = s.input; val focus = LocalFocusManager.current
+-    var showPassword by rememberSaveable { mutableStateOf(false) }
++    val savedLoginOn = ca.mowology.crew.config.ServerConfig.isIttai
+     Column(Modifier.fillMaxSize().background(It.palette.page).safeDrawingPadding().imePadding().verticalScroll(rememberScrollState()).padding(ItSpace.s4),
+         verticalArrangement = Arrangement.spacedBy(ItSpace.s3)) {
+         ItTenantBanner(); ItTopBar("Create your login", onBack = onBack)
+         Text("Just you for now — the business comes next.", style = ItTextStyle.BODY_16.style(), color = It.palette.meta)
+-        Field("full_name", "Full name", i.fullName, { vm.update(i.copy(fullName = it)) }, s,
+-            KeyboardOptions(capitalization = KeyboardCapitalization.Words, keyboardType = KeyboardType.Text, imeAction = ImeAction.Next), AutofillType.PersonFullName)
++        BoxWithConstraints {
++            val names: @Composable RowScope.() -> Unit = {
++                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(ItSpace.s1)) { Field("first_name", "First name", i.firstName, { vm.update(i.copy(firstName = it)) }, s,
++                    KeyboardOptions(capitalization = KeyboardCapitalization.Words, keyboardType = KeyboardType.Text, imeAction = ImeAction.Next), AutofillType.PersonFirstName) }
++                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(ItSpace.s1)) { Field("last_name", "Last name", i.lastName, { vm.update(i.copy(lastName = it)) }, s,
++                    KeyboardOptions(capitalization = KeyboardCapitalization.Words, keyboardType = KeyboardType.Text, imeAction = ImeAction.Next), AutofillType.PersonLastName) }
++            }
++            if (maxWidth >= 600.dp) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(ItSpace.s3), content = names)
++            else Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(ItSpace.s3)) {
++                Field("first_name", "First name", i.firstName, { vm.update(i.copy(firstName = it)) }, s,
++                    KeyboardOptions(capitalization = KeyboardCapitalization.Words, keyboardType = KeyboardType.Text, imeAction = ImeAction.Next), AutofillType.PersonFirstName)
++                Field("last_name", "Last name", i.lastName, { vm.update(i.copy(lastName = it)) }, s,
++                    KeyboardOptions(capitalization = KeyboardCapitalization.Words, keyboardType = KeyboardType.Text, imeAction = ImeAction.Next), AutofillType.PersonLastName)
++            }
++        }
+         Field("mobile", "Cell number", i.mobile, { vm.update(i.copy(mobile = it)) }, s,
+             KeyboardOptions(keyboardType = KeyboardType.Phone, imeAction = ImeAction.Next), AutofillType.PhoneNumber)
+         Field("email", "Email", i.email, { vm.update(i.copy(email = it)) }, s,
+             KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next), AutofillType.EmailAddress)
+-        PasswordField("password", "Password (10+ characters)", i.password, { vm.update(i.copy(password = it)) }, s, showPassword,
+-            toggle = { showPassword = !showPassword })
+-        PasswordField("confirm", "Confirm password", i.confirm, { vm.update(i.copy(confirm = it)) }, s, showPassword,
+-            toggle = { showPassword = !showPassword }, done = { focus.clearFocus(); vm.submit() })
++        PasswordField("password", "Password (10+ characters)", i.password, { vm.update(i.copy(password = it)) }, s, s.showPasswords,
++            toggle = vm::toggleShowPasswords)
++        if (savedLoginOn) {
++            ItButton("Make a strong password for me", vm::generatePassword, kind = ItButtonKind.GHOST,
++                fullWidth = false, enabled = !s.loading)
++            s.passwordHelp?.let { Text(it, style = ItTextStyle.META_13.style(), color = It.palette.meta) }
++        }
++        PasswordField("confirm", "Confirm password", i.confirm, { vm.update(i.copy(confirm = it)) }, s, s.showPasswords,
++            toggle = vm::toggleShowPasswords, done = { focus.clearFocus(); vm.submit() })
+         s.error?.let { ItNotice(it, ItColorToken.STATUS_BLOCKED, ItIconShape.OCTAGON,
+             action = if (it.contains("sign in", true)) "Sign in" to onSignIn else null) }
+         ItButton(if (s.loading) "Creating…" else "Create my login", vm::submit, fullWidth = true, minHeight = 56.dp, enabled = !s.loading)
+diff --git a/android/app/src/main/java/ca/mowology/crew/auth/SignUpViewModel.kt b/android/app/src/main/java/ca/mowology/crew/auth/SignUpViewModel.kt
+index 30364c7..b91953d 100644
+--- a/android/app/src/main/java/ca/mowology/crew/auth/SignUpViewModel.kt
++++ b/android/app/src/main/java/ca/mowology/crew/auth/SignUpViewModel.kt
+@@ -13,11 +13,12 @@ import kotlinx.coroutines.withContext
+ 
+ enum class Stage { FORM, CODE, DONE }
+ data class SignUpState(
+-    val input: SignUpLogic.Input = SignUpLogic.Input("", "", "", "", ""),
++    val input: SignUpLogic.Input = SignUpLogic.Input("", "", "", "", "", ""),
+     val errors: Map<String, String> = emptyMap(), val loading: Boolean = false,
+     val error: String? = null, val stage: Stage = Stage.FORM, val sent: List<String> = emptyList(),
+     val code: String = "", val codeError: String? = null, val codeExpired: Boolean = false,
+-    val nextStep: String? = null, val unavailable: Boolean = false, val notice: String? = null
++    val nextStep: String? = null, val unavailable: Boolean = false, val notice: String? = null,
++    val passwordHelp: String? = null, val showPasswords: Boolean = false, val savePending: Boolean = false
+ )
+ 
+ class SignUpViewModel(app: Application) : AndroidViewModel(app) {
+@@ -28,7 +29,17 @@ class SignUpViewModel(app: Application) : AndroidViewModel(app) {
+     }
+     private val _state = MutableStateFlow(SignUpState(unavailable = unavailable))
+     val state: StateFlow<SignUpState> = _state
+-    fun update(value: SignUpLogic.Input) = _state.update { it.copy(input = value, errors = emptyMap(), error = null) }
++    fun update(value: SignUpLogic.Input) = _state.update {
++        val passwordEdited = value.password != it.input.password || value.confirm != it.input.confirm
++        it.copy(input = value, errors = emptyMap(), error = null,
++            passwordHelp = if (passwordEdited) null else it.passwordHelp)
++    }
++    fun generatePassword() = _state.update {
++        val password = PasswordGen.generate()
++        it.copy(input = it.input.copy(password = password, confirm = password), errors = emptyMap(), error = null,
++            showPasswords = true, passwordHelp = "Your phone will offer to save it — no need to write it down.")
++    }
++    fun toggleShowPasswords() = _state.update { it.copy(showPasswords = !it.showPasswords) }
+     fun code(value: String) = _state.update { it.copy(code = value.filter(Char::isDigit).take(6), codeError = null, notice = null) }
+     fun changeEmail() = _state.update { it.copy(stage = Stage.FORM, code = "", codeError = null, codeExpired = false, notice = null) }
+     fun submit() = send(resend = false)
+@@ -65,11 +76,14 @@ class SignUpViewModel(app: Application) : AndroidViewModel(app) {
+             }
+             val outcome = withContext(Dispatchers.IO) { NativeAuthSession.acceptTokenResponse(getApplication(), res.json!!) }
+             if (outcome is NativeAuthLogic.SignInOutcome.Ok) _state.update {
+-                it.copy(loading = false, stage = Stage.DONE, nextStep = SignUpLogic.nextStep(res.json), code = "",
+-                    input = it.input.copy(password = "", confirm = ""))
++                it.copy(loading = true, nextStep = SignUpLogic.nextStep(res.json), code = "", savePending = true)
+             } else _state.update { it.copy(loading = false, error = "Your login was created, but sign-in did not finish. Go back and sign in.") }
+         }
+     }
++    fun finishConfirm() = _state.update {
++        if (!it.savePending) it else it.copy(loading = false, stage = Stage.DONE, savePending = false,
++            input = it.input.copy(password = "", confirm = ""), passwordHelp = null)
++    }
+     private fun markUnavailable() {
+         unavailable = true
+         _state.update { it.copy(loading = false, unavailable = true) }
+diff --git a/android/app/src/main/java/ca/mowology/crew/camera/PhotoGalleryLogic.kt b/android/app/src/main/java/ca/mowology/crew/camera/PhotoGalleryLogic.kt
+index 6f64069..508dde5 100644
+--- a/android/app/src/main/java/ca/mowology/crew/camera/PhotoGalleryLogic.kt
++++ b/android/app/src/main/java/ca/mowology/crew/camera/PhotoGalleryLogic.kt
+@@ -25,6 +25,9 @@ data class GalleryHistoryGroup(
+ 
+ /** Pure parsing, switch-freshness and de-duplication rules for the native visit gallery. */
+ object PhotoGalleryLogic {
++    fun categoriesCountedForFinish(rows: List<Pair<String, String>>): Set<String> =
++        rows.asSequence().filter { (_, state) -> state == "pending" }.map { (category, _) -> category }.toSet()
++
+     fun parseSwitch(json: JSONObject?): Boolean? {
+         val android = json?.optJSONObject("android") ?: return null
+         return android.opt("native_photo_gallery") as? Boolean ?: false
+diff --git a/android/app/src/main/java/ca/mowology/crew/camera/PhotoQueue.kt b/android/app/src/main/java/ca/mowology/crew/camera/PhotoQueue.kt
+index 8c714d8..f3d6b32 100644
+--- a/android/app/src/main/java/ca/mowology/crew/camera/PhotoQueue.kt
++++ b/android/app/src/main/java/ca/mowology/crew/camera/PhotoQueue.kt
+@@ -99,8 +99,8 @@ interface QueuedPhotoDao {
+     @Query("SELECT path FROM queued_photos")
+     fun allPaths(): List<String>
+ 
+-    /** Photo types this phone still holds for a visit (the Finish sheet counts them as taken). */
+-    @Query("SELECT DISTINCT category FROM queued_photos WHERE visitId = :visitId AND userId = :userId AND state <> 'uploaded'")
++    /** Pending photos will reach the server and count for Finish; refused photos do not. */
++    @Query("SELECT DISTINCT category FROM queued_photos WHERE visitId = :visitId AND userId = :userId AND state = 'pending'")
+     fun categoriesFor(visitId: Int, userId: Int): List<String>
+ 
+     @Query("DELETE FROM queued_photos WHERE userId = :userId AND id = :id")
+diff --git a/android/app/src/main/java/ca/mowology/crew/camera/PhotoUploader.kt b/android/app/src/main/java/ca/mowology/crew/camera/PhotoUploader.kt
+index 9036751..3872f4c 100644
+--- a/android/app/src/main/java/ca/mowology/crew/camera/PhotoUploader.kt
++++ b/android/app/src/main/java/ca/mowology/crew/camera/PhotoUploader.kt
+@@ -1,5 +1,6 @@
+ package ca.mowology.crew.camera
+ 
++import androidx.exifinterface.media.ExifInterface
+ import ca.mowology.crew.day.DayApi
+ import ca.mowology.crew.tracking.ApiResult
+ import org.json.JSONObject
+@@ -22,12 +23,25 @@ import java.util.TimeZone
+ object PhotoUploader {
+     private const val PATH = "/schedule/job-photo"
+ 
++    val GPS_EXIF_TAGS: List<String> = listOf(
++        "GPSVersionID", "GPSLatitudeRef", "GPSLatitude", "GPSLongitudeRef", "GPSLongitude",
++        "GPSAltitudeRef", "GPSAltitude", "GPSTimeStamp", "GPSSatellites", "GPSStatus",
++        "GPSMeasureMode", "GPSDOP", "GPSSpeedRef", "GPSSpeed", "GPSTrackRef", "GPSTrack",
++        "GPSImgDirectionRef", "GPSImgDirection", "GPSMapDatum", "GPSDestLatitudeRef",
++        "GPSDestLatitude", "GPSDestLongitudeRef", "GPSDestLongitude", "GPSDestBearingRef",
++        "GPSDestBearing", "GPSDestDistanceRef", "GPSDestDistance", "GPSProcessingMethod",
++        "GPSAreaInformation", "GPSDateStamp", "GPSDifferential", "GPSHPositioningError"
++    )
++
+     fun upload(p: QueuedPhoto, token: String, timeoutMs: Int = 60_000): ApiResult {
+         val file = File(p.path)
+         if (!file.exists()) return ApiResult(422, JSONObject().put("message", "photo file missing on the phone"))
++        var uploadFile: File? = null
+         val boundary = "----mwcam" + System.currentTimeMillis()
+         var conn: HttpURLConnection? = null
+         return try {
++            val sanitized = gpsFreeCopy(file)
++            uploadFile = sanitized
+             conn = (URL(DayApi.BASE + PATH).openConnection() as HttpURLConnection).apply {
+                 requestMethod = "POST"
+                 connectTimeout = 20_000
+@@ -54,7 +68,7 @@ object PhotoUploader {
+                 p.gpsAccuracy?.let { field("gps_accuracy", it.toString()) }
+                 out.writeBytes("--$boundary\r\nContent-Disposition: form-data; name=\"photo\"; filename=\"${file.name}\"\r\n")
+                 out.writeBytes("Content-Type: image/jpeg\r\n\r\n")
+-                file.inputStream().use { it.copyTo(out, 64 * 1024) }
++                sanitized.inputStream().use { it.copyTo(out, 64 * 1024) }
+                 out.writeBytes("\r\n--$boundary--\r\n")
+             }
+             val code = conn.responseCode
+@@ -65,6 +79,22 @@ object PhotoUploader {
+             ApiResult(0, null)
+         } finally {
+             conn?.disconnect()
++            uploadFile?.delete()
++        }
++    }
++
++    private fun gpsFreeCopy(original: File): File {
++        val copy = File.createTempFile("mw-upload-", ".jpg", original.parentFile)
++        try {
++            original.inputStream().use { input -> copy.outputStream().use { output -> input.copyTo(output, 64 * 1024) } }
++            ExifInterface(copy.absolutePath).apply {
++                GPS_EXIF_TAGS.forEach { setAttribute(it, null) }
++                saveAttributes()
++            }
++            return copy
++        } catch (e: Exception) {
++            copy.delete()
++            throw e
+         }
+     }
+ 
+diff --git a/android/app/src/main/java/ca/mowology/crew/day/DayLogic.kt b/android/app/src/main/java/ca/mowology/crew/day/DayLogic.kt
+index 322997e..783a413 100644
+--- a/android/app/src/main/java/ca/mowology/crew/day/DayLogic.kt
++++ b/android/app/src/main/java/ca/mowology/crew/day/DayLogic.kt
+@@ -232,6 +232,31 @@ fun useNativeDay(switchOn: Boolean, hasValidToken: Boolean): Boolean = switchOn
+ 
+ enum class SendState { SENT, WAITING, REFUSED }
+ 
++object ConsentLogic {
++    enum class Decision { PROCEED_AND_TRACK, PROCEED_NO_TRACK, SEND_TO_WEB }
++
++    fun decide(requestOk: Boolean, code: Int, current: Boolean?): Decision = when {
++        requestOk && current == true -> Decision.PROCEED_AND_TRACK
++        code == 0 -> Decision.PROCEED_NO_TRACK
++        else -> Decision.SEND_TO_WEB
++    }
++
++    /** The durable gate used when this clock-in is sent now or replayed later. */
++    fun valueToRemember(decision: Decision, serverCurrent: Boolean?): Boolean? = when (decision) {
++        Decision.PROCEED_AND_TRACK -> true
++        Decision.PROCEED_NO_TRACK -> false
++        Decision.SEND_TO_WEB -> serverCurrent
++    }
++}
++
++/** GPS recovery after a queued clock-out was rejected and the server still considers the shift open. */
++fun shouldRestartTrackingAfterRefusal(
++    kind: String,
++    refused: Boolean,
++    trackedUser: Boolean,
++    trackingRunning: Boolean
++): Boolean = kind == "clock_out" && refused && trackedUser && !trackingRunning
++
+ /**
+  * How to treat a server answer to a queued action (owner's rule: send first, keep a local
+  * copy only as backup, retry it).
+diff --git a/android/app/src/main/java/ca/mowology/crew/day/DayRepository.kt b/android/app/src/main/java/ca/mowology/crew/day/DayRepository.kt
+index 3fece73..e689568 100644
+--- a/android/app/src/main/java/ca/mowology/crew/day/DayRepository.kt
++++ b/android/app/src/main/java/ca/mowology/crew/day/DayRepository.kt
+@@ -60,6 +60,7 @@ object DayRepository {
+     private const val TAG = "MwDay"
+     private const val WORK_NAME = "mw_day_sync"
+     private const val REFUSAL_KEY = "day_last_refused"
++    private const val CONSENT_CONFIRMED_KEY = "tracking_consent_confirmed"
+     private val lock = Any()
+ 
+     private val _pending = MutableStateFlow(PendingSummary(0, emptyMap(), null))
+@@ -222,6 +223,12 @@ object DayRepository {
+             }
+             SendState.REFUSED -> {
+                 val message = DayApi.message(res, "The office system said no.")
++                if (shouldRestartTrackingAfterRefusal(
++                        a.kind,
++                        refused = true,
++                        trackedUser = TrackingStore.appTrackingEnabled(context),
++                        trackingRunning = TrackingStore.isActive(context) || MwTrackingService.isRunning
++                    )) startTrackingIfTracked(context)
+                 // S2 #8: a refused prerequisite takes its dependents with it — removed together, named in the one refusal, never sent.
+                 val dependents = a.groupKey?.let { g -> runCatching { dao.groupMates(a.userId, g, a.id) }.getOrDefault(emptyList()) } ?: emptyList()
+                 if (!saveRefusal(context, a.userId, OfflineStartLogic.refusalWords(a.label, message, dependents))) {
+@@ -255,12 +262,35 @@ object DayRepository {
+      * tracking `token` IS the app token (tracking-token.php), so the app token is handed over.
+      */
+     fun startTrackingIfTracked(context: Context) {
+-        if (!TrackingStore.appTrackingEnabled(context) || !locationGranted(context)) return
++        if (!TrackingStore.appTrackingEnabled(context) || !locationGranted(context) || !consentConfirmed(context)) return
+         val token = TrackingStore.appToken(context) ?: return
+         runCatching { TrackingSession.start(context, token, TrackingStore.appUserId(context)) }
+             .onFailure { Log.w(TAG, "tracking start deferred to next app open: ${it.message}") }
+     }
+ 
++    fun rememberConsent(context: Context, current: Boolean) {
++        val userId = TrackingStore.appUserId(context)
++        if (userId > 0) TrackingStore.prefs(context).edit()
++            .putBoolean(userScopedKey(CONSENT_CONFIRMED_KEY, userId), current).apply()
++    }
++
++    fun consentConfirmed(context: Context): Boolean {
++        val userId = TrackingStore.appUserId(context)
++        if (userId <= 0) return false
++        val prefs = TrackingStore.prefs(context)
++        val key = userScopedKey(CONSENT_CONFIRMED_KEY, userId)
++        if (!prefs.contains(key)) {
++            // This preference was introduced after native tracking. Existing installs may already
++            // have consent on the server, so populate it before deciding whether GPS may restart.
++            val res = DayApi.get(context, "/schedule/tracking?mode=consent", timeoutMs = 8_000,
++                under = TrackingStore.appAuthStamp(context))
++            val current = res.json?.optJSONObject("consent")
++                ?.let { consent -> if (consent.has("current")) DayParse.bool(consent, "current") else null }
++            if (res.ok && current != null) rememberConsent(context, current)
++        }
++        return prefs.getBoolean(key, false)
++    }
++
+     /** Same as MwTracking.stopSession() at a web clock-out. */
+     fun stopTracking(context: Context) {
+         if (TrackingStore.isActive(context) || MwTrackingService.isRunning) TrackingSession.stop(context)
+diff --git a/android/app/src/main/java/ca/mowology/crew/day/DayViewModel.kt b/android/app/src/main/java/ca/mowology/crew/day/DayViewModel.kt
+index 2477739..2dbe37f 100644
+--- a/android/app/src/main/java/ca/mowology/crew/day/DayViewModel.kt
++++ b/android/app/src/main/java/ca/mowology/crew/day/DayViewModel.kt
+@@ -272,8 +272,13 @@ class DayViewModel(app: Application) : AndroidViewModel(app) {
+             }
+             val consent = DayApi.get(ctx, "/schedule/tracking?mode=consent", timeoutMs = 8_000, under = TrackingStore.appAuthStamp(ctx))
+             val current = consent.json?.optJSONObject("consent")?.let { c -> if (c.has("current")) DayParse.bool(c, "current") else null }
+-            if (consent.ok && current == false) {
+-                return@act needsWeb("Please read and agree to the location notice first. The web clock will show it.")
++            val decision = ConsentLogic.decide(consent.ok, consent.code, current)
++            ConsentLogic.valueToRemember(decision, current)?.let { DayRepository.rememberConsent(ctx, it) }
++            when (decision) {
++                ConsentLogic.Decision.PROCEED_AND_TRACK -> Unit
++                ConsentLogic.Decision.PROCEED_NO_TRACK -> Unit
++                ConsentLogic.Decision.SEND_TO_WEB ->
++                    return@act needsWeb("Please read and agree to the location notice first. The web clock will show it.")
+             }
+         }
+         val (lat, lng) = punchLocation()
+@@ -284,7 +289,7 @@ class DayViewModel(app: Application) : AndroidViewModel(app) {
+             is SendOutcome.Waiting -> _today.update { it.copy(
+                 clockedIn = true,
+                 clockSinceMs = it.clockSinceMs ?: at,
+-                notice = "Clock in saved on the phone — waiting to send. Location sharing starts once it is sent.") }
++                notice = "Clock in saved on the phone — waiting to send. Location sharing starts after consent is confirmed.") }
+             is SendOutcome.Refused -> error(out.message)
+         }
+     }
+diff --git a/android/app/src/main/java/ca/mowology/crew/onboarding/OnboardingLogic.kt b/android/app/src/main/java/ca/mowology/crew/onboarding/OnboardingLogic.kt
+index 8f53ed4..27f7b00 100644
+--- a/android/app/src/main/java/ca/mowology/crew/onboarding/OnboardingLogic.kt
++++ b/android/app/src/main/java/ca/mowology/crew/onboarding/OnboardingLogic.kt
+@@ -16,7 +16,8 @@ object OnboardingLogic {
+     data class CompanyData(val enteredName: String, val legalName: String, val operatingName: String, val registrationNumber: String, val status: String, val confirmed: Boolean)
+     data class Match(val name: String, val registrationNumber: String, val status: String, val recordId: String)
+     data class Part(val key: String, val label: String, val done: Boolean, val summary: String)
+-    data class QuickBooksData(val answer: String?, val connected: Boolean, val hasSnapshot: Boolean, val parts: List<Part>, val canWrite: Boolean)
++    data class Sending(val on: Boolean, val from: String?, val offer: Boolean, val title: String, val body: String, val onLabel: String, val offLabel: String, val doneLine: String)
++    data class QuickBooksData(val answer: String?, val connected: Boolean, val hasSnapshot: Boolean, val parts: List<Part>, val canWrite: Boolean, val sending: Sending?)
+     data class AccountantData(val invitedName: String?, val logins: Int)
+     data class Invite(val link: String, val expiresAt: String, val name: String)
+     data class DoneData(val ready: Boolean, val complete: Boolean)
+@@ -58,7 +59,13 @@ object OnboardingLogic {
+     fun quickBooksData(json: JSONObject?): QuickBooksData {
+         val a = json?.optJSONArray("parts")
+         val parts = if (a == null) emptyList() else (0 until a.length()).mapNotNull { a.optJSONObject(it)?.let { o -> Part(str(o, "key"), str(o, "label"), o.optBoolean("done"), str(o, "summary")) } }
+-        return QuickBooksData(nullable(json, "answer"), json?.optBoolean("connected") == true, json?.optBoolean("has_snapshot") == true, parts, json?.optBoolean("can_write") == true)
++        val sending = json?.optJSONObject("sending")?.let { o ->
++            val title = str(o, "title"); val body = str(o, "body"); val onLabel = str(o, "on_label")
++            val offLabel = str(o, "off_label"); val doneLine = str(o, "done_line")
++            if (listOf(title, body, onLabel, offLabel, doneLine).any(String::isBlank)) null
++            else Sending(o.optBoolean("on"), nullable(o, "from"), o.optBoolean("offer"), title, body, onLabel, offLabel, doneLine)
++        }
++        return QuickBooksData(nullable(json, "answer"), json?.optBoolean("connected") == true, json?.optBoolean("has_snapshot") == true, parts, json?.optBoolean("can_write") == true, sending)
+     }
+     fun accountantData(json: JSONObject?) = AccountantData(nullable(json, "invited_name"), json?.optInt("logins") ?: 0)
+     fun invite(json: JSONObject?): Invite? = json?.optJSONObject("invite")?.let { o ->
+diff --git a/android/app/src/main/java/ca/mowology/crew/onboarding/OnboardingStepScreens.kt b/android/app/src/main/java/ca/mowology/crew/onboarding/OnboardingStepScreens.kt
+index 7814e2d..0148a63 100644
+--- a/android/app/src/main/java/ca/mowology/crew/onboarding/OnboardingStepScreens.kt
++++ b/android/app/src/main/java/ca/mowology/crew/onboarding/OnboardingStepScreens.kt
+@@ -118,6 +118,19 @@ private fun completedAnswer(step: OnboardingLogic.Step): String? =
+         state.stepReply?.takeIf { it.key == "quickbooks" && it.action == "read" }?.message?.let { ItNotice(it, ItColorToken.STATUS_COMPLETE, ItIconShape.CHECK) }
+         if (d.parts.count { !it.done } >= 2) ItButton("Accept all", { vm.acceptAll(d.parts) }, fullWidth = true, enabled = !state.loading)
+         d.parts.forEach { part -> ItRow { Column(Modifier.weight(1f)) { Text(part.label, style = ItTextStyle.BODY_16.style(), color = It.palette.text); Text(part.summary, style = ItTextStyle.META_13.style(), color = It.palette.meta) }; if (part.done) ItStatusLabel(ItIconShape.CHECK, "Done", ItColorToken.STATUS_COMPLETE) else ItButton("Accept", { vm.act("quickbooks", "accept", mapOf("part" to part.key)) }, kind = ItButtonKind.OUTLINE) } }
++        var sendingDismissed by remember { mutableStateOf(false) } // "Not now" hides the offer for this visit; the server offers it again next time
++        if (d.canWrite) d.sending?.let { sending ->
++            state.stepReply?.takeIf { it.key == "quickbooks" && it.action == "send" }?.message?.let { ItNotice(it, ItColorToken.STATUS_COMPLETE, ItIconShape.CHECK) }
++            if (sending.offer && !sendingDismissed) {
++                Text(sending.title, style = ItTextStyle.HEADING_18.style(), color = It.palette.text)
++                Text(sending.body, style = ItTextStyle.BODY_16.style(), color = It.palette.meta)
++                ItButton(sending.onLabel, { vm.act("quickbooks", "send", mapOf("on" to true)) }, fullWidth = true, minHeight = 56.dp, enabled = !state.loading)
++                ItButton(sending.offLabel, { sendingDismissed = true }, kind = ItButtonKind.GHOST, fullWidth = true, enabled = !state.loading)
++            } else if (sending.on) {
++                ItStatusLabel(ItIconShape.CHECK, sending.doneLine, ItColorToken.STATUS_COMPLETE)
++                ItButton(sending.offLabel, { vm.act("quickbooks", "send", mapOf("on" to false)) }, kind = ItButtonKind.GHOST, fullWidth = true, enabled = !state.loading)
++            }
++        }
+         ItButton("Continue", { onContinue(state.map?.next) }, kind = ItButtonKind.GHOST, fullWidth = true) }
+ }
+ 
+diff --git a/android/app/src/test/java/ca/mowology/crew/auth/AuthHandoffTest.kt b/android/app/src/test/java/ca/mowology/crew/auth/AuthHandoffTest.kt
+new file mode 100644
+index 0000000..629f555
+--- /dev/null
++++ b/android/app/src/test/java/ca/mowology/crew/auth/AuthHandoffTest.kt
+@@ -0,0 +1,11 @@
++package ca.mowology.crew.auth
++
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertNull
++import org.junit.Test
++
++class AuthHandoffTest {
++    @Test fun carriesAValidEmailIntoAnEmptyField() = assertEquals("a@b.ca", AuthHandoff.carry(" a@b.ca ", ""))
++    @Test fun neverOverwritesWhatWasTyped() = assertNull(AuthHandoff.carry("a@b.ca", "other@b.ca"))
++    @Test fun ignoresAUsernameOrPartialEmail() { assertNull(AuthHandoff.carry("tim", "")); assertNull(AuthHandoff.carry("", "")) }
++}
+diff --git a/android/app/src/test/java/ca/mowology/crew/auth/PasswordGenTest.kt b/android/app/src/test/java/ca/mowology/crew/auth/PasswordGenTest.kt
+new file mode 100644
+index 0000000..289455f
+--- /dev/null
++++ b/android/app/src/test/java/ca/mowology/crew/auth/PasswordGenTest.kt
+@@ -0,0 +1,35 @@
++package ca.mowology.crew.auth
++
++import java.util.Random
++import org.junit.Assert.*
++import org.junit.Test
++
++class PasswordGenTest {
++    @Test fun generatedPasswordHasFourGroupsOfFour() {
++        assertTrue(PasswordGen.generate(Random(1)).matches(
++            Regex("^(?!.*[0Oo1lI])[A-Za-z2-9]{4}(?:-[A-Za-z2-9]{4}){3}$")))
++    }
++
++    @Test fun generatedPasswordsNeverContainLookAlikes() {
++        val random = Random(2)
++        repeat(2_000) { assertFalse(PasswordGen.generate(random).any { it in "0Oo1lI" }) }
++    }
++
++    @Test fun everyGeneratedPasswordContainsEveryCharacterClass() {
++        val random = Random(3)
++        repeat(2_000) {
++            val password = PasswordGen.generate(random)
++            assertTrue(password.any(Char::isUpperCase))
++            assertTrue(password.any(Char::isLowerCase))
++            assertTrue(password.any(Char::isDigit))
++        }
++    }
++
++    @Test fun differentSeedsProduceDifferentPasswords() {
++        assertNotEquals(PasswordGen.generate(Random(4)), PasswordGen.generate(Random(5)))
++    }
++
++    @Test fun generatedPasswordExceedsServerMinimumLength() {
++        assertTrue(PasswordGen.generate(Random(6)).length >= 10)
++    }
++}
+diff --git a/android/app/src/test/java/ca/mowology/crew/auth/SavedLoginLogicTest.kt b/android/app/src/test/java/ca/mowology/crew/auth/SavedLoginLogicTest.kt
+new file mode 100644
+index 0000000..72943d2
+--- /dev/null
++++ b/android/app/src/test/java/ca/mowology/crew/auth/SavedLoginLogicTest.kt
+@@ -0,0 +1,21 @@
++package ca.mowology.crew.auth
++
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
++import org.junit.Test
++
++class SavedLoginLogicTest {
++    @Test fun saveIsOnlyOfferedForCompleteIttaiCredentials() {
++        assertTrue(SavedLoginLogic.shouldOfferSave(true, "owner@example.com", "secret"))
++        assertFalse(SavedLoginLogic.shouldOfferSave(false, "owner@example.com", "secret"))
++        assertFalse(SavedLoginLogic.shouldOfferSave(true, " ", "secret"))
++        assertFalse(SavedLoginLogic.shouldOfferSave(true, "owner@example.com", ""))
++    }
++
++    @Test fun pickIsOnlyOfferedOnceForEmptyIttaiFields() {
++        assertTrue(SavedLoginLogic.shouldPick(true, false, true))
++        assertFalse(SavedLoginLogic.shouldPick(false, false, true))
++        assertFalse(SavedLoginLogic.shouldPick(true, true, true))
++        assertFalse(SavedLoginLogic.shouldPick(true, false, false))
++    }
++}
+diff --git a/android/app/src/test/java/ca/mowology/crew/auth/SignUpLogicTest.kt b/android/app/src/test/java/ca/mowology/crew/auth/SignUpLogicTest.kt
+index 4aae5c1..12e2d17 100644
+--- a/android/app/src/test/java/ca/mowology/crew/auth/SignUpLogicTest.kt
++++ b/android/app/src/test/java/ca/mowology/crew/auth/SignUpLogicTest.kt
+@@ -3,12 +3,12 @@ import org.json.JSONObject
+ import org.junit.Assert.*
+ import org.junit.Test
+ class SignUpLogicTest {
+-    private val good = SignUpLogic.Input("Tim Schofield", "(604) 555-0199", " A@B.ca ", "1234567890", "1234567890")
+-    @Test fun validatesExactFieldsAndMessages() { val e = SignUpLogic.validate(SignUpLogic.Input("Tim", "604", "bad", "short", "other")); assertEquals(setOf("full_name","mobile","email","password","confirm"), e.keys); assertEquals("Enter your full name.", e["full_name"]) }
++    private val good = SignUpLogic.Input("Tim", "Schofield", "(604) 555-0199", " A@B.ca ", "1234567890", "1234567890")
++    @Test fun validatesExactFieldsAndMessages() { val e = SignUpLogic.validate(SignUpLogic.Input("", " ", "604", "bad", "short", "other")); assertEquals(setOf("first_name","last_name","mobile","email","password","confirm"), e.keys); assertEquals("Enter your first name.", e["first_name"]); assertEquals("Enter your last name.", e["last_name"]) }
+     @Test fun normalisesNorthAmericanMobiles() { assertEquals("6045550199", SignUpLogic.normaliseMobile("(604) 555-0199")); assertEquals("6045550199", SignUpLogic.normaliseMobile("1 604 555 0199")); assertEquals("6045550199", SignUpLogic.normaliseMobile("+1-604-555-0199")); assertNull(SignUpLogic.normaliseMobile("60455501")) }
+-    @Test fun buildsBothBodies() { assertTrue(SignUpLogic.validate(good).isEmpty()); val b=SignUpLogic.body(good); assertEquals("a@b.ca",b.getString("email")); assertEquals("6045550199",b.getString("mobile")); val c=SignUpLogic.confirmBody(good,"123456"); assertEquals("123456",c.getString("code")); assertFalse(c.has("confirm")) }
++    @Test fun buildsBothBodiesWithTrimmedSplitAndFullNames() { val input=good.copy(firstName="  Mary Ann ",lastName=" Smith  "); assertTrue(SignUpLogic.validate(input).isEmpty()); val b=SignUpLogic.body(input); assertEquals("Mary Ann",b.getString("first_name")); assertEquals("Smith",b.getString("last_name")); assertEquals("Mary Ann Smith",b.getString("full_name")); assertEquals("a@b.ca",b.getString("email")); assertEquals("6045550199",b.getString("mobile")); val c=SignUpLogic.confirmBody(input,"123456"); assertEquals("Mary Ann",c.getString("first_name")); assertEquals("Smith",c.getString("last_name")); assertEquals("Mary Ann Smith",c.getString("full_name")); assertEquals("123456",c.getString("code")); assertFalse(c.has("confirm")) }
+     @Test fun readsSentCodeAndNext() { val j=JSONObject("""{"sent":["email","sms"],"onboarding":{"next":"name"}}"""); assertTrue(SignUpLogic.sentWords(j,"a@b.ca").contains("texted")); assertEquals("name",SignUpLogic.nextStep(j)); assertNull(SignUpLogic.nextStep(JSONObject("""{"onboarding":{"next":null}}"""))) }
+     @Test fun codeRulesAndErrors() { assertTrue(SignUpLogic.codeValid("123456")); assertFalse(SignUpLogic.codeValid("12345a")); val expired=JSONObject("""{"error":"code_expired","message":"Expired"}"""); assertEquals("Expired",SignUpLogic.codeError(expired)); assertTrue(SignUpLogic.codeExpired(expired)); val wrong=JSONObject("""{"error":"code_wrong","message":"That code is wrong."}"""); assertEquals("That code is wrong.",SignUpLogic.codeError(wrong)); assertFalse(SignUpLogic.codeExpired(wrong)) }
+-    @Test fun fieldErrorsFollowServerFields() { val errors=SignUpLogic.fieldErrors(JSONObject("""{"fields":{"email":"Already used","password":"Too short","empty":""}}""")); assertEquals(mapOf("email" to "Already used", "password" to "Too short"),errors); assertTrue(SignUpLogic.fieldErrors(null).isEmpty()) }
+-    @Test fun statusMessagesFollowContract() { assertEquals("Sign-up is not available on this server yet.",SignUpLogic.serverMessage(404)); assertEquals("This business already has an owner login — sign in instead.",SignUpLogic.serverMessage(409)); assertEquals(NativeAuthLogic.SignInError.RATE_LIMITED.message,SignUpLogic.serverMessage(429)); assertEquals("The code could not be sent. Try again in a minute.",SignUpLogic.serverMessage(502)); assertEquals(NativeAuthLogic.SignInError.NETWORK.message,SignUpLogic.serverMessage(0)); assertEquals(NativeAuthLogic.SignInError.SERVER.message,SignUpLogic.serverMessage(500)) }
++    @Test fun fieldErrorsFollowServerFieldsAndMapNameAliases() { val errors=SignUpLogic.fieldErrors(JSONObject("""{"fields":{"full_name":"Full issue","first_name":"First issue","last_name":"Last issue","email":"Already used","password":"Too short","empty":""}}""")); assertEquals(mapOf("first_name" to "First issue", "last_name" to "Last issue", "email" to "Already used", "password" to "Too short"),errors); assertTrue(SignUpLogic.fieldErrors(null).isEmpty()) }
++    @Test fun statusMessagesFollowContract() { assertEquals("Sign-up is not available on this server yet.",SignUpLogic.serverMessage(404)); assertEquals("This business already has an owner login — sign in instead.",SignUpLogic.serverMessage(409)); assertEquals(NativeAuthLogic.SignInError.RATE_LIMITED.message,SignUpLogic.serverMessage(429)); assertEquals("The code could not be sent. Try again in a minute.",SignUpLogic.serverMessage(502)); assertEquals(NativeAuthLogic.SignInError.NETWORK.message,SignUpLogic.serverMessage(0)); assertEquals(SignUpLogic.SERVER_PROBLEM,SignUpLogic.serverMessage(500)); assertTrue(!SignUpLogic.serverMessage(500).contains("password")) }
+ }
+diff --git a/android/app/src/test/java/ca/mowology/crew/camera/PhotoGalleryLogicTest.kt b/android/app/src/test/java/ca/mowology/crew/camera/PhotoGalleryLogicTest.kt
+index 67be208..f163fe0 100644
+--- a/android/app/src/test/java/ca/mowology/crew/camera/PhotoGalleryLogicTest.kt
++++ b/android/app/src/test/java/ca/mowology/crew/camera/PhotoGalleryLogicTest.kt
+@@ -8,6 +8,20 @@ import org.junit.Assert.assertTrue
+ import org.junit.Test
+ 
+ class PhotoGalleryLogicTest {
++    @Test fun finishCountsOnlyPhotosStillOnTheirWayToTheServer() {
++        assertEquals(setOf("before"), PhotoGalleryLogic.categoriesCountedForFinish(listOf(
++            "before" to "pending", "after" to "refused", "additional" to "uploaded"
++        )))
++    }
++
++    @Test fun uploadClearsAllGpsExifTags() {
++        assertTrue(PhotoUploader.GPS_EXIF_TAGS.contains("GPSLatitude"))
++        assertTrue(PhotoUploader.GPS_EXIF_TAGS.contains("GPSLongitude"))
++        assertTrue(PhotoUploader.GPS_EXIF_TAGS.contains("GPSAltitude"))
++        assertTrue(PhotoUploader.GPS_EXIF_TAGS.contains("GPSHPositioningError"))
++        assertEquals(PhotoUploader.GPS_EXIF_TAGS.size, PhotoUploader.GPS_EXIF_TAGS.distinct().size)
++    }
++
+     /** J0: the flavor's host — these rules hold for whatever host the build is for. */
+     private val H = ca.mowology.crew.config.ServerConfig.host
+     @Test fun switchDefaultsOffAndAnOnValueExpires() {
+diff --git a/android/app/src/test/java/ca/mowology/crew/day/DayLogicTest.kt b/android/app/src/test/java/ca/mowology/crew/day/DayLogicTest.kt
+index 239436e..05d3985 100644
+--- a/android/app/src/test/java/ca/mowology/crew/day/DayLogicTest.kt
++++ b/android/app/src/test/java/ca/mowology/crew/day/DayLogicTest.kt
+@@ -9,6 +9,30 @@ import org.junit.Assert.assertTrue
+ import org.junit.Test
+ 
+ class DayLogicTest {
++    @Test fun clockInConsentFailsClosedExceptWhenOffline() {
++        assertEquals(ConsentLogic.Decision.PROCEED_AND_TRACK, ConsentLogic.decide(true, 200, true))
++        assertEquals(ConsentLogic.Decision.SEND_TO_WEB, ConsentLogic.decide(true, 200, false))
++        assertEquals(ConsentLogic.Decision.SEND_TO_WEB, ConsentLogic.decide(true, 200, null))
++        assertEquals(ConsentLogic.Decision.PROCEED_NO_TRACK, ConsentLogic.decide(false, 0, null))
++        assertEquals(ConsentLogic.Decision.SEND_TO_WEB, ConsentLogic.decide(false, 500, null))
++        assertEquals(ConsentLogic.Decision.SEND_TO_WEB, ConsentLogic.decide(false, 200, null))
++    }
++
++    @Test fun clockInConsentDecisionReplacesAnyStaleStoredValue() {
++        assertEquals(true, ConsentLogic.valueToRemember(ConsentLogic.Decision.PROCEED_AND_TRACK, true))
++        assertEquals(false, ConsentLogic.valueToRemember(ConsentLogic.Decision.PROCEED_NO_TRACK, null))
++        assertEquals(false, ConsentLogic.valueToRemember(ConsentLogic.Decision.SEND_TO_WEB, false))
++        assertNull(ConsentLogic.valueToRemember(ConsentLogic.Decision.SEND_TO_WEB, null))
++    }
++
++    @Test fun refusedClockOutRestartsTrackingOnlyWhenNeeded() {
++        assertTrue(shouldRestartTrackingAfterRefusal("clock_out", true, true, false))
++        assertFalse(shouldRestartTrackingAfterRefusal("clock_in", true, true, false))
++        assertFalse(shouldRestartTrackingAfterRefusal("clock_out", false, true, false))
++        assertFalse(shouldRestartTrackingAfterRefusal("clock_out", true, false, false))
++        assertFalse(shouldRestartTrackingAfterRefusal("clock_out", true, true, true))
++    }
++
+     @Test fun arrivalPromptLookupRetriesOnlyWhileTheArrivalIsFresh() {
+         val t0 = 1_000_000L
+         org.junit.Assert.assertTrue(ca.mowology.crew.day.ArrivalPrompts.shouldRetryLookup(decided = false, attempt = 0, enqueuedAtMs = t0, nowMs = t0 + 60_000))
+diff --git a/android/app/src/test/java/ca/mowology/crew/onboarding/OnboardingLogicTest.kt b/android/app/src/test/java/ca/mowology/crew/onboarding/OnboardingLogicTest.kt
+index bd32046..90939f6 100644
+--- a/android/app/src/test/java/ca/mowology/crew/onboarding/OnboardingLogicTest.kt
++++ b/android/app/src/test/java/ca/mowology/crew/onboarding/OnboardingLogicTest.kt
+@@ -9,6 +9,9 @@ class OnboardingLogicTest {
+  @Test fun acceptAllHasFixedOrderAndSkipsDoneOrUnknown() { val p=listOf(OnboardingLogic.Part("suppliers","",false,""),OnboardingLogic.Part("clients","",false,""),OnboardingLogic.Part("business","",true,""),OnboardingLogic.Part("tax","",false,"")); assertEquals(listOf("clients","suppliers"),OnboardingLogic.acceptAllOrder(p)) }
+  @Test fun parsesDataAndSelectsFirstScreen(){ val map=OnboardingLogic.parse(JSONObject("""{"ok":true,"steps":[{"key":"name","title":"Name","state":"next","data":{"first":"Tim"}},{"key":"done","title":"Done","state":"todo"}],"next":"name"}"""))!!; assertEquals("Tim",map.steps[0].data!!.getString("first")); assertEquals("name",OnboardingLogic.firstScreen(map,"name")); assertEquals("name",OnboardingLogic.firstScreen(map,"missing")) }
+  @Test fun parsesEveryDataShape(){ val n=OnboardingLogic.nameData(JSONObject("""{"first":"T","last":"S","preferred":"Tim","mobile":"604","channel":"text","quiet":{"from":"20:00","to":"07:00","weekends":true},"parts":{"name":true,"reach":false,"quiet":false},"next_part":"reach"}""")); assertEquals("reach",n.nextPart); assertTrue(n.quiet!!.weekends); val c=OnboardingLogic.companyData(JSONObject("""{"entered_name":"A","confirmed":true}""")); assertTrue(c.confirmed); val q=OnboardingLogic.quickBooksData(JSONObject("""{"answer":"yes","connected":true,"has_snapshot":true,"can_write":false,"parts":[{"key":"tax","label":"Tax","done":true,"summary":"OK"}]}""")); assertEquals("tax",q.parts.single().key); assertFalse(q.canWrite); assertEquals(2,OnboardingLogic.accountantData(JSONObject("""{"logins":2}""")).logins); assertTrue(OnboardingLogic.doneData(JSONObject("""{"ready":true}""")).ready) }
++ @Test fun quickBooksSendingIsNullWhenAbsentOrCopyIsBlank() { assertNull(OnboardingLogic.quickBooksData(JSONObject("{}" )).sending); assertNull(OnboardingLogic.quickBooksData(JSONObject("""{"sending":{"on":false,"offer":true,"title":"","body":"Body","on_label":"On","off_label":"Off","done_line":"Done"}}""")).sending) }
++ @Test fun parsesQuickBooksSendingOffer() { val s=OnboardingLogic.quickBooksData(JSONObject("""{"sending":{"on":false,"from":null,"offer":true,"title":"Send","body":"Body","on_label":"Turn on","off_label":"Not now","done_line":"Sending"}}""")).sending!!; assertTrue(s.offer); assertFalse(s.on); assertNull(s.from); assertEquals("Turn on",s.onLabel) }
++ @Test fun parsesQuickBooksSendingOn() { val s=OnboardingLogic.quickBooksData(JSONObject("""{"sending":{"on":true,"from":"2026-11-01","offer":false,"title":"Send","body":"Body","on_label":"Turn on","off_label":"Turn off","done_line":"Sending since November"}}""")).sending!!; assertTrue(s.on); assertFalse(s.offer); assertEquals("2026-11-01",s.from); assertEquals("Sending since November",s.doneLine) }
+  @Test fun parsesMatchesInviteAndBodies(){ val m=OnboardingLogic.matches(JSONObject("""{"matches":[{"name":"Acme","registration_number":"1","status":"active","record_id":"r"}]}""")); assertEquals("r",m.single().recordId); val i=OnboardingLogic.invite(JSONObject("""{"invite":{"link":"https://x","expires_at":"Friday","name":"Pat"}}"""))!!; assertEquals("Here's your invitation to Acme on Ittai: https://x (expires Friday)",OnboardingLogic.inviteShareText(i,"Acme")); val b=OnboardingLogic.stepBody("name","quiet",mapOf("weekends" to true)); assertTrue(b.getBoolean("weekends")); assertEquals("quiet",b.getString("do")) }
+  @Test fun validatesTimes(){ assertTrue(OnboardingLogic.validTime("23:59")); assertFalse(OnboardingLogic.validTime("24:00")); assertFalse(OnboardingLogic.validTime("7:00")) }
+  @Test fun replyLifecycleHoldsOneUseDataUntilExplicitContinue() {

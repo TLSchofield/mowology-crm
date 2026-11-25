@@ -15,6 +15,7 @@ $activePage = 'accounting';
         <p class="text-muted mb-0 small">Profit &amp; Loss · Cash Flow · GST Filing · Job Profitability · Budget vs Actual · Crew</p>
     </div>
     <a href="/crm/accounting_appstack.php" class="btn btn-sm btn-outline-secondary">← Dashboard</a>
+    <a href="/crm/accounting/cashflow.php" class="btn btn-sm btn-outline-primary">Cash-flow forecast</a>
 </div>
 
 <!-- ── Report Tabs ──────────────────────────────────────────────────────────── -->
@@ -42,13 +43,25 @@ $activePage = 'accounting';
                 </div>
             </div>
             <div class="col-auto">
-                <input type="date" id="r-date-from" class="form-control form-control-sm" value="<?= date('Y-m-01') ?>">
+                <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#r-date-from"
+                        data-mw-dp-range-group="r-report-range" data-mw-dp-range-role="start" aria-haspopup="true" aria-expanded="false">
+                    <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                    <span class="mw-datepicker-date" data-mw-dp-label></span>
+                    <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+                <input type="date" id="r-date-from" class="form-control form-control-sm" hidden value="<?= date('Y-m-01') ?>">
             </div>
             <div class="col-auto">
                 <span class="text-muted">to</span>
             </div>
             <div class="col-auto">
-                <input type="date" id="r-date-to" class="form-control form-control-sm" value="<?= date('Y-m-d') ?>">
+                <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#r-date-to"
+                        data-mw-dp-range-group="r-report-range" data-mw-dp-range-role="end" aria-haspopup="true" aria-expanded="false">
+                    <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                    <span class="mw-datepicker-date" data-mw-dp-label></span>
+                    <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+                <input type="date" id="r-date-to" class="form-control form-control-sm" hidden value="<?= date('Y-m-d') ?>">
             </div>
             <div class="col-auto" id="quarter-controls" style="display:none">
                 <select id="r-quarter" class="form-select form-select-sm" onchange="loadCurrentReport()">
@@ -82,6 +95,7 @@ $activePage = 'accounting';
     <i data-feather="loader" style="width:32px;height:32px"></i>
     <p class="mt-2">Loading report…</p>
 </div>
+<div id="report-notice" class="alert alert-danger d-none" role="alert"></div>
 
 <!-- ── P&L Report ──────────────────────────────────────────────────────────── -->
 <div id="panel-pl">
@@ -370,8 +384,16 @@ function setPreset(p) {
             to   = `${y-1}-12-31`;
             break;
     }
-    if (from) document.getElementById('r-date-from').value = from;
-    if (to)   document.getElementById('r-date-to').value   = to;
+    if (from) {
+        const fromInput = document.getElementById('r-date-from');
+        fromInput.value = from;
+        fromInput.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    if (to) {
+        const toInput = document.getElementById('r-date-to');
+        toInput.value = to;
+        toInput.dispatchEvent(new Event('change', { bubbles: true }));
+    }
     loadCurrentReport();
 }
 
@@ -489,7 +511,18 @@ async function loadTax() {
 
     const r = await fetch(`${API_RP}?action=tax&year=${year}&quarter=${quarter}`);
     const d = await r.json();
-    if (!d.ok) return;
+    const notice = document.getElementById('report-notice');
+    if (!d.ok) {
+        notice.textContent = d.error || 'Unable to load the tax report.';
+        notice.classList.remove('d-none');
+        document.getElementById('tax-period-label').textContent = 'Period: —';
+        document.getElementById('tax-cra-rows').innerHTML = '';
+        document.getElementById('tax-itc-rows').innerHTML = '';
+        document.getElementById('tax-annual-rows').innerHTML = '';
+        return;
+    }
+    notice.textContent = '';
+    notice.classList.add('d-none');
 
     const rpt = d.report;
     document.getElementById('tax-period-label').textContent = `Period: ${rpt.date_from} to ${rpt.date_to}`;
@@ -498,9 +531,10 @@ async function loadTax() {
     const owingLabel = rpt.is_refund ? 'Refund' : 'Remit to CRA';
 
     document.getElementById('tax-cra-rows').innerHTML = `
-        <tr><td>101</td><td>Total sales (incl. GST)</td><td class="text-end">${fmtMoney(rpt.line_101)}</td></tr>
+        <tr><td>101</td><td>Total sales (before GST, invoices issued)</td><td class="text-end">${fmtMoney(rpt.line_101)}</td></tr>
         <tr><td>103</td><td>GST/HST collected or collectible</td><td class="text-end text-danger">${fmtMoney(rpt.line_103)}</td></tr>
-        <tr><td>106</td><td>Input Tax Credits (ITC) — GST paid on expenses</td><td class="text-end text-success">${fmtMoney(rpt.line_106)}</td></tr>
+        ${rpt.meals_limit > 0 ? `<tr><td></td><td class="small">${esc(rpt.meals_limit_label)}</td><td class="text-end small">−${fmtMoney(rpt.meals_limit)}</td></tr>` : ''}
+        <tr><td>106</td><td>Input Tax Credits (ITC) — approved/posted expenses</td><td class="text-end text-success">${fmtMoney(rpt.line_106)}</td></tr>
         <tr class="table-light fw-bold">
             <td>109</td>
             <td>Net Tax (${owingLabel})</td>
@@ -558,7 +592,7 @@ async function loadJobs() {
             <td class="small text-muted">${esc(j.client_name || '—')}</td>
             <td class="text-end text-success">${fmtMoney(j.revenue)}</td>
             <td class="text-end text-danger">${fmtMoney(j.expenses)}</td>
-            <td class="text-end ${profitColor} fw-bold">${fmtMoney(j.profit)}</td>
+            <td class="text-end ${profitColor} fw-bold">${fmtMoney(j.profit)}${j.trip_overhead > 0 ? `<div class="small text-muted fw-normal" title="Dump / supply runs tagged to this job (time + km)">trips −${fmtMoney(j.trip_overhead)} → ${fmtMoney(j.profit_after_trips)}</div>` : ''}</td>
             <td>
                 <div class="mw-acct-margin-bar" style="width:80px">
                     <div class="mw-acct-margin-fill" style="width:${margin}%;background:${barColor}"></div>
@@ -604,7 +638,7 @@ function renderDonut(data) {
     const top  = data.slice(0, 8); // Show top 8 categories
     const total= top.reduce((s, r) => s + parseFloat(r.total), 0) || 1;
 
-    const COLORS = ['#2D8659','#e85d04','#3B82F6','#8B5CF6','#14B8A6','#F59E0B','#EF4444','#6B7280'];
+    const COLORS = ['#2D8659','#e85d04','#3B82F6','#3B5BA9','#14B8A6','#C2551F','#EF4444','#6B7280'];
 
     const W = 200, H = 200, cx = 100, cy = 100, r = 70, inner = 40;
     let angle = -Math.PI / 2;
@@ -659,21 +693,28 @@ async function exportCSV() {
     if (!rows.length) { alert('No data to export.'); return; }
 
     const headers = ['Date','Type','Account Code','Account','Amount','GST','PST','Description','Reference','Vendor','Job #','Client','Status'];
+    // Same rule as PHP csvCell() (audit #18): text starting = + - @ tab CR opens as a formula in a
+    // spreadsheet, so it gets a leading apostrophe; plain numbers are left alone.
+    const cell = v => {
+        const s = String(v ?? '');
+        const safe = (/^[=+\-@\t\r]/.test(s) && !/^[+-]?(\d{1,3}(,\d{3})+|\d+)?(\.\d+)?%?$/.test(s)) ? "'" + s : s;
+        return `"${safe.replace(/"/g,'""')}"`;
+    };
     const lines   = [
         headers.join(','),
         ...rows.map(tx => [
             tx.transaction_date,
             tx.type,
-            tx.account_code,
-            `"${(tx.account_name || '').replace(/"/g,'""')}"`,
+            cell(tx.account_code),
+            cell(tx.account_name),
             tx.amount,
             tx.gst_amount,
             tx.pst_amount,
-            `"${(tx.description || '').replace(/"/g,'""')}"`,
-            tx.reference_type + (tx.reference_id ? '#' + tx.reference_id : ''),
-            `"${(tx.vendor_name || '').replace(/"/g,'""')}"`,
-            tx.job_number || '',
-            `"${(tx.client_name || '').replace(/"/g,'""')}"`,
+            cell(tx.description),
+            cell(tx.reference_type + (tx.reference_id ? '#' + tx.reference_id : '')),
+            cell(tx.vendor_name),
+            cell(tx.job_number),
+            cell(tx.client_name),
             tx.status,
         ].join(',')),
     ];
@@ -703,7 +744,7 @@ async function loadBudget() {
 
     const STATUS_COLORS = {
         ok:          { bar: '#2D8659', badge: 'bg-success' },
-        warning:     { bar: '#F59E0B', badge: 'bg-warning text-dark' },
+        warning:     { bar: '#C2551F', badge: 'bg-warning text-dark' },
         critical:    { bar: '#e85d04', badge: 'bg-danger' },
         over_budget: { bar: '#dc3545', badge: 'bg-danger' },
     };
@@ -764,7 +805,7 @@ async function loadCrew() {
     tbody.innerHTML = d.crew.map(m => {
         const profitColor = m.profit >= 0 ? '#2D8659' : '#dc3545';
         const margin      = Math.max(0, Math.min(100, m.margin));
-        const barColor    = m.margin >= 30 ? '#2D8659' : (m.margin >= 0 ? '#F59E0B' : '#dc3545');
+        const barColor    = m.margin >= 30 ? '#2D8659' : (m.margin >= 0 ? '#C2551F' : '#dc3545');
 
         return `<tr>
             <td class="fw-bold">${esc(m.name)}</td>

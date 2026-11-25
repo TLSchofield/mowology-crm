@@ -134,7 +134,7 @@ require __DIR__ . '/includes/header.php';
 }
 </style>
 
-<script>
+<script<?= MwCsp::attr() ?>>
 document.getElementById('privacyForm').addEventListener('submit', function (e) {
     e.preventDefault();
     var btn  = document.getElementById('submitBtn');
