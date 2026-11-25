@@ -38,7 +38,7 @@ anything marked **(unfetched)** is standard knowledge not re-read this session.
 
 | # | Rule | Number |
 |---|------|--------|
-| A1 | Response to a tap | visible feedback **< 100 ms**; a result **< 400 ms** feels instant (Doherty); past 1 s the flow of thought breaks; past 10 s show percent-done (NN/g) |
+| A1 | Response to a tap | visible feedback **< 100 ms**; a result **< 400 ms** feels instant (Doherty); past 1 s the flow of thought breaks; past 10 s show percent-done (NN/g). **Press feedback starts on touch-down (0 ms), not on release or after a delay** (Motion UI Interface reel: a button that moves a whole tap late feels dead). Web: style `:active` (and `pointerdown`), add `touch-action: manipulation` so there is no tap delay, never wait for `click` to show pressed. iPhone: a `ButtonStyle` using `configuration.isPressed`. Android: Compose `collectIsPressedAsState()`. |
 | A2 | Entrances | **200–300 ms**, ease-out; never linear (linear only for spinners and continuous motion) |
 | A3 | Exits | about **40 % faster** than the entrance (e.g. 250 in, ~150 out) |
 | A4 | Press / confirm / things that move to a place | **Springs, not timers** on native: a short overshoot (about **1.5 %**, per a Motion UI Interface reel, not a primary source) that settles, because real objects move that way. iPhone: SwiftUI `.spring(...)` / `.smooth` / `.snappy`, never a fixed-duration `easeInOut` for movement. Android: Compose `spring()` with low-bounce damping. Web has no spring: use `cubic-bezier` ease-out with a slight overshoot, or CSS `linear()` easing. No wobble; interruptible (a new tap retargets from the current position, it does not restart). |
@@ -62,6 +62,7 @@ A phone rule applies on the web page, the iPhone app and the Android app in the 
 ## 5. Traps already hit (dated)
 
 - **2026-11-25 audit:** ~33 CRM input rules sit at 13–15px with no 16px override; the public quote wizard (14.7px), contact form (15px), password reset (15px), unsubscribe (14px) and the portal copy-link box (12.5px) all zoom on iPhone. `.mw-line-item` has no phone layout. Pinch-zoom is locked on `client/proof.php`, `customer/gallery.php` (customers need to zoom photos) and several CRM pages.
+- **2026-11-25:** press feedback that waits for release (or a 100+ ms transition) reads as lag; the iPhone shrinks the button the instant it is touched, so Android and web must too (A1).
 - **2026-11-25:** a fixed-duration timer for movement reads as a dead stop; springs are the iPhone default, so Android must match (A4), or the apps feel different even when the screens match.
 - A skeleton that does not match the final layout is worse than a spinner (layout jump).
 - Optimistic UI on a queued offline write shows success the server never saw — see A7/A9.
