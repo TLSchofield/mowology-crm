@@ -27,7 +27,7 @@ return [
         'attempts_allowed' => 3,
         'cooldown_hours'   => 24,
         'recert_months'    => 24,
-        'is_required'      => 0,
+        'is_required'      => 1,
         'sort_order'       => 40,
     ],
 

@@ -82,6 +82,14 @@ try {
         $isEnabled     = PreshiftGate::isRequiredFor($db, $userId);
         $lenRow        = $db->query("SELECT setting_value FROM ops_settings WHERE setting_key='quiz_preshift_session_length'")->fetch(PDO::FETCH_ASSOC);
         $sessionLength = max(3, min(10, (int)($lenRow['setting_value'] ?? 3)));
+        // Still on the required hydrangea course: the daily round is the full course length.
+        if ($isEnabled) {
+            require_once APP_ROOT . '/Modules/Quiz/Services/MandatoryCourseQuizService.php';
+            $sessionLength = MandatoryCourseQuizService::lengthFor(
+                MandatoryCourseQuizService::pendingCourseId($db, $userId),
+                $sessionLength
+            );
+        }
 
         if (!$isEnabled) {
             http_response_code(200);

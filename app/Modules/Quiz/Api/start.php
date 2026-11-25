@@ -62,6 +62,8 @@ header('X-Content-Type-Options: nosniff');
 require_once APP_ROOT . '/Core/config.php';
 require_once APP_ROOT . '/Core/Auth/JwtAuth.php';
 require_once APP_ROOT . '/Modules/Quiz/QuizHelpers.php';
+require_once APP_ROOT . '/Modules/Quiz/Services/PreshiftGate.php';
+require_once APP_ROOT . '/Modules/Quiz/Services/MandatoryCourseQuizService.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
@@ -90,7 +92,22 @@ try {
     // ── Question selection ────────────────────────────────────────────────────
     // "random": ORDER BY RAND() — simple but O(n) sort. Fine for small pools.
     // "seasonal": 4-pool weighted blending via QuizHelpers.selectSeasonalQuestions().
-    if ($mode === 'random') {
+    // Daily quiz = the required Hydrangea Masterclass until this person has mastered it (any-category
+    // seasonal round only). Fails open: a problem leaves $qids empty and the normal picker runs.
+    $mandatoryCourse = null;
+    $qids            = [];
+    if ($categoryId === null && $mode !== 'random') {
+        $mandatoryCourse = MandatoryCourseQuizService::pendingCourseId($db, $userId);
+        if ($mandatoryCourse !== null) {
+            $sessionLength = MandatoryCourseQuizService::lengthFor($mandatoryCourse, $sessionLength);
+            $qids = MandatoryCourseQuizService::questionIds($db, $userId, $mandatoryCourse, $sessionLength);
+            if (!$qids) $mandatoryCourse = null;
+        }
+    }
+
+    if ($mandatoryCourse !== null) {
+        // questions already chosen above
+    } elseif ($mode === 'random') {
         if ($categoryId !== null) {
             $stmt = $db->prepare("SELECT id FROM quiz_questions WHERE category_id=? AND is_active=1 ORDER BY RAND() LIMIT {$sessionLength}");
             $stmt->execute([$categoryId]);
@@ -104,7 +121,7 @@ try {
 
     // Our own plant photos from today's sites first (SitePlantQuizService, 2026-10-16) — any-category or plant/weed quizzes.
     try {
-        if (($categoryId === null || in_array((int)$categoryId, [1, 2], true)) && is_file(APP_ROOT . '/Modules/Quiz/Services/SitePlantQuizService.php')) {
+        if ($mandatoryCourse === null && ($categoryId === null || in_array((int)$categoryId, [1, 2], true)) && is_file(APP_ROOT . '/Modules/Quiz/Services/SitePlantQuizService.php')) {
             require_once APP_ROOT . '/Modules/Quiz/Services/SitePlantQuizService.php';
             $__site = (new SitePlantQuizService($db))->todaySiteQuestionIds((int)$userId, null, 4, $categoryId !== null ? (int)$categoryId : null);
             if ($__site) $qids = SitePlantQuizService::mergeSiteFirst($qids, $__site, (int)$sessionLength);
@@ -127,7 +144,9 @@ try {
     )->execute([$userId, $categoryId, $questionIds, count($qids), $monthYear]);
 
     $sessionId = (int)$db->lastInsertId();
-    $ctx       = getSeasonContext();
+    $ctx       = $mandatoryCourse !== null
+        ? MandatoryCourseQuizService::label()
+        : getSeasonContext();
 
     http_response_code(200);
     echo json_encode([

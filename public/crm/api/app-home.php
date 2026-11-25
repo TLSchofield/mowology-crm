@@ -57,6 +57,12 @@ if ($quizEnabled) {
             "SELECT setting_value FROM ops_settings WHERE setting_key='quiz_preshift_session_length'"
         )->fetch(PDO::FETCH_ASSOC);
         $quizSessionLength = max(3, (int)($lenRow['setting_value'] ?? 3));
+        // Still on the required hydrangea course: the daily round is the full course length.
+        require_once APP_ROOT . '/Modules/Quiz/Services/MandatoryCourseQuizService.php';
+        $quizSessionLength = MandatoryCourseQuizService::lengthFor(
+            MandatoryCourseQuizService::pendingCourseId($db, (int)$user['id']),
+            $quizSessionLength
+        );
 
         $doneStmt = $db->prepare(
             "SELECT id FROM quiz_preshift_log WHERE user_id=? AND log_date=CURDATE()"
