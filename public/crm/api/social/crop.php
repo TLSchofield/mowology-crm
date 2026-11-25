@@ -19,6 +19,7 @@ require_once dirname(dirname(dirname(__DIR__))) . '/loginAuth/auth.php';
 require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 require_once dirname(dirname(dirname(__DIR__))) . '/includes/functions.php';
 require_once APP_ROOT . '/Core/Uploads.php';
+require_once APP_ROOT . '/Modules/Media/Services/ImageGate.php';
 
 header('Content-Type: application/json');
 
@@ -107,6 +108,7 @@ try {
     ]);
 
     $mediaId = (int)$db->lastInsertId();
+    $gateResult = (new ImageGate($db))->ensureWebCopy($mediaId, $filePath);
 
     // Audit
     $db->prepare("
@@ -126,6 +128,7 @@ try {
         'url'       => $webPath,
         'width'     => $width,
         'height'    => $height,
+        'web_copy'  => $gateResult['ok'] ? $gateResult['path'] : null,
     ]);
 
 } catch (\Throwable $e) {
