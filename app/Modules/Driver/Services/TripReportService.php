@@ -388,6 +388,96 @@ class TripReportService
         return ['report_id' => $reportId, 'may_drive' => self::mayDrive($clean), 'unchecked' => self::uncheckedLabels($clean)];
     }
 
+    /**
+     * A manager waived the pre-trip: record the trip as OPEN (so clock-out still needs a post-trip)
+     * but flagged skipped. Never rewrites a trip that is already open or closed, and a second trip
+     * the same day gets its own trip_sequence row.
+     */
+    public function bypassPreTrip(int $userId, ?string $vehicleId, string $reason, string $date): int
+    {
+        // A trip already open on ANY date counts: a replay that crosses midnight must not open a second.
+        if ($open = $this->openTrip($userId)) {
+            return (int)$open['id'];                         // already open — nothing to waive
+        }
+
+        $latest = $this->latestForDriver($userId, $date);
+        if ($latest && empty($latest['pre_trip_at']) && empty($latest['post_trip_at'])) {
+            $this->db->prepare("
+                UPDATE vehicle_trip_reports
+                SET pre_trip_at = NOW(), pre_trip_skipped = 1, skip_reason = ?, vehicle_id = COALESCE(?, vehicle_id)
+                WHERE id = ? AND driver_id = ?
+            ")->execute([$reason, $vehicleId, (int)$latest['id'], $userId]);
+            return (int)$latest['id'];
+        }
+
+        $seq = $this->db->prepare("SELECT COALESCE(MAX(trip_sequence), 0) + 1 FROM vehicle_trip_reports WHERE driver_id = ? AND report_date = ?");
+        $seq->execute([$userId, $date]);
+        $this->db->prepare("
+            INSERT INTO vehicle_trip_reports (driver_id, vehicle_id, report_date, trip_sequence, pre_trip_at, pre_trip_skipped, skip_reason)
+            VALUES (?, ?, ?, ?, NOW(), 1, ?)
+        ")->execute([$userId, $vehicleId, $date, (int)$seq->fetchColumn(), $reason]);
+        return (int)$this->db->lastInsertId();
+    }
+
+    /**
+     * The driver's own recent trips, newest first — the phone's driver log.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function history(int $userId, int $limit = 30): array
+    {
+        $limit = max(1, min(100, $limit));
+        $stmt = $this->db->prepare("
+            SELECT id, report_date, trip_sequence, vehicle_id, pre_trip_at, post_trip_at,
+                   odometer_start, odometer_end, safe_to_drive, pre_trip_skipped, (pdf_path IS NOT NULL AND pdf_path <> '') AS has_pdf
+            FROM vehicle_trip_reports WHERE driver_id = ?
+            ORDER BY report_date DESC, trip_sequence DESC, id DESC LIMIT {$limit}
+        ");
+        $stmt->execute([$userId]);
+        return array_map(static fn (array $r): array => [
+            'report_id'      => (int)$r['id'],
+            'report_date'    => $r['report_date'],
+            'trip_sequence'  => (int)($r['trip_sequence'] ?? 1),
+            'vehicle_id'     => $r['vehicle_id'],
+            'pre_trip_at'    => $r['pre_trip_at'],
+            'post_trip_at'   => $r['post_trip_at'],
+            'odometer_start' => $r['odometer_start'] !== null ? (int)$r['odometer_start'] : null,
+            'odometer_end'   => $r['odometer_end'] !== null ? (int)$r['odometer_end'] : null,
+            'safe_to_drive'  => (bool)$r['safe_to_drive'],
+            'pre_trip_skipped' => !empty($r['pre_trip_skipped']),
+            'state'          => self::tripState($r),
+            'has_pdf'        => (bool)$r['has_pdf'],
+        ], $stmt->fetchAll(PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * Absolute path of the driver's OWN report PDF (generated again if the file went missing), or
+     * null. A driver can never read someone else's report here; the office uses the web download.
+     */
+    public function pdfPathFor(int $userId, int $reportId): ?string
+    {
+        $stmt = $this->db->prepare("SELECT pdf_path FROM vehicle_trip_reports WHERE id = ? AND driver_id = ?");
+        $stmt->execute([$reportId, $userId]);
+        $stored = $stmt->fetchColumn();
+        if ($stored === false) {
+            return null;                                     // not found, or not theirs
+        }
+        require_once APP_ROOT . '/Core/PdfStore.php';
+        $path = $stored ? PdfStore::absoluteFromStored((string)$stored) : null;
+        if ($path !== null && is_file($path)) {
+            return $path;
+        }
+        try {
+            require_once APP_ROOT . '/Services/Pdf/pdf_bootstrap.php';
+            require_once APP_ROOT . '/Modules/Driver/TripReportPdf.php';
+            $regen = TripReportPdf::generate($reportId, $this->db);
+            return (!empty($regen['success']) && !empty($regen['path']) && is_file($regen['path'])) ? (string)$regen['path'] : null;
+        } catch (Throwable $e) {
+            error_log("TripReportService: PDF regenerate failed for report {$reportId}: " . $e->getMessage());
+            return null;
+        }
+    }
+
     /** @throws InvalidArgumentException when there is no open trip, or the odometer is implausible */
     public function savePostTrip(int $userId, array $input, string $date): int
     {
