@@ -1510,3 +1510,8 @@ a:hover { text-decoration: underline; }
 .portal-plants-count { font-weight: 400; color: var(--p-text-light); }
 .portal-plants-meta { font-size: 0.78rem; color: var(--p-text-mid); margin-top: 2px; }
 .portal-visit-weather { white-space: normal; }
+
+/* Touch screens: 16px so iOS does not zoom on focus (mobile-ui-craft M1) */
+@media (pointer: coarse) {
+  .portal-link-copy input { font-size: 16px; }
+}

@@ -456,3 +456,8 @@
     padding: 24px;
   }
 }
+
+/* Touch screens: 16px so iOS does not zoom on focus (mobile-ui-craft M1) */
+@media (pointer: coarse) {
+  .form-control { font-size: 16px; }
+}

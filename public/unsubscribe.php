@@ -191,6 +191,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $validToken && !empty($email)) {
             color: #dc2626;
             padding: 2rem 0;
         }
+            @media (pointer: coarse) { .unsub-form textarea { font-size: 16px; } } /* iOS zooms on focus below 16px */
     </style>
 </head>
 <body>
