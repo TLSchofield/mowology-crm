@@ -57,6 +57,23 @@ try {
         $sessionLength = max(3, (int)$lenRow['setting_value']);
     }
 
+    // Still on the required hydrangea course (the daily quiz is that course until mastered). Its questions
+    // are certification-course questions, which never leave the server with their answers (Fable review
+    // 2026-10-12), so this person gets no offline bundle: the apps treat "no questions downloaded" as no
+    // offline gate, and the online round (hydrangea) runs whenever there is signal. Fails open.
+    require_once APP_ROOT . '/Modules/Quiz/Services/MandatoryCourseQuizService.php';
+    if ($preshiftEnabled && MandatoryCourseQuizService::pendingCourseId($db, (int)$user['id']) !== null) {
+        echo json_encode([
+            'ok'        => true,
+            'settings'  => [
+                'preshift_enabled' => $preshiftEnabled,
+                'session_length'   => MandatoryCourseQuizService::ROUND_LENGTH,
+            ],
+            'questions' => [],
+        ]);
+        exit;
+    }
+
     // ── Questions + options ───────────────────────────────────────────────────
     $qStmt = $db->query(
         "SELECT q.id, q.question_text AS text, q.difficulty, q.image_path,

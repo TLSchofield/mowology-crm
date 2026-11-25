@@ -190,4 +190,21 @@ class InvoiceInsightsServiceTest extends TestCase
         $none = InvoiceInsightsService::build($paid, [], '2026-11-24');
         $this->assertSame(0.0, $none['months'][11]['last_year']);
     }
+
+    public function testMonthsBeforeInvoicesAgreeWithTheBooksTakeTheLargerOfTheTwo(): void
+    {
+        $paid = [
+            ['created_at' => '2026-03-01', 'paid_at' => '2026-03-10', 'total' => 100],   // March: invoices far under the books
+            ['created_at' => '2026-05-01', 'paid_at' => '2026-05-10', 'total' => 300],   // May: still under
+            ['created_at' => '2026-07-01', 'paid_at' => '2026-07-10', 'total' => 500],   // July: agrees with the books (cut-over)
+            ['created_at' => '2026-09-01', 'paid_at' => '2026-09-10', 'total' => 200],   // September: invoices only, books higher
+        ];
+        $ledger = ['2026-03' => 2000.0, '2026-04' => 1500.0, '2026-05' => 1000.0, '2026-07' => 505.0, '2026-09' => 900.0];
+        $s = InvoiceInsightsService::build($paid, [], '2026-11-24', $ledger);
+        $by = [];
+        foreach ($s['months'] as $m) $by[$m['label']] = $m['total'];
+        $this->assertSame([2000.0, 1500.0, 1000.0], [$by['Mar'], $by['Apr'], $by['May']]);
+        $this->assertSame([500.0, 200.0], [$by['Jul'], $by['Sep']]);
+        $this->assertTrue($s['uses_books']);
+    }
 }

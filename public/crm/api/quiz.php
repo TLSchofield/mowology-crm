@@ -26,6 +26,8 @@ if (!defined('APP_ROOT')) {
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 require_once APP_ROOT . '/Core/Uploads.php';
+require_once APP_ROOT . '/Modules/Quiz/Services/PreshiftGate.php';
+require_once APP_ROOT . '/Modules/Quiz/Services/MandatoryCourseQuizService.php';
 requireLogin();
 $user      = getCurrentUser();
 $userId    = (int)$user['id'];
@@ -698,7 +700,22 @@ switch ($action) {
         $sessionLength = (int)($input['session_length'] ?? 10);
         if (!in_array($sessionLength, [3, 5, 10], true)) $sessionLength = 10;
 
-        if ($mode === 'test') {
+        // Daily quiz = the required Hydrangea Masterclass until this person has mastered it.
+        // Only the any-category seasonal round; a category picked in the hub is left alone. Fails open.
+        $mandatoryCourse = null;
+        $qids            = [];
+        if ($categoryId === null && $mode === 'seasonal') {
+            $mandatoryCourse = MandatoryCourseQuizService::pendingCourseId($db, $userId);
+            if ($mandatoryCourse !== null) {
+                $sessionLength = MandatoryCourseQuizService::lengthFor($mandatoryCourse, $sessionLength);
+                $qids = MandatoryCourseQuizService::questionIds($db, $userId, $mandatoryCourse, $sessionLength);
+                if (!$qids) $mandatoryCourse = null;
+            }
+        }
+
+        if ($mandatoryCourse !== null) {
+            // questions already chosen above
+        } elseif ($mode === 'test') {
             // Legacy: priority order — due for review → lowest mastery → random
             if ($categoryId !== null) {
                 $stmt = $db->prepare(
@@ -744,8 +761,9 @@ switch ($action) {
         }
 
         // Our own plant photos from today's sites first (SitePlantQuizService, 2026-10-16) — any-category or plant/weed quizzes.
+        // Not while the hydrangea course is the daily quiz: that round stays pure.
         try {
-            if (($categoryId === null || in_array((int)$categoryId, [1, 2], true)) && is_file(APP_ROOT . '/Modules/Quiz/Services/SitePlantQuizService.php')) {
+            if ($mandatoryCourse === null && ($categoryId === null || in_array((int)$categoryId, [1, 2], true)) && is_file(APP_ROOT . '/Modules/Quiz/Services/SitePlantQuizService.php')) {
                 require_once APP_ROOT . '/Modules/Quiz/Services/SitePlantQuizService.php';
                 $__site = (new SitePlantQuizService($db))->todaySiteQuestionIds((int)$userId, null, 4, $categoryId !== null ? (int)$categoryId : null);
                 if ($__site) $qids = SitePlantQuizService::mergeSiteFirst($qids, $__site, (int)$sessionLength);
@@ -758,7 +776,9 @@ switch ($action) {
 
         $questionCount = count($qids);
         $questionIds   = implode(',', $qids);
-        $seasonCtx     = getSeasonContext();
+        $seasonCtx     = $mandatoryCourse !== null
+            ? MandatoryCourseQuizService::label()
+            : getSeasonContext();
 
         $ins = $db->prepare(
             "INSERT INTO quiz_sessions (user_id, category_id, question_ids, questions_count, month_year)

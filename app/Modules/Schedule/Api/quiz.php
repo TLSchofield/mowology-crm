@@ -37,6 +37,7 @@ try {
     require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
     require_once APP_ROOT . '/Core/Auth/JwtAuth.php';
     require_once APP_ROOT . '/Modules/Quiz/Services/PreshiftGate.php';
+    require_once APP_ROOT . '/Modules/Quiz/Services/MandatoryCourseQuizService.php';
 
     $jwtUser   = requireJwt();
     $userId    = (int)$jwtUser['id'];
@@ -364,7 +365,23 @@ try {
             $sessionLength = (int)($input['session_length'] ?? 10);
             if (!in_array($sessionLength, [3, 5, 10], true)) $sessionLength = 10;
 
-            if ($mode === 'random') {
+            // Daily quiz = the required Hydrangea Masterclass until this person has mastered it.
+            // Only the daily/any-category seasonal round; a category picked in the Quiz hub is left alone.
+            // Fails open: any problem leaves $qids empty and the normal picker runs.
+            $mandatoryCourse = null;
+            $qids            = [];
+            if ($categoryId === null && $mode !== 'random') {
+                $mandatoryCourse = MandatoryCourseQuizService::pendingCourseId($db, $userId);
+                if ($mandatoryCourse !== null) {
+                    $sessionLength = MandatoryCourseQuizService::lengthFor($mandatoryCourse, $sessionLength);
+                    $qids = MandatoryCourseQuizService::questionIds($db, $userId, $mandatoryCourse, $sessionLength);
+                    if (!$qids) $mandatoryCourse = null;
+                }
+            }
+
+            if ($mandatoryCourse !== null) {
+                // questions already chosen above
+            } elseif ($mode === 'random') {
                 if ($categoryId !== null) {
                     $stmt = $db->prepare(
                         "SELECT id FROM quiz_questions WHERE category_id=? AND is_active=1
@@ -386,8 +403,9 @@ try {
             }
 
             // Our own plant photos from today's sites first (SitePlantQuizService, 2026-10-16) — any-category or plant/weed quizzes.
+            // Not while the hydrangea course is the daily quiz: that round stays pure.
             try {
-                if (($categoryId === null || in_array((int)$categoryId, [1, 2], true)) && is_file(APP_ROOT . '/Modules/Quiz/Services/SitePlantQuizService.php')) {
+                if ($mandatoryCourse === null && ($categoryId === null || in_array((int)$categoryId, [1, 2], true)) && is_file(APP_ROOT . '/Modules/Quiz/Services/SitePlantQuizService.php')) {
                     require_once APP_ROOT . '/Modules/Quiz/Services/SitePlantQuizService.php';
                     $__site = (new SitePlantQuizService($db))->todaySiteQuestionIds((int)$userId, null, 4, $categoryId !== null ? (int)$categoryId : null);
                     if ($__site) $qids = SitePlantQuizService::mergeSiteFirst($qids, $__site, (int)$sessionLength);
@@ -400,7 +418,9 @@ try {
 
             $questionCount = count($qids);
             $questionIds   = implode(',', $qids);
-            $seasonCtx     = mGetSeasonContext();
+            $seasonCtx     = $mandatoryCourse !== null
+                ? MandatoryCourseQuizService::label()
+                : mGetSeasonContext();
 
             $ins = $db->prepare(
                 "INSERT INTO quiz_sessions (user_id, category_id, question_ids, questions_count, month_year)

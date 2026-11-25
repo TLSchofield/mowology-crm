@@ -562,6 +562,9 @@ require_once __DIR__ . '/../app/Modules/Legal/Services/TermsService.php';
 // Quiz / Certification
 require_once __DIR__ . '/../app/Modules/Quiz/Services/CertificationService.php';
 require_once __DIR__ . '/../app/Modules/Quiz/Services/VariantQuestionService.php';
+require_once __DIR__ . '/../app/Modules/Quiz/Services/HydrangeaMasterclassSeeder.php';
+require_once __DIR__ . '/../app/Modules/Quiz/Services/PreshiftGate.php';
+require_once __DIR__ . '/../app/Modules/Quiz/Services/MandatoryCourseQuizService.php';
 require_once __DIR__ . '/../app/Modules/Quiz/Services/PreshiftGate.php';
 
 // Jobs
