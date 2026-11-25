@@ -84,6 +84,7 @@ $pausedMrr = (float)$db->query("
 
 $pageTitle  = 'Contracts';
 $activePage = 'contracts';
+$bodyClass  = 'it-list'; // Ittai list skin (css/ittai-lists.css) — applies only when the new design is on
 ?>
 <?php include 'includes/appstack_head.php'; ?>
 

@@ -25,6 +25,7 @@ require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 require_once __DIR__ . '/MiaSeasonThemes.php';
 require_once __DIR__ . '/ReviewReplyDrafter.php';
 require_once __DIR__ . '/WebsiteWatchService.php';
+require_once __DIR__ . '/PortfolioGapRules.php';
 require_once __DIR__ . '/ListingsService.php';
 require_once __DIR__ . '/MiaSocialService.php';
 require_once __DIR__ . '/MediaTagService.php';
@@ -92,7 +93,7 @@ class MiaChannelsService
                 'drafts'    => $this->socialDrafts(),
                 'best'      => $bestPost,
             ],
-            'website' => self::webView($web),
+            'website' => self::webView($web, $this->portfolioGaps()),
             'listings' => $listings->ready() ? $listings->counts() + ['url' => '/crm/marketing/listings.php'] : null,
             // Harvest 2026-11-03: his voice (learned from sent mail), the calendar's balance, the week in one page, findability
             'voice'   => $this->voiceProfile(),
@@ -205,18 +206,31 @@ class MiaChannelsService
     }
 
     /** The card's view of the latest website report. */
-    public static function webView(?array $web): array
+    /** Published portfolio projects that look unfinished; [] when the table is missing or the read fails (never breaks the card). */
+    public function portfolioGaps(): array
     {
-        if (!$web) return ['status' => 'none', 'headline' => 'No website report yet — the first one runs on Monday morning.', 'suggestions' => [], 'top' => []];
+        try {
+            $rows = $this->db->query("SELECT id, project_name, description, location FROM portfolio_projects WHERE status = 'published' ORDER BY display_order, id")->fetchAll(PDO::FETCH_ASSOC);
+            return PortfolioGapRules::find($rows ?: []);
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+
+    /** @param array $gaps PortfolioGapRules::find() output; shown whatever the Search Console state is. */
+    public static function webView(?array $web, array $gaps = []): array
+    {
+        $own = PortfolioGapRules::suggestions($gaps);
+        if (!$web) return ['status' => 'none', 'headline' => 'No website report yet — the first one runs on Monday morning.', 'suggestions' => $own, 'top' => []];
         $r = $web['report'] ?? [];
         if ($web['status'] !== 'ok') {
             return ['status' => $web['status'], 'week' => $web['week_start'],
                     'headline' => $web['status'] === 'not_connected' ? 'Search Console isn\'t connected, so I can\'t watch the website yet.' : 'Last week\'s Search Console read failed: ' . ($web['error'] ?? 'unknown error'),
-                    'suggestions' => [], 'top' => []];
+                    'suggestions' => $own, 'top' => []];
         }
         return [
             'status' => 'ok', 'week' => $web['week_start'], 'headline' => (string)($r['headline'] ?? ''),
-            'suggestions' => array_slice($r['suggestions'] ?? [], 0, 5),
+            'suggestions' => array_slice(array_merge($own, $r['suggestions'] ?? []), 0, 5),
             'top' => array_slice($r['top_queries'] ?? [], 0, 5),
             'totals' => $r['totals'] ?? null,
         ];
@@ -252,6 +266,10 @@ class MiaChannelsService
             $n = count($drafts);
             $items[] = ['key' => 'mia:social-drafts:' . $drafts[0]['id'], 'text' => sprintf('%d social post%s drafted from crew photos, waiting for your OK.', $n, $n === 1 ? '' : 's'),
                         'url' => '/crm/marketing/social-post-editor.php?id=' . (int)$drafts[0]['social_post_id'], 'priority' => 2, 'kind' => 'social_draft'];
+        }
+        $gaps = $this->portfolioGaps();
+        if ($gaps) {                                   // independent of Search Console: a bare portfolio card needs no traffic data to be seen
+            $items[] = ['key' => 'mia:portfolio-gap:' . md5(json_encode(array_column($gaps, 'id'))), 'text' => PortfolioGapRules::text($gaps), 'url' => PortfolioGapRules::URL, 'priority' => 3, 'kind' => 'portfolio_gap'];
         }
         $web = self::webView((new WebsiteWatchService($this->db))->latest());
         if ($web['status'] === 'ok' && $web['headline'] !== '') {

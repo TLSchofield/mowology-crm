@@ -42,7 +42,8 @@
   <!-- Crew app, crew page: 3 KB shim (modal / tab / dismiss) instead of the 3.5 MB AppStack bundle -->
   <script src="<?= _av('/crm/js/mw-ui-shim.js') ?>"></script>
   <?php else: ?>
-  <script src="<?= function_exists('_amin') ? _amin('/crm/js/app.js') : '/crm/js/app.js' ?>"></script>
+  <?php /* app.js is served as-is: Minify\JS truncates this 3.6 MB bundle (app.min.js cut at 2,418,000 bytes, jQuery never defined, 2026-11-24) */ ?>
+  <script src="<?= function_exists('_av') ? _av('/crm/js/app.js') : '/crm/js/app.js' ?>"></script>
   <?php endif; ?>
 
   <!-- Global modal helpers: openMwModal(id) / closeMwModal(id)

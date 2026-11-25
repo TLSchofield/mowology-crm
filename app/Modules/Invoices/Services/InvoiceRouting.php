@@ -20,6 +20,205 @@ declare(strict_types=1);
 require_once __DIR__ . '/AutomatedInvoiceInbox.php';
 require_once __DIR__ . '/ReminderGate.php';
 
+/** The account's client_contacts could not be read (the API answers 500 with a generic message). */
+class InvoiceRecipientsLoadException extends RuntimeException
+{
+}
+
+/**
+ * THE one entry point for "who gets this invoice" (2026-11-24, plan "one entry point for invoice recipients").
+ * Extracted verbatim from api-get-recipients.php — no behaviour change. Later steps move the other
+ * callers (visit service, move service, create.php, view.php, bulk resend) onto it.
+ */
+class InvoiceRouting
+{
+    /**
+     * The management firm's billing recipients for a PM-managed property (preselected), else [].
+     * The ONLY door to the firm-routing step for callers that want "firm or nothing" and keep their own
+     * fallback (visit invoices, invoice moves, the contract billing cron). Never throws.
+     *
+     * @return array<int,array>
+     */
+    public static function managedFirmRecipients(int $propertyId, ?PDO $db = null): array
+    {
+        if ($propertyId <= 0) {
+            return [];
+        }
+        try {
+            return resolveManagementBillingRecipient($propertyId, $db);
+        } catch (Throwable $e) {
+            error_log('[InvoiceRouting] firm routing failed for property ' . $propertyId . ': ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    /**
+     * Give a freshly created invoice its client (same rule and order as ContactRosterSync, so the nightly
+     * sync never disagrees): the company's client, else the contact's, else the property's, else the plan's.
+     * Fills only a NULL client_id; never throws (creation must not fail over bookkeeping). Returns rows set.
+     */
+    public static function stampClientId(PDO $db, int $invoiceId): int
+    {
+        if ($invoiceId <= 0) {
+            return 0;
+        }
+        try {
+            $st = $db->prepare("
+                UPDATE invoices SET client_id = COALESCE(
+                    (SELECT id FROM clients WHERE legacy_company_id = invoices.company_id),
+                    (SELECT id FROM clients WHERE legacy_contact_id = invoices.contact_id),
+                    (SELECT client_id FROM properties WHERE id = invoices.property_id),
+                    (SELECT client_id FROM job_plans WHERE id = invoices.plan_id))
+                WHERE id = ? AND client_id IS NULL");
+            $st->execute([$invoiceId]);
+            return $st->rowCount();
+        } catch (Throwable $e) {
+            error_log('[InvoiceRouting] stampClientId failed for invoice ' . $invoiceId . ': ' . $e->getMessage());
+            return 0;
+        }
+    }
+
+    /**
+     * Cascade: the account's client_contacts (+ its manager's) -> the company's live routing ->
+     * determineInvoiceRecipients() -> the property's site contact -> PM-managed firm precedence.
+     *
+     * @return array<int,array> rows in the api-get-recipients shape (contact_id 0 = a contactless firm inbox)
+     * @throws InvoiceRecipientsLoadException when client_contacts cannot be read
+     */
+    public static function resolveInvoiceRecipients(int $propertyId, int $clientId, int $companyId, int $contactId, ?PDO $db = null): array
+    {
+        $db = $db ?: getDB();
+        $recipients = [];
+
+        // ── Client/Account model path: recipients are the account's people ──
+        // Pull from client_contacts so an account is invoiceable without a property
+        // (e.g. a strata billed via its council member / property manager).
+        if ($clientId) {
+            try {
+                // Resolve from the account's own people AND, when the account is
+                // managed by a firm (e.g. a strata managed by a PM company), the
+                // managing firm's people too — so invoices route to the manager's
+                // accounts contact. Manager contacts are listed first.
+                $ccStmt = $db->prepare("
+                    SELECT con.id                                     AS contact_id,
+                           CONCAT(con.first_name, ' ', con.last_name) AS contact_name,
+                           con.email, con.mobile, con.receive_sms,
+                           cc.role         AS contact_role,
+                           cc.is_primary, cc.receives_invoices,
+                           (cc.client_id <> ?) AS via_manager
+                    FROM client_contacts cc
+                    JOIN contacts con ON con.id = cc.contact_id
+                    WHERE cc.client_id = ?
+                       OR cc.client_id = (SELECT managed_by_client_id FROM clients WHERE id = ?)
+                    ORDER BY via_manager DESC, cc.receives_invoices DESC, cc.is_primary DESC, con.first_name
+                ");
+                $ccStmt->execute([$clientId, $clientId, $clientId]);
+                $seenContact = [];
+                foreach ($ccStmt->fetchAll(PDO::FETCH_ASSOC) as $cc) {
+                    if (empty($cc['email'])) {
+                        continue; // can't send an invoice without an email
+                    }
+                    if (isset($seenContact[(int)$cc['contact_id']])) {
+                        continue; // a person linked to both account and manager — once
+                    }
+                    $seenContact[(int)$cc['contact_id']] = true;
+                    $recipients[] = [
+                        'contact_id'    => (int)$cc['contact_id'],
+                        'contact_name'  => $cc['contact_name'] . (!empty($cc['via_manager']) ? ' (Manager)' : ''),
+                        'contact_role'  => $cc['contact_role'] ?: 'primary_recipient',
+                        'email_address' => $cc['email'],
+                        'receive_sms'   => (bool)$cc['receive_sms'],
+                        'phone'         => $cc['mobile'] ?? null,
+                        'preselect'     => (bool)$cc['receives_invoices'],
+                    ];
+                }
+            } catch (PDOException $e) {
+                error_log(get_class($e) . ': ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+                throw new InvoiceRecipientsLoadException('Unable to load invoice recipients.', 0, $e);
+            }
+        }
+
+        // ── Company billed directly: its LIVE routing first (2026-10-11) ─────────
+        // client_contacts is a one-time copy (migration 1049) that nothing updates, so a billing
+        // contact changed on the company never reached this list. The company's own
+        // invoice_routing_method now decides who is preselected; the copied people stay as CCs.
+        if ($clientId && !empty($recipients)) {
+            // A managed account (a strata run by a PM firm) follows its MANAGER's routing, as a
+            // PM-managed property does — VR15-40 bills Macdonald's accounts inbox, not its own contact.
+            $lc = $db->prepare("SELECT COALESCE(m.legacy_company_id, cl.legacy_company_id)
+                                FROM clients cl LEFT JOIN clients m ON m.id = cl.managed_by_client_id
+                                WHERE cl.id = ?");
+            $lc->execute([$clientId]);
+            $legacyCompany = (int)$lc->fetchColumn();
+            if ($legacyCompany > 0) {
+                $routed = resolveCompanyBillingRecipient($legacyCompany, $db);
+                if ($routed) $recipients = preferRecipients($routed, $recipients);
+            }
+        }
+
+        if (empty($recipients) && $companyId && $propertyId) {
+            // Legacy path: company-based routing (needs a property).
+            $recipients = determineInvoiceRecipients($propertyId, $companyId, $db);
+        }
+
+        // Fallback: load the property's site contact directly (contacts-based plans)
+        if (empty($recipients) && $propertyId) {
+            // Try property's site_contact_id, then the passed contact_id
+            $fallbackStmt = $db->prepare("
+                SELECT con.id as contact_id,
+                       CONCAT(con.first_name, ' ', con.last_name) as contact_name,
+                       con.email,
+                       con.mobile,
+                       con.receive_sms
+                FROM properties p
+                JOIN contacts con ON con.id = COALESCE(p.site_contact_id, ?)
+                WHERE p.id = ?
+                LIMIT 1
+            ");
+            $fallbackStmt->execute([$contactId ?: 0, $propertyId]);
+            $contact = $fallbackStmt->fetch(PDO::FETCH_ASSOC);
+
+            if ($contact && $contact['email']) {
+                $recipients = [[
+                    'contact_id'   => $contact['contact_id'],
+                    'contact_name' => $contact['contact_name'],
+                    'contact_role' => 'primary_recipient',
+                    'email_address'=> $contact['email'],
+                    'receive_sms'  => (bool)$contact['receive_sms'],
+                    'phone'        => $contact['mobile'] ?? null,
+                ]];
+            }
+        }
+
+        // ── PM-MANAGED BILLING PRECEDENCE ──────────────────────────────────────
+        // If the property is managed by a firm, invoices bill the MANAGEMENT
+        // COMPANY's accounts contact (honoring its invoice_routing_method), NOT the
+        // on-site/property contact. The management billing recipient becomes the
+        // preselected primary; anything resolved above stays in the list but
+        // unchecked (available as a CC). This is the documented intent of the
+        // contract "PM-Managed Billing" screen and fixes the case where the form
+        // defaulted to the property manager *person* instead of the firm's accounts.
+        if ($propertyId) {
+            $pmRecipients = self::managedFirmRecipients($propertyId, $db);
+            if (!empty($pmRecipients)) {
+                $pmContactIds = array_column($pmRecipients, 'contact_id');
+                $ccRecipients = [];
+                foreach ($recipients as $r) {
+                    // Drop duplicates of the PM contacts; demote the rest to unchecked.
+                    if (in_array((int)($r['contact_id'] ?? 0), array_map('intval', $pmContactIds), true)) {
+                        continue;
+                    }
+                    $r['preselect'] = false;
+                    $ccRecipients[] = $r;
+                }
+                $recipients = array_merge($pmRecipients, $ccRecipients);
+            }
+        }
+
+        return $recipients;
+    }
+}
+
 /**
  * Determine invoice recipients based on property management relationships
  *
@@ -27,12 +226,12 @@ require_once __DIR__ . '/ReminderGate.php';
  * @param int $companyId Company ID (invoice recipient)
  * @return array Recipients array with contact_id, contact_role, email_address, name
  */
-function determineInvoiceRecipients(int $propertyId, int $companyId): array {
-    $db = getDB();
+function determineInvoiceRecipients(int $propertyId, int $companyId, ?PDO $db = null): array {
+    $db = $db ?: getDB();
 
     try {
         // 1. Get property with all relationships
-        $property = getPropertyWithCompanies($propertyId);
+        $property = getPropertyWithCompanies($propertyId, $db);
         if (!$property) {
             error_log("Invoice routing: Property not found: {$propertyId}");
             return [];
@@ -79,7 +278,7 @@ function determineInvoiceRecipients(int $propertyId, int $companyId): array {
         // 4. Validate and filter recipients
         $validRecipients = [];
         foreach ($recipients as $recipient) {
-            if (validateInvoiceRecipient($recipient['contact_id'], $recipient['email_address'])) {
+            if (validateInvoiceRecipient($recipient['contact_id'], $recipient['email_address'], $db)) {
                 $validRecipients[] = $recipient;
             } else {
                 error_log("Invoice routing: Invalid recipient - {$recipient['email_address']}");
@@ -121,8 +320,8 @@ function determineInvoiceRecipients(int $propertyId, int $companyId): array {
  * @param int $propertyId
  * @return array<int,array>
  */
-function resolveManagementBillingRecipient(int $propertyId): array {
-    $db = getDB();
+function resolveManagementBillingRecipient(int $propertyId, ?PDO $db = null): array {
+    $db = $db ?: getDB();
 
     try {
         $stmt = $db->prepare("
@@ -220,9 +419,9 @@ function companyRoutingRecipients(array $co, PDO $db): array {
 }
 
 /** The invoice recipients for a company billed directly, by its live routing settings. */
-function resolveCompanyBillingRecipient(int $companyId): array {
+function resolveCompanyBillingRecipient(int $companyId, ?PDO $db = null): array {
     try {
-        $db = getDB();
+        $db = $db ?: getDB();
         $stmt = $db->prepare("SELECT id AS company_id, company_name, primary_contact_id, billing_contact_id, billing_email, invoice_routing_method
                               FROM companies WHERE id = ?");
         $stmt->execute([$companyId]);
@@ -593,8 +792,8 @@ function getRecipientListStrata(array $property, array $company, PDO $db): array
  * @param int $propertyId Property ID
  * @return array|null Property data with owner and manager relationships
  */
-function getPropertyWithCompanies(int $propertyId): ?array {
-    $db = getDB();
+function getPropertyWithCompanies(int $propertyId, ?PDO $db = null): ?array {
+    $db = $db ?: getDB();
 
     $stmt = $db->prepare("
         SELECT
@@ -653,13 +852,13 @@ function getPropertyWithCompanies(int $propertyId): ?array {
  * @param string $email Email address
  * @return bool True if valid
  */
-function validateInvoiceRecipient(?int $contactId, string $email): bool {
+function validateInvoiceRecipient(?int $contactId, string $email, ?PDO $db = null): bool {
     if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
         return false;
     }
 
     if ($contactId) {
-        $db = getDB();
+        $db = $db ?: getDB();
         $stmt = $db->prepare("
             SELECT is_active FROM contacts WHERE id = ?
         ");

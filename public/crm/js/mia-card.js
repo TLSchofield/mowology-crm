@@ -183,7 +183,7 @@
         root.innerHTML =
             '<div class="mw-mia-rc-top">' +
               '<button type="button" class="mw-mia-arrow" data-go="-1" aria-label="Previous"' + (idx === 0 ? ' disabled' : '') + '>‹</button>' +
-              '<span><b>' + (idx + 1) + ' of ' + queue.length + '</b> · ' + esc(KIND[s.kind] || s.kind) + '</span>' +
+              '<span><b>' + esc(KIND[s.kind] || s.kind) + '</b></span>' +
               '<button type="button" class="mw-mia-arrow" data-go="1" aria-label="Next"' + (idx >= queue.length - 1 ? ' disabled' : '') + '>›</button>' +
             '</div>' +
             '<div class="mw-mia-who"><b>' + esc(who) + '</b>' + (s.url ? ' <a href="' + esc(s.url) + '" target="_blank" rel="noopener">Open</a>' : '') +

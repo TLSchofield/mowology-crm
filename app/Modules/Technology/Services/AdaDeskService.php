@@ -224,9 +224,15 @@ class AdaDeskService
             $lastByKey[(string)$r['cron_key']] = (string)$r['last_at'];
         }
         $maxMs = [];
-        $st = $this->db->prepare("SELECT cron_key, MAX(duration_ms) AS m FROM cron_runs WHERE ran_at > ? GROUP BY cron_key");
-        $st->execute([date('Y-m-d H:i:s', strtotime($now) - AdaRules::SLOW_DAYS * 86400)]);
-        foreach ($st as $r) $maxMs[(string)$r['cron_key']] = (int)$r['m'];
+        // One query per job: cron_runs is indexed (cron_key, ran_at), so each is a short range read. The single
+        // GROUP BY ran_at > ? version scanned every run on record (300,000 rows, 0.6 s on production, 2026-11-20).
+        $st = $this->db->prepare("SELECT MAX(duration_ms) FROM cron_runs WHERE cron_key = ? AND ran_at > ?");
+        $slowFrom = date('Y-m-d H:i:s', strtotime($now) - AdaRules::SLOW_DAYS * 86400);
+        foreach (array_keys($lastByKey) as $cronKey) {
+            $st->execute([$cronKey, $slowFrom]);
+            $m = $st->fetchColumn();
+            if ($m !== false && $m !== null) $maxMs[(string)$cronKey] = (int)$m;
+        }
 
         $recentSt = $this->db->prepare("SELECT status, ran_at, error_message, summary FROM cron_runs WHERE cron_key = ? ORDER BY ran_at DESC LIMIT 12");
         $okSt = $this->db->prepare("SELECT MAX(ran_at) FROM cron_runs WHERE cron_key = ? AND status <> 'error'");

@@ -68,10 +68,11 @@ $invoicesStmt = $db->prepare("
     SELECT i.*
     FROM invoices i
     WHERE i.company_id = ?
+       OR i.property_id IN (SELECT pm.id FROM properties pm WHERE pm.property_manager_id = ?)
     ORDER BY i.created_at DESC
     LIMIT 50
 ");
-$invoicesStmt->execute([$companyId]);
+$invoicesStmt->execute([$companyId, $companyId]);
 $invoices = $invoicesStmt->fetchAll(PDO::FETCH_ASSOC);
 
 $outstandingBalance = 0;

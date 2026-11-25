@@ -31,6 +31,7 @@ class InvoiceWeatherEvidence
                 if ($row) {
                     $row['grade'] = 'official';
                     self::applyRecheck($db, $row);
+                    self::applyObserved($db, $row);
                     return $row;
                 }
             }
@@ -79,6 +80,33 @@ class InvoiceWeatherEvidence
     }
 
     /**
+     * What the Vancouver airport station actually recorded overnight (weather_observations, migration 1461), when we
+     * have readings for that service day. Own guarded query: before the migration, or for days before it, nothing shows.
+     */
+    private static function applyObserved(PDO $db, array &$row): void
+    {
+        try {
+            if (empty($row['trigger_date'])) {
+                return;
+            }
+            if (!class_exists('WeatherSnapshotService', false) && defined('APP_ROOT')) {
+                require_once APP_ROOT . '/Modules/Jobs/Services/WeatherSnapshotService.php';   // no autoloader
+            }
+            if (!class_exists('WeatherSnapshotService', false)) {
+                return;
+            }
+            $o = WeatherSnapshotService::observedLow($db, (string)$row['trigger_date']);
+            if ($o && $o['count'] >= 3) {   // a handful of readings is not an overnight low
+                $row['observed_low_c']   = $o['low'];
+                $row['observed_count']   = $o['count'];
+                $row['observed_station'] = $o['station'];
+            }
+        } catch (Throwable $e) {
+            // table not there yet
+        }
+    }
+
+    /**
      * The facts of an official record as label/value rows, shared by the invoice PDF panel and the client portal.
      * @return array{date:string, met:bool, rows:array<int,array{0:string,1:string}>}
      */
@@ -104,6 +132,10 @@ class InvoiceWeatherEvidence
             ['Station', $ev['source_station'] ?: '—'],
             [!empty($ev['rechecked']) ? 'Forecast confirmed' : 'Forecast captured', $cap],
         ];
+        if (isset($ev['observed_low_c'])) {
+            $obs = rtrim(rtrim(number_format((float)$ev['observed_low_c'], 1), '0'), '.');
+            $rows[] = ['Station recorded low', $obs . ' °C · ' . (int)$ev['observed_count'] . ' readings'];
+        }
         if ($ref !== '') { $rows[] = ['Record reference', $ref]; }
         return ['date' => $date, 'met' => $met, 'rows' => $rows];
     }

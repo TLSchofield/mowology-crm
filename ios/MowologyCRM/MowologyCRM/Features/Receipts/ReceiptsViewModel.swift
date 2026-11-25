@@ -453,6 +453,24 @@ final class ReceiptsViewModel: ObservableObject {
 
     /// "Label" mode: a product bag or a machine's nameplate. Never an expense and never
     /// queued offline (it isn't money) — a failure just asks to try again.
+    /// "Add it" after a product label photo. `ok` false keeps the proposal so the person can fix it and try again.
+    func addLabelProduct(_ proposal: LabelCaptureResponse.Proposal, name: String, cost: String) async -> (ok: Bool, text: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return (false, "A product needs a name.") }
+        let costText = cost.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "$", with: "")
+        let unitCost: Double? = costText.isEmpty ? nil : Double(costText)
+        if !costText.isEmpty && unitCost == nil { return (false, "That cost doesn't look like a number.") }
+        do {
+            let r = try await apiClient.acceptLabelProduct(proposalId: proposal.id, name: trimmed, unitCost: unitCost)
+            return r.success ? (true, r.message ?? "Added.") : (false, r.error ?? r.message ?? "Couldn't add it.")
+        } catch let err as APIError {
+            if case .networkError = err { return (false, "No connection — nothing was added. Try again when you have signal.") }
+            return (false, ErrorDetails.describe(err))
+        } catch {
+            return (false, ErrorDetails.describe(error))
+        }
+    }
+
     func uploadLabel(_ imageData: Data, lat: Double?, lng: Double?) async {
         isUploading = true
         uploadError = nil

@@ -288,6 +288,8 @@ try {
         (int)$jwtUser['user_id'],
     ]);
     $invoiceId = (int)$db->lastInsertId();
+    require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceRouting.php';
+    InvoiceRouting::stampClientId($db, $invoiceId);
 
     // INSERT invoice_line_items
     $liStmt = $db->prepare("

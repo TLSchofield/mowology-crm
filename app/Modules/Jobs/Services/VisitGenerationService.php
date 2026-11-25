@@ -255,7 +255,7 @@ class VisitGenerationService
     private static array $weekdayEnds = [];
 
     /** A plan with several weekdays can have its own end time for one of them (Otto, migration 1444). */
-    private static function endForDate(PDO $db, array $plan, string $date): ?string {
+    public static function endForDate(PDO $db, array $plan, string $date): ?string {
         $id = (int)$plan['id'];
         if (!isset(self::$weekdayEnds[$id])) {
             require_once APP_ROOT . '/Modules/Operations/Services/VisitWindowService.php';

@@ -52,6 +52,7 @@ Not measured: production timings, other pages, a truly empty tenant, phone width
 - Order: dashboard, contacts, quotes list, new quote, jobs, invoices, schedule.
 - Use `ittai-tokens.css` and `docs/design/ittai-v1.2` / `COMPONENTS.md` (status scale: green in, rust look, red missing, grey not expected). No new hex values, no inline styles.
 - One primary action per page. Dense columns and filters collapse for first-week mode.
+- Wording: each page's strings pass `docs/design/plain-language-style-guide.md` (plain words, errors say what to do, every empty state has one button).
 - Each page checked at 1440, 1024 and phone width, light and dark, with `scripts/ittai-design/review-shots.mjs` where it applies.
 
 **Step 6: check as a newcomer.**
@@ -150,3 +151,38 @@ Still slow, measured next (from the helper's static read, none yet timed):
 - Otto GPS subqueries on `crew_location_history.visit_id` (no index).
 - The head API calls after load (`charlie.php` 9.5 s, `bookkeeper.php` 2.7 s, `otto.php` 2.1 s).
 - The clients page sends about 3.9 MB of HTML (the whole list is in the page); a paged or lazy list belongs to its simplify step.
+
+## Step 1b result 2: dashboard time found with `?prof=1` (2026-11-20)
+
+Admins can add `?prof=1` to the dashboard: the page ends with an HTML comment of milliseconds per stage (marks in
+`dashboard_appstack.php` and `includes/dept-heads-deck.php`). Findings, production:
+
+- Weather, profit, work queue, Penny's services: all under 80 ms. The static read that blamed weather was wrong (it serves cached data).
+- The heads deck was 2.4 s of 2.9 s. Inside it: Otto's card 1.44 s, Ada's 0.64 s.
+- Otto: the clock-out lookup's location subquery made MySQL pick `idx_clh_point_uuid` and scan ~70,000 rows per shift
+  (0.9 s for 7 rows). `FORCE INDEX (crew_id)` gives the same result in ~0.15 s (falls back to no hint if the index is missing).
+- Ada: "slowest recent run" grouped all 300,000 `cron_runs` rows (0.6 s). One short keyed query per job takes 49 ms.
+- After: card:otto 1440 to ~740 ms, card:ada 640 to ~190 ms; dashboard first byte 2.9 s to ~1.9 s.
+
+Still open on the dashboard: Otto's card (~740 ms: unscheduled items 230 ms, clock-outs 175 ms, dispatch 73 ms), Ada (~190 ms),
+Penny's payment-match refresh (a one-off ~1.7 s on the first admin load every 4 h), and the head API calls after load
+(`charlie.php`, `bookkeeper.php`, `otto.php`). `crew_location_history` carries 13 index entries for 7 distinct needs:
+duplicate indexes to drop in a migration.
+
+## Step 2 result: the first-week switch (2026-11-20, deployed)
+
+- `FirstWeekService` (`app/Modules/Settings/Services/`) reads `ops_settings.first_week_mode` ('1' = on, no row = off). Per business database, so per tenant. Tests: `tests/Unit/Settings/FirstWeekServiceTest.php`.
+- Admin toggle in the account menu (top right): "First-week view: on/off". It saves through the existing `ops-settings.php?action=save` (admin only, CSRF).
+- New businesses start ON (`TenantProvisioner`, first run only, so re-provisioning never flips an existing business). Mowology stays OFF.
+- Nothing visible changes yet: steps 3 (simple dashboard) and 4 (short menu) read `FirstWeekService::isOn()`.
+- Checked live: dashboard renders in full, item shows "off (turn on)".
+
+## Steps 3 and 4 result: short menu and one-thing dashboard (2026-11-20, approved by Tim)
+
+- With the first-week view on, the menu is Today, Clients, Quotes, Jobs, Schedule, Invoices, Receipts, Settings and a closed More (everything else the login may open). Both shells. `FirstWeekMenu` (tested). Phone menu not changed yet.
+- Dashboard first screen: greeting, one thing (add client, first quote, follow up, today's visits, all caught up; steps the login can't open are skipped), one button, the rest under a closed More. `FirstWeekFocus` (tested). A failed count falls back to the full dashboard.
+- Checked locally in both shells; live with the view off renders as before. Mowology stays off; turn it on from the account menu to try it.
+
+## Clients refactor progress (2026-11-22)
+Done and live: (1) page split into `public/crm/includes/clients/*.php`, one include per view, rendered output proven identical on nine views (`scripts/local/clients-fingerprint.js`); (2) six inline scripts moved to `public/crm/js/clients-*.js`, PHP values via `window.mwClients`; (3a) eight JSON handlers' SQL moved to `ClientActionsService` (16 tests; Codex review: no defects; the activity-log side effect of `addClientNote` was caught and kept).
+Left for Clients: (3b) the contact and company form saves (create/update, around lines 580-900 of `clients_appstack.php`) and the page-load queries (about 1,100 lines of PHP before the HTML) into `ContactService` / a read-model service; then the old clients-only rules in `mowology-brand.css` (e.g. `.mw-client-row`, `.mw-clients-stats-banner`); then the rename to `clients.php` with a redirect stub (name needs Tim's OK).

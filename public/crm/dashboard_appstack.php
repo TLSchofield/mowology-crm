@@ -205,6 +205,23 @@ if ($itDesign) {
 }
 $__mark('queries_done');
 ?>
+<?php
+// First-week view (step 3): greeting, the one thing that matters, one button; everything else under a closed "More".
+$__fw = null;
+try {
+    if (defined('APP_ROOT')) {
+        require_once APP_ROOT . '/Modules/Settings/Services/FirstWeekService.php';
+        require_once APP_ROOT . '/Modules/Settings/Services/FirstWeekFocus.php';
+        if (FirstWeekService::isOn($db)) {
+            $__can = static fn(string $p): bool => !function_exists('userHasPermission') || userHasPermission($p);
+            $__fw = FirstWeekFocus::pick(FirstWeekFocus::gather($db), [
+                'clients' => $__can('clients.view'), 'quotes' => $__can('billing.view'), 'schedule' => $__can('schedule.view'),
+            ]);
+            $__fw['greeting'] = FirstWeekFocus::greeting((string)($user['name'] ?? $user['full_name'] ?? ''), (int)date('G'));
+        }
+    }
+} catch (Throwable $__e) { $__fw = null; }   // anything wrong: the full dashboard, as before
+?>
 <?php include 'includes/appstack_head.php'; ?>
 <?php $__mark('head_include'); ?>
 <?php if ($itDesign): ?><div class="it-design"><?php endif; ?>
@@ -226,6 +243,15 @@ $__mark('queries_done');
               <?php unset($_SESSION['alert']); ?>
           <?php endif; ?>
 
+          <?php if ($__fw): ?>
+          <section class="mw-fw-focus" aria-labelledby="mw-fw-focus-h">
+            <p class="mw-fw-greeting"><?php echo h($__fw['greeting']); ?></p>
+            <h1 class="mw-fw-headline" id="mw-fw-focus-h"><?php echo h($__fw['headline']); ?></h1>
+            <p class="mw-fw-detail"><?php echo h($__fw['detail']); ?></p>
+            <?php if ($__fw['href'] !== ''): ?><a class="btn btn-primary btn-lg mw-fw-button" href="<?php echo h($__fw['href']); ?>"><?php echo h($__fw['button']); ?></a><?php endif; ?>
+          </section>
+          <details class="mw-fw-fold"><summary>More</summary>
+          <?php else: ?>
           <div class="mw-page-header">
             <div class="mw-page-header-left">
               <h1 class="mw-page-title">Dashboard</h1>
@@ -233,6 +259,7 @@ $__mark('queries_done');
             </div>
             <a class="it-switch-link" href="/crm/dashboard_appstack.php?it_design=<?php echo $itDesign ? '0' : '1'; ?>"><?php echo $itDesign ? 'Back to the classic design' : 'Try the new design'; ?></a>
           </div>
+          <?php endif; /* first-week focus or the usual header */ ?>
 
           <?php
           // "Needs you now" — Charlie's ranked items as rows (owner only). Never breaks the page.
@@ -1331,6 +1358,7 @@ function mwReconsentSendBatch() {
 }
 </script>
 
+<?php if ($__fw): ?></details><!-- /.mw-fw-fold --><?php endif; ?>
 <?php if ($itDesign): ?></div><!-- /.it-design --><?php endif; ?>
 <?php
 $__mark('body_rest');

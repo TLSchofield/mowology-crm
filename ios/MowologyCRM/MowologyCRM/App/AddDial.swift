@@ -12,7 +12,7 @@ import SwiftUI
 
 /// Identifies one creation action offered by the Add dial.
 enum AddDialItem: CaseIterable, Identifiable {
-    case job, client, task, quote, invoice
+    case job, client, task, quote, invoice, product
 
     var id: Self { self }
 
@@ -23,6 +23,7 @@ enum AddDialItem: CaseIterable, Identifiable {
         case .task:   return "Task"
         case .quote:  return "Quote"
         case .invoice: return "Invoice"
+        case .product: return "Product"
         }
     }
 
@@ -33,13 +34,14 @@ enum AddDialItem: CaseIterable, Identifiable {
         case .task:   return "checklist"
         case .quote:  return "doc.text"
         case .invoice: return "dollarsign.circle"
+        case .product: return "shippingbox"
         }
     }
 
     /// Bottom of the column (nearest the thumb) first.
     /// Quote and Invoice are the office's; crew invoice their own visits from the visit.
     static func column(office: Bool) -> [AddDialItem] {
-        office ? [.job, .client, .task, .quote, .invoice] : [.job, .client, .task]
+        office ? [.job, .client, .task, .quote, .invoice, .product] : [.job, .client, .task]
     }
 }
 

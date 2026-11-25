@@ -12,6 +12,7 @@ if (!function_exists('userHasPermission') || !userHasPermission('settings.edit')
 
 $pageTitle  = 'Audit Trail';
 $activePage = 'audit-trail';
+$bodyClass  = 'it-list'; // Ittai list skin (css/ittai-lists.css) — applies only when the new design is on
 
 $db = getDB();
 

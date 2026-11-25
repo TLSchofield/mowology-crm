@@ -23,7 +23,8 @@ if (!empty($crewTimeVisitId)) {
 $crewTimeClass = $crewTimeClass ?? 'mb-3';
 ?>
 <?php if ($crewTime !== null): ?>
-<div class="mw-crew-time <?php echo htmlspecialchars($crewTimeClass); ?>">
+<?php $crewTimeShort = $crewTime !== null && $crewTime['has_time'] && $crewTime['on_site_minutes'] !== null && (int)$crewTime['on_site_minutes'] < 5 && empty($crewTime['running']); ?>
+<div class="mw-crew-time<?php echo $crewTimeShort ? ' mw-crew-time-short' : ''; ?> <?php echo htmlspecialchars($crewTimeClass); ?>">
     <div class="mw-crew-time-label">Crew time on site</div>
     <?php if ($crewTime['has_time']): ?>
         <?php
@@ -49,6 +50,7 @@ $crewTimeClass = $crewTimeClass ?? 'mb-3';
         <?php if (count($crewTime['people']) > 1): ?>
         <div class="mw-crew-time-people"><?php echo htmlspecialchars(implode(' · ', $crewPeople)); ?></div>
         <?php endif; ?>
+        <?php if ($crewTimeShort): ?><span class="mw-crew-time-flag mw-crew-time-warn">Under 5 minutes recorded: the timer may not have been used, so don&rsquo;t price from time</span><?php endif; ?>
         <?php if ($crewTime['running']): ?><span class="mw-crew-time-flag">Timer still running</span><?php endif; ?>
         <?php if ($crewTime['estimated']): ?><span class="mw-crew-time-flag">Includes estimated time</span><?php endif; ?>
         <?php if ($crewTime['source'] === 'visit'): ?><span class="mw-crew-time-flag">From the visit record, no timers</span><?php endif; ?>

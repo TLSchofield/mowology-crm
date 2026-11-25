@@ -25,6 +25,7 @@ require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, 
 require_once CRM_INCLUDES . '/functions.php';
 require_once CRM_INCLUDES . '/cms-functions.php';
 require_once dirname(__DIR__, 3) . '/Core/Uploads.php';
+require_once dirname(__DIR__, 2) . '/Media/Services/ImageGate.php';
 
 header('Content-Type: application/json');
 
@@ -145,13 +146,19 @@ try {
         $user['id'],
     ]);
 
-    $mediaId = $db->lastInsertId();
+    $mediaId = (int)$db->lastInsertId();
+    $webCopy = null;
+    if ($mediaType === 'image') {
+        $gateResult = (new ImageGate($db))->ensureWebCopy($mediaId, $filePath);
+        $webCopy = $gateResult['ok'] ? $gateResult['path'] : null;
+    }
 
     echo json_encode([
         'success' => true,
         'media_id' => $mediaId,
         'file_path' => $webPath,
         'filename' => $file['name'],
+        'web_copy' => $webCopy,
         'message' => 'Media uploaded successfully',
     ]);
 } catch (PDOException $e) {

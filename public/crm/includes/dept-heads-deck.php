@@ -19,6 +19,7 @@ try {
     require_once APP_ROOT . '/Modules/Expenses/ExpenseConstants.php';   // categories for the card, loaded here, not via another file
     require_once APP_ROOT . '/Modules/Expenses/Services/BookkeeperDeskService.php';
     $__desk = new BookkeeperDeskService(getDB());
+if (isset($__mark)) { $__mark('deck:desk_ctor'); }
     if (!$__desk->ready()) {
         return;
     }
@@ -28,6 +29,7 @@ try {
         $__rate = (float)((new OwnerFreedomService(getDB()))->settings()['owner_rate'] ?? 0) ?: null;
     } catch (Throwable $__e) { /* no rate → no net saving */ }
     $ps = $__desk->stats($__rate);
+if (isset($__mark)) { $__mark('deck:stats'); }
     require_once APP_ROOT . '/Modules/Expenses/Services/PennyQuestionService.php';
     $__hi = PennyQuestionService::firstName((array)($user ?? getCurrentUser() ?? []));
     $__badges = ['earned' => [], 'next' => null];
@@ -41,8 +43,10 @@ try {
         $__vendors = $__pb->vendors(6);
         require_once APP_ROOT . '/Modules/Expenses/Services/PennyBrainService.php';
         $__brain = (new PennyBrainService(getDB()))->learned();
+if (isset($__mark)) { $__mark('deck:brain'); }
         require_once APP_ROOT . '/Modules/Expenses/Services/PennySelfAuditService.php';
         $__audit = (new PennySelfAuditService(getDB()))->dueThenLast();   // weekly; code only
+if (isset($__mark)) { $__mark('deck:audit'); }
     } catch (Throwable $__e) { /* badges are a bonus — never block the card */ }
     $__tripMissing = [];
     try {
@@ -60,12 +64,14 @@ try {
     try {
         require_once APP_ROOT . '/Modules/Accounting/Services/LookbackService.php';
         $__lookback = (new LookbackService(getDB()))->cardLine();   // open look-back proposals (migration 1250)
+if (isset($__mark)) { $__mark('deck:lookback'); }
     } catch (Throwable $__e) { /* the look-back is a bonus */ }
     $__pm = null;
     try {
         if (function_exists('isAdmin') && isAdmin()) {
             require_once APP_ROOT . '/Modules/Accounting/Services/PaymentMatchService.php';
             $__pm = (new PaymentMatchService(getDB()))->cardLine();   // cached; re-matched at most every 4 h
+if (isset($__mark)) { $__mark('deck:paymatch'); }
         }
     } catch (Throwable $__e) { /* payments ↔ invoices is a bonus (migration 1260) */ }
     // Three things for Penny's card (Tim, 2026-10-26): the receipt that teaches her most, the one holding up the oldest
@@ -80,6 +86,7 @@ try {
             require_once APP_ROOT . '/Modules/Expenses/Services/PennyFocusService.php';
             $__isAdm = function_exists('isAdmin') && isAdmin();
             $__focusRows = (new PennyFocusService(getDB()))->rows($__pm, (float)($ps['gst_stuck'] ?? 0), $__isAdm && ($_GET['fresh'] ?? '') === '1', $__isAdm);
+if (isset($__mark)) { $__mark('deck:focus'); }
             $__focusRows = array_values(array_filter($__focusRows, [PennyFocusService::class, 'validRow']));
         }
     } catch (Throwable $__e) { $__focusOn = false; error_log('Penny focus: ' . $__e->getMessage()); }
@@ -190,6 +197,7 @@ $__team = [
                 if (is_file($__kbF)) {
                     require_once $__kbF;
                     $__kb = (new VendorKnowledgeService(getDB()))->cardStats();
+if (isset($__mark)) { $__mark('deck:kb'); }
                     if ($__kb['commons_vendors'] > 0) {
                         echo ' · <b>' . (int)$__kb['commons_vendors'] . '</b> vendors in the commons';
                         if ($__kb['shadow_n'] > 0) echo ' · code agrees with the model on <b>' . (int)$__kb['shadow_agree_pct'] . '%</b> of ' . (int)$__kb['shadow_n'] . ' shadow runs';
@@ -266,9 +274,9 @@ $__team = [
       </div>
       <?php endif; ?>
 
-      <?php include __DIR__ . '/penny-statements-strip.php'; ?>
+      <?php include __DIR__ . '/penny-statements-strip.php'; if (isset($__mark)) { $__mark('deck:statements_strip'); } ?>
 
-      <?php include __DIR__ . '/penny-missing-strip.php'; ?>
+      <?php include __DIR__ . '/penny-missing-strip.php'; if (isset($__mark)) { $__mark('deck:missing_strip'); } ?>
       <?php if ($__lookback): ?>
       <div class="mw-penny-trips" title="Everything booked in 2026, re-checked with what I know now. Nothing changes until you approve it.">
         <div>🔎 <a href="/crm/accounting/lookback.php"><?= h($__lookback['text']) ?></a></div>
@@ -316,7 +324,7 @@ $__team = [
   <?php endif; ?>
   <?php if ($__live): ?>
   <div class="mw-heads-live">
-    <?php foreach ($__live as $__slug) { include __DIR__ . '/' . $__slug . '-card.php'; } ?>
+    <?php foreach ($__live as $__slug) { include __DIR__ . '/' . $__slug . '-card.php'; if (isset($__mark)) { $__mark('card:' . $__slug); } } ?>
   </div>
   <?php endif; ?>
 </div>

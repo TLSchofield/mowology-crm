@@ -17,6 +17,7 @@ require_once __DIR__ . '/ittai-icons.php';
 itIconSprite();
 ?>
 <section class="it-kan-line" aria-label="<?= h($__kbName) ?>">
+  <a class="it-kan-mark" href="<?= h(KanameBandService::BRIEF_URL) ?>" aria-label="<?= h($__kbName) ?>: open the brief" title="<?= h($__kbName) ?>"><span aria-hidden="true"></span></a>
   <a class="it-kan-subject is-<?= h($__kb['subject']['kind']) ?>" href="<?= h($__kb['subject']['url']) ?>" title="<?= h($__kb['subject']['text']) ?>">
     <?php if ($__kb['subject']['kind'] === 'alert'): ?><svg class="it-si" width="12" height="12" aria-hidden="true"><use href="#it-st-blocked"/></svg><?php endif; ?>
     <span class="it-kan-text"><?= h($__kb['subject']['text']) ?></span>

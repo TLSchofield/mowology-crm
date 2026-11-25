@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Schedule, motion</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="shared.css">
+<style>.motion-grid{display:grid;grid-template-columns:1fr 1fr;gap:32px}.demo{min-width:0;border-top:1px solid var(--line);padding-top:16px}.demo h2{margin:0 0 4px;font-size:18px}.demo>p{margin:0 0 16px;color:var(--meta)}.skeleton-weather{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line)}.skeleton-cell{display:grid;gap:10px;min-width:0;padding:14px;background:var(--surface)}.skeleton-job{display:grid;gap:8px;margin-top:12px;padding:12px;border:1px solid var(--line);background:var(--surface)}.figure-strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:12px}.figure{height:64px}.filmstrip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.frame{position:relative;display:grid;place-items:center;min-height:180px;border:1px solid var(--line);background:var(--surface)}.frame .core{width:112px;padding:14px;border:1px solid var(--line);border-radius:6px;text-align:center}.core b{display:block;font-size:22px}.ring-frame{position:absolute;width:120px;height:120px;border:2px solid var(--brand);border-radius:50%}.start{transform:scale(.6);opacity:.28}.mid{transform:scale(1.2);opacity:.14}.end{transform:scale(1.8);opacity:0}.working{display:grid;place-items:center;gap:20px;padding:32px;border:1px solid var(--line);background:var(--surface);text-align:center}.working-figure{display:grid;place-items:center;gap:14px;width:min(100%,420px)}.day-total{font-size:28px;font-weight:600;font-variant-numeric:tabular-nums}.working .job{width:min(100%,320px);text-align:left}.arrival-list{display:grid;gap:8px}.reduced-sample{background:var(--selected)}.motion-note{padding:12px;border-left:3px solid var(--brand);background:var(--sunk)}@media(max-width:800px){.motion-grid{grid-template-columns:1fr}.filmstrip{grid-template-columns:1fr}.frame{min-height:150px}.working{padding:20px 12px}.figure-strip{grid-template-columns:1fr}.skeleton-weather{grid-template-columns:1fr}.ring-frame{width:96px;height:96px}}</style>
+<style>.working{overflow:clip}</style>
+</head>
+<body>
+<div class="shell">
+<header class="app-header">
+<div class="topline">
+<div class="brand-title">
+<img src="../assets/symbol/ittai-symbol-24.svg" alt="">
+<h1>Schedule motion</h1>
+</div>
+<button class="primary">Add job</button>
+</div>
+</header>
+<main class="content">
+<div class="section-head">
+<div>
+<h2>Loading and arrival</h2>
+<p>Motion confirms change without carrying meaning.</p>
+</div>
+</div>
+<div class="motion-grid">
+<section class="demo">
+<h2>Skeletons</h2>
+<p>Shapes match weather cells, job blocks, and figures.</p>
+<div aria-busy="true">
+<div class="skeleton-weather">
+<div class="skeleton-cell">
+<div class="mw-skeleton sk-line">
+</div>
+<div class="mw-skeleton sk-line" style="width:72%">
+</div>
+</div>
+<div class="skeleton-cell">
+<div class="mw-skeleton sk-line">
+</div>
+<div class="mw-skeleton sk-line" style="width:65%">
+</div>
+</div>
+<div class="skeleton-cell">
+<div class="mw-skeleton sk-line">
+</div>
+<div class="mw-skeleton sk-line" style="width:78%">
+</div>
+</div>
+</div>
+<div class="skeleton-job">
+<div class="mw-skeleton sk-line" style="width:28%">
+</div>
+<div class="mw-skeleton sk-line" style="width:75%">
+</div>
+<div class="mw-skeleton sk-line" style="width:55%">
+</div>
+</div>
+<div class="figure-strip">
+<div class="mw-skeleton figure">
+</div>
+<div class="mw-skeleton figure">
+</div>
+<div class="mw-skeleton figure">
+</div>
+</div>
+</div>
+</section>
+<section class="demo">
+<h2>Gentle arrival</h2>
+<p>6 px rise, 220 ms, 20 ms stagger, capped at 12.</p>
+<div class="arrival-list">
+<article class="job arrival" style="--i:1">
+<span class="job-time">8:00</span>
+<div class="job-name">Alder Test Residence</div>
+<span class="status">Scheduled</span>
+</article>
+<article class="job arrival" style="--i:2">
+<span class="job-time">8:15</span>
+<div class="job-name">Birch Lane Property</div>
+<span class="status progress">On site</span>
+</article>
+<article class="job arrival" style="--i:3">
+<span class="job-time">8:30</span>
+<div class="job-name">Harbour View Lodge</div>
+<span class="status attention">Needs attention</span>
+</article>
+</div>
+</section>
+</div>
+<section class="demo" style="margin-top:32px">
+<h2>Halo bloom filmstrip</h2>
+<p>One low-opacity brand ring expands once over 700 ms.</p>
+<div class="filmstrip">
+<div class="frame">
+<span class="ring-frame start">
+</span>
+<div class="core"><b>24 jobs</b><span class="meta">Tuesday</span></div>
+<span class="meta">Start · 0 ms</span>
+</div>
+<div class="frame">
+<span class="ring-frame mid">
+</span>
+<div class="core"><b>24 jobs</b><span class="meta">Tuesday</span></div>
+<span class="meta">Mid · 350 ms</span>
+</div>
+<div class="frame">
+<span class="ring-frame end">
+</span>
+<div class="core"><b>24 jobs</b><span class="meta">Tuesday</span></div>
+<span class="meta">End · 700 ms</span>
+</div>
+</div>
+</section>
+<div class="motion-grid" style="margin-top:32px">
+<section class="demo">
+<h2>Working bloom</h2>
+<p>A dropped job blooms once. Replay restarts only that confirmation.</p>
+<div class="working">
+<div class="working-figure"><div class="day-total">24 jobs</div>
+<article class="job halo" id="bloom">
+<span class="job-time">10:20 to 11:20</span>
+<div class="job-name">Maple Test Home</div>
+<span class="status">Scheduled</span>
+</article>
+</div>
+<button class="outline" id="replay">Replay</button>
+</div>
+</section>
+<section class="demo">
+<h2>Reduced motion</h2>
+<p>No shimmer, bloom, or rise. A selected background holds for 1.2 seconds.</p>
+<div class="working">
+<article class="job reduced-sample">
+<span class="job-time">10:20 to 11:20</span>
+<div class="job-name">Maple Test Home</div>
+<span class="status">Scheduled</span>
+</article>
+</div>
+<p class="motion-note">Meaning remains in the time, client, and Scheduled status.</p>
+</section>
+</div>
+</main>
+</div>
+<script>document.getElementById('replay').addEventListener('click',()=>{const old=document.getElementById('bloom');const fresh=old.cloneNode(true);old.replaceWith(fresh)})</script>
+</body>
+</html>

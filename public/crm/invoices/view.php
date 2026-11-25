@@ -395,6 +395,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         // management company (e.g. BCS4428@opml.ca) rather than the on-site rep.
         $hasEmail = false;
         foreach ($recipients as $r) { if (!empty($r['email_address'])) { $hasEmail = true; break; } }
+        if (!$hasEmail && empty($recipients) && !empty($invoice['property_id'])) {
+            // A PM-managed building bills the management firm's accounts, not the on-site contact —
+            // the same rule as the recipient API, so a first send with no snapshot never reaches the
+            // on-site manager (Dorset, 2026-11-23). Persisted like the fallback below.
+            require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceRouting.php';
+            foreach (InvoiceRouting::managedFirmRecipients((int)$invoice['property_id'], $db) as $fr) {
+                if (empty($fr['email_address'])) continue;
+                $frContactId = !empty($fr['contact_id']) ? (int)$fr['contact_id'] : null;
+                $frRole      = $fr['contact_role'] ?: 'billing_contact';
+                $newRid = null;
+                try {
+                    $db->prepare("
+                        INSERT INTO invoice_contacts (invoice_id, contact_id, contact_role, email_address)
+                        VALUES (?, ?, ?, ?)
+                    ")->execute([$invoiceId, $frContactId, $frRole, $fr['email_address']]);
+                    $newRid = (int)$db->lastInsertId();
+                } catch (Throwable $e) {
+                    error_log("Invoice {$invoiceId} firm recipient insert failed: " . $e->getMessage());
+                    continue; // no durable snapshot, no send
+                }
+                $recipients[] = [
+                    'id'            => $newRid ?: 0,
+                    'contact_id'    => $frContactId,
+                    'email_address' => $fr['email_address'],
+                    'contact_role'  => $frRole,
+                    'first_name'    => $fr['contact_name'] ?? '',
+                    'last_name'     => '',
+                    'receive_sms'   => 0,
+                    'sms_phone'     => null,
+                ];
+                $hasEmail = true;
+            }
+        }
         if (!$hasEmail) {
             $useCompanyBilling = !empty($invoice['company_id']) && !empty($invoice['billing_email']);
             $fallbackEmail     = $useCompanyBilling ? $invoice['billing_email'] : ($invoice['contact_email'] ?? '');
@@ -1038,7 +1071,10 @@ $extraHead = $isPayable
                               //   manual bill_to_name override
                               //   → "{billing_entity} C/O {company}" (PM-managed strata)
                               //   → company_name → contact full name.
-                              if (!empty($invoice['bill_to_name'])) {
+                              // A bill_to_name that is only the contact's own name never beats their company.
+                              $billToIsContactOnly = $contactFullName !== '' && $displayCompany !== ''
+                                  && strcasecmp(trim((string)($invoice['bill_to_name'] ?? '')), $contactFullName) === 0;
+                              if (!empty($invoice['bill_to_name']) && !$billToIsContactOnly) {
                                   $billToHeading = $invoice['bill_to_name'];
                               } elseif ($billingEntity !== '' && $displayCompany !== '') {
                                   $billToHeading = $billingEntity . ' C/O ' . $displayCompany;

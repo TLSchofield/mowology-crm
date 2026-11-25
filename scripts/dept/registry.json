@@ -1,0 +1,165 @@
+{
+  "_about": "Commercial and shared agents for the Ada engine. autonomy_level is the CURRENT granted level; only the owner raises it (permission register in dept.db). Costs are run budgets (API-equivalent), not plan usage.",
+  "agents": {
+    "apollo": {
+      "role": "Apollo \u2014 Chief Revenue Officer",
+      "autonomy_level": 2,
+      "model": "opus",
+      "budget_usd_per_run": 2,
+      "tools_allowed": [],
+      "tools_denied": [
+        "Write",
+        "Edit",
+        "NotebookEdit",
+        "Bash",
+        "Task",
+        "mcp__*"
+      ],
+      "dormant": false
+    },
+    "mercury": {
+      "role": "Mercury \u2014 Director of Digital Acquisition & Conversion",
+      "autonomy_level": 1,
+      "model": "sonnet",
+      "budget_usd_per_run": 1,
+      "tools_allowed": [
+        "WebFetch",
+        "WebSearch",
+        "Read"
+      ],
+      "tools_denied": [
+        "Write",
+        "Edit",
+        "NotebookEdit",
+        "Bash",
+        "Task",
+        "mcp__*"
+      ],
+      "dormant": false
+    },
+    "hunter": {
+      "role": "Hunter \u2014 Director of Prospect Intelligence",
+      "autonomy_level": 1,
+      "model": "sonnet",
+      "budget_usd_per_run": 1,
+      "tools_allowed": [
+        "WebFetch",
+        "WebSearch"
+      ],
+      "tools_denied": [
+        "Write",
+        "Edit",
+        "NotebookEdit",
+        "Bash",
+        "Task",
+        "mcp__*"
+      ],
+      "dormant": false
+    },
+    "scribe": {
+      "role": "Scribe \u2014 Director of Commercial Copywriting & Persuasion",
+      "autonomy_level": 3,
+      "model": "opus",
+      "budget_usd_per_run": 2,
+      "tools_allowed": [],
+      "tools_denied": [
+        "Write",
+        "Edit",
+        "NotebookEdit",
+        "Bash",
+        "Task",
+        "mcp__*"
+      ],
+      "dormant": false
+    },
+    "beacon": {
+      "role": "Beacon \u2014 Director of Brand, Content & Distribution",
+      "autonomy_level": 1,
+      "model": "sonnet",
+      "budget_usd_per_run": 1,
+      "tools_allowed": [
+        "WebFetch",
+        "WebSearch"
+      ],
+      "tools_denied": [
+        "Write",
+        "Edit",
+        "NotebookEdit",
+        "Bash",
+        "Task",
+        "mcp__*"
+      ],
+      "dormant": true
+    },
+    "closer": {
+      "role": "Closer \u2014 Director of Sales Conversion",
+      "autonomy_level": 3,
+      "model": "opus",
+      "budget_usd_per_run": 2,
+      "tools_allowed": [],
+      "tools_denied": [
+        "Write",
+        "Edit",
+        "NotebookEdit",
+        "Bash",
+        "Task",
+        "mcp__*"
+      ],
+      "dormant": false
+    },
+    "ambassador": {
+      "role": "Ambassador \u2014 Director of Customer Success, Retention & Referrals",
+      "autonomy_level": 1,
+      "model": "sonnet",
+      "budget_usd_per_run": 1,
+      "tools_allowed": [],
+      "tools_denied": [
+        "Write",
+        "Edit",
+        "NotebookEdit",
+        "Bash",
+        "Task",
+        "mcp__*"
+      ],
+      "dormant": true
+    },
+    "compass": {
+      "role": "Compass \u2014 Director of Market Intelligence & Commercial Strategy",
+      "autonomy_level": 1,
+      "model": "opus",
+      "budget_usd_per_run": 2,
+      "tools_allowed": [
+        "WebFetch",
+        "WebSearch"
+      ],
+      "tools_denied": [
+        "Write",
+        "Edit",
+        "NotebookEdit",
+        "Bash",
+        "Task",
+        "mcp__*"
+      ],
+      "dormant": false
+    },
+    "oracle": {
+      "role": "Strategic foresight and research for Ada and Apollo: technology radar, innovation labs, experiments (full brief received 2026-11-24)",
+      "autonomy_level": 2,
+      "model": "opus",
+      "budget_usd_per_run": 2,
+      "tools_allowed": [
+        "WebFetch",
+        "WebSearch"
+      ],
+      "tools_denied": [
+        "Write",
+        "Edit",
+        "NotebookEdit",
+        "Bash",
+        "Task",
+        "mcp__*"
+      ],
+      "dormant": false
+    }
+  }
+}

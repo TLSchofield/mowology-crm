@@ -458,6 +458,48 @@ function runSaltAlerts(PDO $db): array
             }
         }
 
+        // Same-day recheck FIRST: when the forecast has warmed and no day needs salt, this function returns just
+        // below, and that is exactly the case where the morning forecast must still be written beside the old
+        // capture (found 2026-11-20: the 10:00 run skipped it). Never throws.
+        try {
+            // Keep every source's forecast for this run first, so the recheck rests on the very values that were stored.
+            $runStart = date('Y-m-d H:i:s');
+            $recheckForecast = $weekForecast;
+            try {
+                require_once APP_ROOT . '/Modules/Jobs/Services/WeatherSnapshotService.php';
+                $snap = WeatherSnapshotService::captureRun($db, (int)date('G') < 12 ? 'morning' : 'afternoon', true);
+                $saltResults['snapshots'] = $snap['snapshots'];
+                if (!empty($snap['errors'])) {
+                    $saltResults['errors'] = array_merge($saltResults['errors'] ?? [], $snap['errors']);
+                }
+                $ecToday = $snap['ec_days'][date('Y-m-d')] ?? null;
+                if (is_array($ecToday) && isset($ecToday['temp_low'])) {
+                    $recheckForecast[date('Y-m-d')] = array_merge($weekForecast[date('Y-m-d')] ?? [], $ecToday);
+                }
+            } catch (Throwable $e) {
+                $saltResults['errors'][] = 'Snapshot error: ' . $e->getMessage();
+            }
+            $rc = recheckSaltWeatherDecisions($db, $recheckForecast, (float)$triggerTemp);
+            $saltResults['rechecked'] = $rc['rechecked'];
+            if ($rc['rechecked'] > 0 && !empty($snap['ec_days'][date('Y-m-d')])) {
+                try {
+                    // Link only a snapshot THIS run stored; if the Environment Canada pull failed there is no link.
+                    $snapId = WeatherSnapshotService::decisiveSnapshotId($db, date('Y-m-d'), null, $runStart);
+                    if ($snapId !== null) {
+                        $db->prepare('UPDATE salt_weather_decisions SET decisive_snapshot_id = ? WHERE trigger_date = ? AND recheck_at IS NOT NULL AND decisive_snapshot_id IS NULL')
+                           ->execute([$snapId, date('Y-m-d')]);
+                    }
+                } catch (Throwable $e) {
+                    error_log('decisive snapshot link: ' . $e->getMessage());   // column not there yet
+                }
+            }
+            if (!empty($rc['errors'])) {
+                $saltResults['errors'] = array_merge($saltResults['errors'] ?? [], $rc['errors']);
+            }
+        } catch (Throwable $e) {
+            $saltResults['errors'][] = 'Recheck error: ' . $e->getMessage();
+        }
+
         if (empty($saltDays)) {
             $saltResults['salt_days'] = 0;
             return $saltResults;
@@ -575,18 +617,6 @@ function runSaltAlerts(PDO $db): array
         if (!empty($decisionResults['errors'])) {
             $saltResults['errors'] = array_merge($saltResults['errors'], $decisionResults['errors']);
         }
-    }
-
-    // Same-day recheck: the first capture can be days old, so on the service morning (this cron runs before the
-    // noon cut-off) the fresh forecast is written once beside it. Never throws.
-    try {
-        $rc = recheckSaltWeatherDecisions($db, $weekForecast ?? [], (float)($triggerTemp ?? 0));
-        $saltResults['rechecked'] = $rc['rechecked'];
-        if (!empty($rc['errors'])) {
-            $saltResults['errors'] = array_merge($saltResults['errors'], $rc['errors']);
-        }
-    } catch (Throwable $e) {
-        $saltResults['errors'][] = 'Recheck error: ' . $e->getMessage();
     }
 
     return $saltResults;

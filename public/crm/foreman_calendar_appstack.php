@@ -20,6 +20,10 @@ $__allowed = $__desk->ready() && $__desk->isOwner((array)$user);
 
 $pageTitle = $__chief . ' · Foreman';
 $activePage = 'dashboard';
+$bodyClass = 'it-list'; // Ittai list skin (css/ittai-lists.css, css/ittai-foreman.css): applies only when the new design is on
+if (($_COOKIE['it_design'] ?? '') === '1' && empty($_COOKIE['mw_native'])) {
+    $extraHead = '<link href="/crm/css/ittai-foreman.css?v=' . (@filemtime(__DIR__ . '/css/ittai-foreman.css') ?: time()) . '" rel="stylesheet">';
+}
 ?>
 <?php include 'includes/appstack_head.php'; ?>
 

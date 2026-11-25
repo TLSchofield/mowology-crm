@@ -38,6 +38,65 @@ class QuoteRecipientService
     }
 
     // ══════════════════════════════════════════════════════════════════════
+    // WHO A QUOTE GOES TO — the one ladder (moved from QuoteService, behaviour unchanged)
+    // ══════════════════════════════════════════════════════════════════════
+
+    /**
+     * Resolve the customer contact chain from a quote row (as returned by getWithContact()).
+     *
+     * Priority order:
+     *   1. quote_request contact  (qr_* fields)
+     *   2. Company primary contact (contact_* fields)
+     *   3. Property site contact  (prop_contact_* fields)
+     *   4. Company billing fields  (billing_*)
+     *
+     * Returns:
+     *   email       string|null
+     *   phone       string|null
+     *   name        string       (full name or company name or 'Valued Customer')
+     *   first_name  string
+     *   contact_id  int|null     (for SMS consent check)
+     */
+    public static function resolveContact(array $quote): array
+    {
+        $email = $quote['qr_email']
+              ?? $quote['contact_email']
+              ?? $quote['prop_contact_email']
+              ?? $quote['billing_email']
+              ?? null;
+
+        $phone = $quote['qr_phone']
+              ?? $quote['contact_phone']
+              ?? $quote['prop_contact_phone']
+              ?? $quote['billing_phone']
+              ?? null;
+
+        $firstName = $quote['qr_first_name']
+                  ?? $quote['contact_first']
+                  ?? $quote['prop_contact_first']
+                  ?? '';
+        $lastName  = $quote['qr_last_name']
+                  ?? $quote['contact_last']
+                  ?? $quote['prop_contact_last']
+                  ?? '';
+
+        $name = trim($firstName . ' ' . $lastName)
+             ?: ($quote['company_name'] ?? 'Valued Customer');
+
+        // The contact ID used for SMS consent lookup
+        $contactId = (int)($quote['qr_contact_id'] ?? $quote['contact_id'] ?? $quote['prop_contact_id'] ?? 0) ?: null;
+
+        return [
+            'email'      => $email ?: null,
+            'phone'      => $phone ?: null,
+            'name'       => $name,
+            'first_name' => $firstName ?: explode(' ', $name)[0],
+            'contact_id' => $contactId,
+        ];
+    }
+
+
+    // ══════════════════════════════════════════════════════════════════════
     // SCHEMA GUARDS
     // ══════════════════════════════════════════════════════════════════════
 
@@ -207,8 +266,172 @@ class QuoteRecipientService
         if (array_key_exists('cc_property_manager', $quote) && (int)$quote['cc_property_manager'] === 0) {
             return null;
         }
+        // A property manager chosen for this quote beats the automatic guess (migration 1390).
+        $chosen = (int)($quote['cc_contact_id'] ?? 0);
+        if ($chosen > 0) {
+            $c = $this->loadContact($chosen);
+            $email = trim((string)($c['email'] ?? ''));
+            if ($c && $email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL)
+                && !($toContactId && $chosen === (int)$toContactId)
+                && strtolower($email) !== strtolower(trim((string)$toEmail))) {
+                return [
+                    'contact_id' => $chosen,
+                    'name'       => trim(($c['first_name'] ?? '') . ' ' . ($c['last_name'] ?? '')),
+                    'email'      => $email,
+                    'why'        => 'chosen for this quote',
+                ];
+            }
+            return null;
+        }
         $pid = (int)($quote['property_id'] ?? 0);
         return $pid > 0 ? $this->ccForProperty($pid, $toContactId, $toEmail) : null;
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // TYPED-IN CC ADDRESSES (migration 1390)
+    // ══════════════════════════════════════════════════════════════════════
+
+    /** Typed-CC columns exist (the quote page shows the field only when they do). */
+    public function ccEmailsAvailable(): bool
+    {
+        return $this->hasColumn('quotes', 'cc_emails') && $this->hasColumn('properties', 'cc_default_emails');
+    }
+
+    /**
+     * Split typed text (commas, semicolons, spaces, new lines) into addresses.
+     *
+     * @return array{valid:string[], invalid:string[]}  valid is lower-cased and de-duplicated
+     */
+    public static function parseEmails(?string $raw): array
+    {
+        $valid = [];
+        $invalid = [];
+        foreach (preg_split('/[\s,;]+/', (string)$raw, -1, PREG_SPLIT_NO_EMPTY) ?: [] as $piece) {
+            $piece = trim($piece, "<>\"'");
+            if ($piece === '') continue;
+            if (filter_var($piece, FILTER_VALIDATE_EMAIL)) {
+                $valid[strtolower($piece)] = strtolower($piece);
+            } else {
+                $invalid[] = $piece;
+            }
+        }
+        return ['valid' => array_values($valid), 'invalid' => $invalid];
+    }
+
+    /**
+     * The typed CC addresses for a quote: its own list, or the building's saved list
+     * until the quote's list has been touched.
+     *
+     * @return string[]
+     */
+    public function extraEmailsForQuote(array $quote): array
+    {
+        if (array_key_exists('cc_emails', $quote) && $quote['cc_emails'] !== null) {
+            return self::parseEmails((string)$quote['cc_emails'])['valid'];
+        }
+        $pid = (int)($quote['property_id'] ?? 0);
+        if ($pid <= 0 || !$this->hasColumn('properties', 'cc_default_emails')) return [];
+        $s = $this->db->prepare("SELECT cc_default_emails FROM properties WHERE id = ?");
+        $s->execute([$pid]);
+        return self::parseEmails((string)$s->fetchColumn())['valid'];
+    }
+
+    /**
+     * Every address to copy on a quote email: the property manager (chosen or automatic,
+     * unless switched off) plus the typed addresses. Never the To: person; no duplicates.
+     *
+     * @return string[]
+     */
+    public function ccEmailsForQuote(array $quote, ?int $toContactId, ?string $toEmail): array
+    {
+        $out = [];
+        $cc = $this->ccForQuote($quote, $toContactId, $toEmail);
+        if ($cc) $out[strtolower($cc['email'])] = $cc['email'];
+        $to = strtolower(trim((string)$toEmail));
+        foreach ($this->extraEmailsForQuote($quote) as $e) {
+            if ($e !== $to) $out[$e] = $e;
+        }
+        return array_values($out);
+    }
+
+    /**
+     * Add typed addresses to a quote and remember them for the building.
+     *
+     * @return array{ok:bool, added:string[], invalid:string[], message:string}
+     */
+    public function addCcEmails(int $quoteId, string $raw, int $userId): array
+    {
+        if (!$this->ccEmailsAvailable()) {
+            return ['ok' => false, 'added' => [], 'invalid' => [], 'message' => 'The CC field needs migration 1390 to run first.'];
+        }
+        $parsed = self::parseEmails($raw);
+        if (!$parsed['valid']) {
+            return ['ok' => false, 'added' => [], 'invalid' => $parsed['invalid'],
+                    'message' => $parsed['invalid'] ? 'That does not look like an email address: ' . implode(', ', $parsed['invalid']) : 'Type an email address to copy.'];
+        }
+        $q = $this->loadQuoteRow($quoteId);
+        if (!$q) return ['ok' => false, 'added' => [], 'invalid' => [], 'message' => 'Quote not found.'];
+
+        $current = $this->extraEmailsForQuote($q);
+        $merged  = array_values(array_unique(array_merge($current, $parsed['valid'])));
+        $added   = array_values(array_diff($parsed['valid'], $current));
+        $this->saveQuoteList($quoteId, $merged);
+
+        // Remember for later quotes on this building.
+        $pid = (int)($q['property_id'] ?? 0);
+        if ($pid > 0) {
+            $s = $this->db->prepare("SELECT cc_default_emails FROM properties WHERE id = ?");
+            $s->execute([$pid]);
+            $saved = self::parseEmails((string)$s->fetchColumn())['valid'];
+            $this->db->prepare("UPDATE properties SET cc_default_emails = ? WHERE id = ?")
+                     ->execute([implode(',', array_values(array_unique(array_merge($saved, $parsed['valid'])))), $pid]);
+        }
+        $this->logCc($userId, $quoteId, $added ? 'CC added: ' . implode(', ', $added) : 'CC unchanged');
+        return ['ok' => true, 'added' => $added, 'invalid' => $parsed['invalid'],
+                'message' => $added ? 'Will also copy ' . implode(', ', $added) . '.' : 'Already on the CC list.'];
+    }
+
+    /** Take one typed address off THIS quote only (the building's saved list is untouched). */
+    public function removeCcEmail(int $quoteId, string $email, int $userId): bool
+    {
+        if (!$this->ccEmailsAvailable()) return false;
+        $q = $this->loadQuoteRow($quoteId);
+        if (!$q) return false;
+        $email = strtolower(trim($email));
+        $kept = array_values(array_filter($this->extraEmailsForQuote($q), static fn($e) => $e !== $email));
+        $this->saveQuoteList($quoteId, $kept);
+        $this->logCc($userId, $quoteId, 'CC removed: ' . $email);
+        return true;
+    }
+
+    /** Choose the property manager to copy on this quote (0/null = automatic again). */
+    public function setCcContact(int $quoteId, ?int $contactId, int $userId): bool
+    {
+        if (!$this->hasColumn('quotes', 'cc_contact_id')) return false;
+        $contactId = $contactId && $contactId > 0 && $this->loadContact($contactId) ? $contactId : null;
+        $this->db->prepare("UPDATE quotes SET cc_contact_id = ? WHERE id = ?")->execute([$contactId, $quoteId]);
+        $this->logCc($userId, $quoteId, $contactId ? 'Property manager to copy set to contact #' . $contactId : 'Property manager to copy set back to automatic');
+        return true;
+    }
+
+    private function saveQuoteList(int $quoteId, array $emails): void
+    {
+        $this->db->prepare("UPDATE quotes SET cc_emails = ? WHERE id = ?")->execute([implode(',', $emails), $quoteId]);
+    }
+
+    private function loadQuoteRow(int $quoteId): ?array
+    {
+        $s = $this->db->prepare("SELECT * FROM quotes WHERE id = ?");
+        $s->execute([$quoteId]);
+        return $s->fetch(PDO::FETCH_ASSOC) ?: null;
+    }
+
+    private function logCc(int $userId, int $quoteId, string $what): void
+    {
+        if (!function_exists('logActivityExtended')) return;
+        try {
+            logActivityExtended($userId, 'Quote CC changed', $what, null, null, $quoteId);
+        } catch (Throwable $e) { /* non-critical */ }
     }
 
     /**
@@ -226,8 +449,9 @@ class QuoteRecipientService
             $s->execute([$qid]);
             $q = $s->fetch(PDO::FETCH_ASSOC);
             if (!$q) continue;
-            $cc = $this->ccForQuote($q, $toContactId, $toEmail);
-            if ($cc) $out[strtolower($cc['email'])] = $cc['email'];
+            foreach ($this->ccEmailsForQuote($q, $toContactId, $toEmail) as $e) {
+                $out[strtolower($e)] = $e;
+            }
         }
         return array_values($out);
     }

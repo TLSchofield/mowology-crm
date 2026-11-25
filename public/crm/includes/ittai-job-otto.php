@@ -87,7 +87,7 @@ itIconSprite();
     </div>
     <span class="it-job-anchor it-job-anchor-end"><span class="it-ad"><?= $__ioSvg('compass') ?></span><span>Day view</span></span>
   </div></div>
-  <p class="it-job-foot"><span class="it-job-n"></span> · <button type="button" class="it-job-skip">Not yet</button></p>
+  <p class="it-job-foot"><span class="it-job-n"></span><button type="button" class="it-job-skip">Not yet</button></p>
   <p class="it-job-msg" role="status" aria-live="polite" hidden><span class="it-job-msgt"></span></p>
   <script type="application/json" class="it-job-data"><?= json_encode($__ioJobs, $__ioFlags) ?></script>
 </section>

@@ -77,7 +77,7 @@ itIconSprite();
     </div>
     <a class="it-job-anchor it-job-anchor-end" href="/portfolio.php"><span class="it-ad"><?= $__ibSvg('chart') ?></span><span>Website</span></a>
   </div></div>
-  <p class="it-job-foot"><span class="it-job-n"></span> · <button type="button" class="it-job-skip">Skip for now</button></p>
+  <p class="it-job-foot"><span class="it-job-n"></span><button type="button" class="it-job-skip">Skip for now</button></p>
   <p class="it-job-msg" role="status" aria-live="polite" hidden><span class="it-job-msgt"></span></p>
   <template class="it-job-tpl-ba_consent">
     <label>How they agreed <input name="note" class="it-ctl" maxlength="255" placeholder="e.g. Email from Ron 21 Sep"></label>

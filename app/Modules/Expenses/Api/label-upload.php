@@ -47,7 +47,23 @@ try {
         echo json_encode(['success' => false, 'error' => $r['error'] ?? 'Upload failed']);
         exit;
     }
+    // For the phone's "Add it now" step (additive keys; older apps ignore them). Only a product
+    // proposal that is still waiting, and only for someone who may add products.
+    $proposal = null;
+    if (!empty($r['capture_id']) && ($r['kind'] ?? null) === 'product' && jwtUserHasPermission($jwtUser, 'expenses.edit')) {
+        require_once APP_ROOT . '/Modules/Products/Services/ProductProposalService.php';
+        $p = (new ProductProposalService(getDB()))->forCapture((int)$r['capture_id']);
+        if ($p && $p['status'] === 'pending' && in_array($p['kind'], ['product_new', 'product_match'], true)) {
+            $proposal = [
+                'id'        => (int)$p['id'],
+                'kind'      => $p['kind'],
+                'name'      => (string)($p['payload']['name'] ?? $p['payload']['product_name'] ?? $p['title']),
+                'unit_cost' => isset($p['payload']['unit_cost']) ? (float)$p['payload']['unit_cost'] : null,
+            ];
+        }
+    }
     echo json_encode([
+        'proposal'   => $proposal,
         'success'    => true,
         'capture_id' => $r['capture_id'] ?? null,
         'kind'       => $r['kind'] ?? null,

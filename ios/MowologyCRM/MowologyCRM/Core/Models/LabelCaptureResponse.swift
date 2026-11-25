@@ -18,9 +18,26 @@ struct LabelCaptureResponse: Decodable {
     let title: String?
     let message: String
     let existing: Bool?
+    /// A product the phone can add right now (nil: a machine, nothing read, or no permission).
+    let proposal: Proposal?
+
+    struct Proposal: Decodable {
+        let id: Int
+        /// "product_new" | "product_match" (the photo belongs to a product we already have)
+        let kind: String
+        let name: String
+        let unitCost: Double?
+
+        var isNew: Bool { kind == "product_new" }
+
+        enum CodingKeys: String, CodingKey {
+            case id, kind, name
+            case unitCost = "unit_cost"
+        }
+    }
 
     enum CodingKeys: String, CodingKey {
-        case success, kind, title, message, existing
+        case success, kind, title, message, existing, proposal
         case captureId = "capture_id"
     }
 
@@ -31,5 +48,18 @@ struct LabelCaptureResponse: Decodable {
         case "product": return "Penny"
         default:        return "Nobody yet"
         }
+    }
+}
+
+/// Decodes POST /api/expenses/label-accept.
+struct LabelAcceptResponse: Decodable {
+    let success: Bool
+    let message: String?
+    let error: String?
+    let productId: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case success, message, error
+        case productId = "product_id"
     }
 }

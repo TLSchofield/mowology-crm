@@ -20,6 +20,12 @@ const VARIANT_WEBP_QUALITY = 82;
 const VARIANT_AVIF_QUALITY = 60;
 const VARIANT_THUMB_SIZE = 300; // Square thumbnail dimension
 
+/** Stable, collision-free filename base for legacy rows without a UUID. */
+function mediaVariantBase(string $uuid, int $mediaId): string
+{
+    return trim($uuid) !== '' ? $uuid : 'm' . $mediaId;
+}
+
 /**
  * Generate all responsive variants + square thumbnails for a media asset.
  *
@@ -53,6 +59,7 @@ function generateMediaVariants(int $mediaId, string $originalPath): array
     }
 
     $uuid = $media['uuid'];
+    $variantBase = mediaVariantBase((string)$uuid, $mediaId);
     $yearMonth = date('Y/m', strtotime($media['created_at']));
 
     $variantsDir = MEDIA_ROOT . '/variants/' . $yearMonth;
@@ -71,7 +78,7 @@ function generateMediaVariants(int $mediaId, string $originalPath): array
         $targetH = (int)round($origH * ($targetW / $origW));
 
         // JPEG variant
-        $jpegFile = "{$uuid}_{$targetW}w.jpg";
+        $jpegFile = "{$variantBase}_{$targetW}w.jpg";
         $jpegPath = $variantsDir . '/' . $jpegFile;
         $jpegWeb = '/_media/variants/' . $yearMonth . '/' . $jpegFile;
         if (variantResize($originalPath, $jpegPath, $targetW, $targetH, 'jpeg', VARIANT_JPEG_QUALITY)) {
@@ -82,7 +89,7 @@ function generateMediaVariants(int $mediaId, string $originalPath): array
         }
 
         // WebP variant
-        $webpFile = "{$uuid}_{$targetW}w.webp";
+        $webpFile = "{$variantBase}_{$targetW}w.webp";
         $webpPath = $variantsDir . '/' . $webpFile;
         $webpWeb = '/_media/variants/' . $yearMonth . '/' . $webpFile;
         if (variantResize($originalPath, $webpPath, $targetW, $targetH, 'webp', VARIANT_WEBP_QUALITY)) {
@@ -94,7 +101,7 @@ function generateMediaVariants(int $mediaId, string $originalPath): array
 
         // AVIF variant (only if GD supports it — PHP 8.1+ with libavif)
         if (function_exists('imageavif')) {
-            $avifFile = "{$uuid}_{$targetW}w.avif";
+            $avifFile = "{$variantBase}_{$targetW}w.avif";
             $avifPath = $variantsDir . '/' . $avifFile;
             $avifWeb = '/_media/variants/' . $yearMonth . '/' . $avifFile;
             if (variantResize($originalPath, $avifPath, $targetW, $targetH, 'avif', VARIANT_AVIF_QUALITY)) {
@@ -107,8 +114,8 @@ function generateMediaVariants(int $mediaId, string $originalPath): array
     }
 
     // --- Square thumbnail (center crop) ---
-    $thumbJpg = $thumbsDir . '/' . $uuid . '_sq' . VARIANT_THUMB_SIZE . '.jpg';
-    $thumbJpgWeb = '/_media/thumbs/' . $yearMonth . '/' . $uuid . '_sq' . VARIANT_THUMB_SIZE . '.jpg';
+    $thumbJpg = $thumbsDir . '/' . $variantBase . '_sq' . VARIANT_THUMB_SIZE . '.jpg';
+    $thumbJpgWeb = '/_media/thumbs/' . $yearMonth . '/' . $variantBase . '_sq' . VARIANT_THUMB_SIZE . '.jpg';
     if (variantCropSquare($originalPath, $thumbJpg, VARIANT_THUMB_SIZE, 'jpeg')) {
         $size = filesize($thumbJpg);
         variantInsertRecord($db, $mediaId, 'thumb_square', 'jpeg', VARIANT_THUMB_SIZE, VARIANT_THUMB_SIZE, $thumbJpgWeb, $size, VARIANT_JPEG_QUALITY);
@@ -116,8 +123,8 @@ function generateMediaVariants(int $mediaId, string $originalPath): array
         $totalBytes += $size;
     }
 
-    $thumbWebp = $thumbsDir . '/' . $uuid . '_sq' . VARIANT_THUMB_SIZE . '.webp';
-    $thumbWebpWeb = '/_media/thumbs/' . $yearMonth . '/' . $uuid . '_sq' . VARIANT_THUMB_SIZE . '.webp';
+    $thumbWebp = $thumbsDir . '/' . $variantBase . '_sq' . VARIANT_THUMB_SIZE . '.webp';
+    $thumbWebpWeb = '/_media/thumbs/' . $yearMonth . '/' . $variantBase . '_sq' . VARIANT_THUMB_SIZE . '.webp';
     if (variantCropSquare($originalPath, $thumbWebp, VARIANT_THUMB_SIZE, 'webp')) {
         $size = filesize($thumbWebp);
         variantInsertRecord($db, $mediaId, 'thumb_square', 'webp', VARIANT_THUMB_SIZE, VARIANT_THUMB_SIZE, $thumbWebpWeb, $size, VARIANT_WEBP_QUALITY);
@@ -319,6 +326,7 @@ function generateMediaThumbOnly(int $mediaId, string $originalPath): array
     }
 
     $uuid = $media['uuid'];
+    $variantBase = mediaVariantBase((string)$uuid, $mediaId);
     $yearMonth = date('Y/m', strtotime($media['created_at']));
     $thumbsDir = MEDIA_ROOT . '/thumbs/' . $yearMonth;
     if (!is_dir($thumbsDir)) mkdir($thumbsDir, 0755, true);
@@ -327,8 +335,8 @@ function generateMediaThumbOnly(int $mediaId, string $originalPath): array
     $totalBytes = 0;
 
     // JPEG thumbnail
-    $thumbJpg = $thumbsDir . '/' . $uuid . '_sq' . VARIANT_THUMB_SIZE . '.jpg';
-    $thumbJpgWeb = '/_media/thumbs/' . $yearMonth . '/' . $uuid . '_sq' . VARIANT_THUMB_SIZE . '.jpg';
+    $thumbJpg = $thumbsDir . '/' . $variantBase . '_sq' . VARIANT_THUMB_SIZE . '.jpg';
+    $thumbJpgWeb = '/_media/thumbs/' . $yearMonth . '/' . $variantBase . '_sq' . VARIANT_THUMB_SIZE . '.jpg';
     if (variantCropSquare($originalPath, $thumbJpg, VARIANT_THUMB_SIZE, 'jpeg')) {
         $size = filesize($thumbJpg);
         variantInsertRecord($db, $mediaId, 'thumb_square', 'jpeg', VARIANT_THUMB_SIZE, VARIANT_THUMB_SIZE, $thumbJpgWeb, $size, VARIANT_JPEG_QUALITY);
@@ -337,8 +345,8 @@ function generateMediaThumbOnly(int $mediaId, string $originalPath): array
     }
 
     // WebP thumbnail
-    $thumbWebp = $thumbsDir . '/' . $uuid . '_sq' . VARIANT_THUMB_SIZE . '.webp';
-    $thumbWebpWeb = '/_media/thumbs/' . $yearMonth . '/' . $uuid . '_sq' . VARIANT_THUMB_SIZE . '.webp';
+    $thumbWebp = $thumbsDir . '/' . $variantBase . '_sq' . VARIANT_THUMB_SIZE . '.webp';
+    $thumbWebpWeb = '/_media/thumbs/' . $yearMonth . '/' . $variantBase . '_sq' . VARIANT_THUMB_SIZE . '.webp';
     if (variantCropSquare($originalPath, $thumbWebp, VARIANT_THUMB_SIZE, 'webp')) {
         $size = filesize($thumbWebp);
         variantInsertRecord($db, $mediaId, 'thumb_square', 'webp', VARIANT_THUMB_SIZE, VARIANT_THUMB_SIZE, $thumbWebpWeb, $size, VARIANT_WEBP_QUALITY);

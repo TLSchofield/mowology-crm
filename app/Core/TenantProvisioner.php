@@ -192,6 +192,15 @@ final class TenantProvisioner
             if ((int)$this->db->query('SELECT COUNT(*) FROM ' . $q($dbName) . '.`business_settings`')->fetchColumn() === 0) {
                 $this->db->prepare('INSERT INTO ' . $q($dbName) . '.`business_settings` (id, company_name, company_email) VALUES (1, ?, ?)')->execute([$name, $email]);
             }
+            // New businesses start on the short first-week view (net-version plan, step 2). Only on the first run: once a
+            // business is registered, re-provisioning never turns it on (Codex review 2026-11-20).
+            if (!$wasRegistered) try {
+                $this->db->prepare('INSERT INTO ' . $q($dbName) . '.`ops_settings` (setting_key, setting_value, description) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE setting_key = setting_key')
+                    ->execute(['first_week_mode', '1', 'Show the short first-week CRM (simple dashboard, short menu)']);
+                $this->log[] = 'Turned on the first-week view.';
+            } catch (Throwable $e) {
+                $this->log[] = 'Could not turn on the first-week view (ops_settings): ' . $e->getMessage();
+            }
         } finally {
             $this->db->exec('SET FOREIGN_KEY_CHECKS = 1');
             if ($ddl !== $this->db) $ddl->exec('SET FOREIGN_KEY_CHECKS = 1');
@@ -212,8 +221,10 @@ final class TenantProvisioner
         // 6. Owner login. Until a run has finished once (the business was not registered when this run began), a
         // retry gives the owner a fresh one-time password instead of keeping one that was never shown.
         $password = null;
-        $u = $this->db->prepare('SELECT id FROM ' . $q($dbName) . '.`users` WHERE email = ?');
-        $u->execute([$email]);
+        // Match the owner by email OR by the key's owner username: a business provisioned earlier with another email (the local test
+        // harness used to) must be found, not inserted again (that hit the unique username and stopped `local-android.sh up`, 2026-11-24).
+        $u = $this->db->prepare('SELECT id FROM ' . $q($dbName) . '.`users` WHERE email = ? OR username = ? ORDER BY (email = ?) DESC LIMIT 1');
+        $u->execute([$email, $key . '-owner', $email]);
         $ownerId = (int)$u->fetchColumn();
         if ($ownerId === 0 || !$wasRegistered) {
             $password = rtrim(strtr(base64_encode(random_bytes(12)), '+/', 'Kq'), '=');

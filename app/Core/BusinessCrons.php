@@ -26,6 +26,8 @@ final class BusinessCrons
         'expire_certs' => ['path' => '/app/Modules/Quiz/Cron/expire_certs.php', 'expr' => '15 2 * * *', 'timeout' => 600],
         // Contact roster (2026-11-07): adds missing clients/links only, never changes a row; "who is the contact now" reads it.
         'contact_roster_sync' => ['path' => '/app/Modules/Clients/Cron/contact_roster_sync.php', 'expr' => '50 5 * * *', 'timeout' => 300],
+        // Recipient drift report (2026-11-24): READ-ONLY counts of customer-link disagreements; writes only its cron_runs line.
+        'recipient_drift_report' => ['path' => '/app/Modules/Clients/Cron/recipient_drift_report.php', 'expr' => '5 6 * * *', 'timeout' => 300],
         'clues_daily' => ['path' => '/app/Modules/Comms/Cron/clues_daily.php', 'expr' => '10 6 * * *', 'timeout' => 600],
         'trip_runs_daily' => ['path' => '/app/Modules/Operations/Cron/trip_runs_daily.php', 'expr' => '20 1 * * *', 'timeout' => 600],
         'charlie_morning_brief' => ['path' => '/app/Modules/ChiefOfStaff/Cron/charlie_morning_brief.php', 'expr' => '2,17,32,47 * * * *', 'timeout' => 600],

@@ -81,6 +81,34 @@ class UniversalSearchService
         return $items;
     }
 
+    /**
+     * Companies that own/manage/bill a property whose name, billing entity or address matches every word, so "laburnum"
+     * or "VR738" finds the firm (2026-11-24). Each link column is tried on its own: a column missing on an install just
+     * contributes nothing. Companies already in $have are skipped.
+     */
+    private function companiesViaProperty(array $tokens, array $have): array
+    {
+        if (!$tokens) return [];
+        $seen = [];
+        foreach ($have as $h) $seen[(int)$h['id']] = true;
+        $out = [];
+        foreach (['p.company_id', 'p.property_manager_id', 'p.billing_company_id'] as $link) {
+            try {
+                $p = []; $pw = $this->where(['p.property_name', 'p.billing_entity_name', 'p.address'], $tokens, $p);
+                $where = "co.id IN (SELECT $link FROM properties p WHERE $link IS NOT NULL AND $pw)";
+                foreach ($this->fetch('company', $where, $p, 'co.company_name', self::FETCH_MAX) as $item) {
+                    if (isset($seen[$item['id']])) continue;
+                    $seen[$item['id']] = true;
+                    $item['sublabel'] = trim($item['sublabel'] . ($item['sublabel'] !== '' ? ' · ' : '') . 'via property');
+                    $out[] = $item;
+                }
+            } catch (Throwable $e) {
+                error_log('[search] companies via property (' . $link . ') failed: ' . $e->getMessage());
+            }
+        }
+        return $out;
+    }
+
     private function group(string $key, string $title, array $items, int $limit, int $userId, string $prefix): ?array
     {
         if (!$items) return null;
@@ -338,6 +366,7 @@ class UniversalSearchService
                 $p = []; $where = $this->where(['co.company_name'], $tokens, $p);
                 $companies = $this->fetch('company', $where, $p, 'co.company_name', self::FETCH_MAX, true);
             }
+            $companies = array_merge($companies, $this->companiesViaProperty($tokens, $companies));
             if ($g = $this->group('people', 'People', array_merge($items, $companies), $perGroup, $userId, $prefix)) $groups[] = $g;
         } catch (Throwable $e) { error_log('[search] people failed: ' . $e->getMessage()); }
 
@@ -520,6 +549,6 @@ class UniversalSearchService
     public static function flatForWeb(array $groups): array
     {
         $icons=['people'=>'user','properties'=>'map-pin','quotes'=>'file-text','invoices'=>'credit-card','jobs'=>'briefcase','receipts'=>'file','vendors'=>'truck','messages'=>'mail','team'=>'users','learned'=>'star'];$out=[];
-        foreach($groups as$g)foreach($g['items']??[]as$i){if(empty($i['url']))continue;$out[]=['category'=>$g['title'],'icon'=>$icons[$g['key']]??'file-text','label'=>$i['label'],'sublabel'=>$i['sublabel']??'','url'=>$i['url']];}return$out;
+        foreach($groups as$g)foreach($g['items']??[]as$i){if(empty($i['url']))continue;$out[]=['category'=>$g['title'],'icon'=>(($i['kind']??'')==='company')?'briefcase':($icons[$g['key']]??'file-text'),'label'=>$i['label'],'sublabel'=>$i['sublabel']??'','url'=>$i['url']];}return$out;
     }
 }

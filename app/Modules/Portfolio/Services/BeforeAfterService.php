@@ -437,8 +437,11 @@ class BeforeAfterService
         $altB     = trim((string)($fields['alt_before'] ?? '')) ?: ($pair['alt_before'] ?: self::altFor('before', $service, $area));
         $altA     = trim((string)($fields['alt_after'] ?? ''))  ?: ($pair['alt_after']  ?: self::altFor('after',  $service, $area));
 
-        $webBefore = $this->ensureWebCopy((int)$pair['before_id'], (string)$pair['before_url']);
-        $webAfter  = $this->ensureWebCopy((int)$pair['after_id'],  (string)$pair['after_url']);
+        $webBefore = $this->imageGate()->ensureWebCopy((int)$pair['before_id'], $this->absoluteMediaPath((string)$pair['before_url']));
+        $webAfter  = $this->imageGate()->ensureWebCopy((int)$pair['after_id'], $this->absoluteMediaPath((string)$pair['after_url']));
+        if (!$webBefore['ok'] || !$webAfter['ok']) {
+            throw new RuntimeException('These photos could not be prepared for the website. Please try again or choose different photos.');
+        }
 
         $maxSort = (int)$this->db->query("SELECT COALESCE(MAX(sort_order),0) FROM ba_pairs WHERE status='approved'")->fetchColumn();
 
@@ -451,7 +454,7 @@ class BeforeAfterService
              WHERE id = ?
         ")->execute([
             $userId, mb_substr($label, 0, 255), mb_substr($service, 0, 100), $category, $area ? mb_substr($area, 0, 80) : null,
-            mb_substr($altB, 0, 160), mb_substr($altA, 0, 160), $webBefore, $webAfter, $maxSort + 1, $pairId,
+            mb_substr($altB, 0, 160), mb_substr($altA, 0, 160), $webBefore['path'], $webAfter['path'], $maxSort + 1, $pairId,
         ]);
 
         return self::publicShape($this->load($pairId));
@@ -562,7 +565,52 @@ class BeforeAfterService
             LIMIT {$limit} OFFSET {$offset}
         ");
         $stmt->execute();
-        return array_map([self::class, 'publicShape'], $stmt->fetchAll(PDO::FETCH_ASSOC));
+        return array_map(fn(array $r) => self::publicShape($this->withWebCopies($r)), $stmt->fetchAll(PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * A pair approved before it had a web copy would be served as the raw phone photo (Guardian measured a 17 MB portfolio page,
+     * 2026-11-24). When a web-sized JPEG already exists in media_variants, use it for this response — read-only, nothing is
+     * generated or written. Rows with a web copy are untouched.
+     */
+    private function withWebCopies(array $row): array
+    {
+        foreach (['before', 'after'] as $side) {
+            if (!empty($row['web_' . $side . '_path']) || empty($row[$side . '_id'])) {
+                continue;
+            }
+            $path = self::webPathFor($this->responsiveVariants((int)$row[$side . '_id']), (string)$row[$side . '_url']);
+            if ($path !== (string)$row[$side . '_url']) {
+                $row['web_' . $side . '_path'] = $path;
+            }
+        }
+        return $row;
+    }
+
+    /**
+     * Give every published pair that still lacks a web copy one (generating the responsive set when none exists) and record it.
+     * Idempotent; used once to fix pairs approved before web copies existed. Returns the number of pairs updated.
+     */
+    public function backfillWebCopies(int $limit = 10): int
+    {
+        $rows = $this->db->query("SELECT bp.id, bp.before_id, bp.after_id, bp.web_before_path, bp.web_after_path, " . self::assetSelect() . "
+            FROM ba_pairs bp JOIN media_assets mb ON mb.id = bp.before_id JOIN media_assets ma ON ma.id = bp.after_id
+            WHERE bp.status = 'approved' AND bp.published = 1 AND (COALESCE(bp.web_before_path,'') = '' OR COALESCE(bp.web_after_path,'') = '')
+            LIMIT " . max(1, min($limit, 50)))->fetchAll(PDO::FETCH_ASSOC);
+        $n = 0;
+        foreach ($rows as $r) {
+            $wb = $r['web_before_path'] ? ['ok' => true, 'path' => $r['web_before_path']]
+                : $this->imageGate()->ensureWebCopy((int)$r['before_id'], $this->absoluteMediaPath((string)$r['before_url']));
+            $wa = $r['web_after_path'] ? ['ok' => true, 'path' => $r['web_after_path']]
+                : $this->imageGate()->ensureWebCopy((int)$r['after_id'], $this->absoluteMediaPath((string)$r['after_url']));
+            if (!$wb['ok'] || !$wa['ok']) {
+                error_log('BeforeAfterService: pair ' . (int)$r['id'] . ' has no web-sized copy; left as it is for a person to look at');
+                continue;   // never hide a live pair silently
+            }
+            $this->db->prepare("UPDATE ba_pairs SET web_before_path = ?, web_after_path = ? WHERE id = ?")->execute([$wb['path'], $wa['path'], (int)$r['id']]);
+            $n++;
+        }
+        return $n;
     }
 
     public function publishedCount(): int
@@ -593,26 +641,15 @@ class BeforeAfterService
         return $row === false ? null : $row;
     }
 
-    /**
-     * The web-sized JPEG for an asset, generating the responsive set once if the crew
-     * upload only made a thumbnail. Falls back to the original rather than failing the
-     * approval — a big image on the site beats a pair stuck in the queue.
-     */
-    private function ensureWebCopy(int $mediaId, string $originalPath): string
+    private function imageGate(): ImageGate
     {
-        $variants = $this->responsiveVariants($mediaId);
-        if (!$variants && function_exists('generateMediaVariants') && defined('PUBLIC_ROOT')) {
-            $abs = PUBLIC_ROOT . $originalPath;
-            if (is_file($abs)) {
-                try {
-                    generateMediaVariants($mediaId, $abs);
-                } catch (Throwable $e) {
-                    error_log('BeforeAfterService: variant generation failed for media ' . $mediaId . ': ' . $e->getMessage());
-                }
-                $variants = $this->responsiveVariants($mediaId);
-            }
-        }
-        return self::webPathFor($variants, $originalPath);
+        require_once dirname(__DIR__, 2) . '/Media/Services/ImageGate.php';
+        return new ImageGate($this->db);
+    }
+
+    private function absoluteMediaPath(string $path): string
+    {
+        return defined('PUBLIC_ROOT') ? PUBLIC_ROOT . $path : $path;
     }
 
     private function responsiveVariants(int $mediaId): array

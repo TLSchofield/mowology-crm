@@ -62,6 +62,7 @@ require_once __DIR__ . '/../app/Modules/Accounting/Services/PennyLessons.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/LeadScore.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/ClientRhythm.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/ComparablePricing.php';
+require_once __DIR__ . '/../app/Modules/Sales/Services/SamInvoiceHistory.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/SamSignals.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/QuoteJobAdapter.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/RouteReconciliationService.php';
@@ -404,6 +405,7 @@ require_once __DIR__ . '/../app/Modules/Accounting/Services/BankAccountSplitServ
 // Bank balance check + each invoice payment its own journal entry (migration 1236)
 require_once __DIR__ . '/../app/Modules/Accounting/Services/InvoicePaymentPlanner.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/BankBalanceCheckService.php';
+require_once __DIR__ . '/../app/Modules/Accounting/Services/StatementReconcileService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/SettlementStatusService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/BankLineAge.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/PulseBands.php';
@@ -468,14 +470,24 @@ require_once __DIR__ . '/../app/Services/Receipts/ReceiptLineItemIntelligence.ph
 
 // Contacts
 require_once __DIR__ . '/../app/Modules/Contacts/Services/ContactService.php';
+require_once __DIR__ . '/../app/Modules/Contacts/Services/ContactMergeLinks.php';
+require_once __DIR__ . '/../app/Modules/Contacts/Services/ClientActionsService.php';
 require_once __DIR__ . '/../app/Modules/Contacts/Services/OnsiteContactService.php';
 require_once __DIR__ . '/../app/Modules/Contacts/Services/ContactTeamService.php';
+require_once __DIR__ . '/../app/Modules/Contacts/Services/ContactInvoiceService.php';
+require_once __DIR__ . '/../app/Modules/Contracts/Services/ContractBillingCompany.php';
 require_once __DIR__ . '/../app/Modules/Contacts/Services/ContactTimelineService.php';
 require_once __DIR__ . '/../app/Modules/Contacts/Services/CompanyDeleteGuard.php';
 require_once __DIR__ . '/../app/Modules/Contacts/Services/ContactDuplicateFinder.php';
+require_once __DIR__ . '/../app/Modules/Settings/Services/FirstWeekService.php';
+require_once __DIR__ . '/../app/Modules/Settings/Services/FirstWeekMenu.php';
+require_once __DIR__ . '/../app/Modules/Settings/Services/FirstWeekFocus.php';
+require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceInsightsService.php';
 
 // Clients (Client/Account model — Phase 0)
 require_once __DIR__ . '/../app/Modules/Clients/Services/BillToResolver.php';
+require_once __DIR__ . '/../app/Modules/Clients/Services/ClientPropertySearchIndex.php';
+require_once __DIR__ . '/../app/Modules/Clients/Services/RecipientDriftReport.php';
 require_once __DIR__ . '/../app/Modules/Clients/Services/ContactRosterSync.php';
 require_once __DIR__ . '/../app/Modules/Clients/Services/ContactRoster.php';
 
@@ -612,10 +624,14 @@ require_once __DIR__ . '/../app/Modules/Jobs/Services/CrewAssignmentService.php'
 require_once __DIR__ . '/../app/Modules/Jobs/Services/VisitCarryGuard.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/StopRescheduleService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/VisitResizeService.php';
+require_once __DIR__ . '/../app/Modules/Jobs/Services/VisitSummaryService.php';
+require_once __DIR__ . '/../app/Modules/Jobs/Services/VisitEditService.php';
+require_once __DIR__ . '/../app/Modules/Jobs/Services/RecurringScheduleService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/CalendarCreateService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/VisitEndorsementService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/WeatherGuardSummary.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/WeatherActionGuard.php';
+require_once __DIR__ . '/../app/Modules/Jobs/Services/WeatherSnapshotService.php';
 require_once __DIR__ . '/../app/Modules/Portfolio/Services/BeforeAfterService.php';
 require_once __DIR__ . '/../app/Modules/Portfolio/Services/BeforeAfterJobAdapter.php';
 

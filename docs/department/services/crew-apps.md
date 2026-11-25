@@ -1,0 +1,5 @@
+# Crew apps (what they do today)
+Three apps for field crew, one server. Native iPhone (SwiftUI), native Android (Kotlin, Jetpack Compose, Room, WorkManager), and an older Capacitor web shell still in use while Android native is rolled out.
+Crew features: time clock and breaks; trips and vehicle checks (a trip opens at pre-trip); visit timers and job checklists; GPS tracking and geofences (OS-registered, nearest 90, server returns only the caller's own stops); photos with pins; receipt capture (capture only, review happens on the office side); schedule; push alerts (APNs on iPhone, FCM on Android); a brief on every open.
+Rules already in force: offline first (every field feature states works / queues / unavailable); server first with the on-device copy as backup, saved with the time the action was performed; least data on the phone, per user, wiped on sign-out; crew names stay in-house; sign-in is per business.
+Known weaknesses: Android had trip and clock-out screens that trapped users (being rebuilt); battery cost of GPS on low-end phones is unmeasured; no automatic detection of a forgotten clock-out beyond time rules.

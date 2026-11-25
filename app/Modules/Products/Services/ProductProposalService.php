@@ -699,6 +699,19 @@ class ProductProposalService
         return $r ? $this->item($r) + ['status' => $r['status'], 'label_capture_id' => $r['label_capture_id'] ? (int)$r['label_capture_id'] : null] : null;
     }
 
+    /**
+     * The proposal a label photo made (key "label:<captureId>"), for the phone's "Add it now" step.
+     * Null when the photo read nothing or the person was already decided for it.
+     */
+    public function forCapture(int $captureId): ?array
+    {
+        if (!$this->ready()) return null;
+        $s = $this->db->prepare("SELECT id FROM product_proposals WHERE proposal_key = ? ORDER BY id DESC LIMIT 1");
+        $s->execute(['label:' . $captureId]);
+        $id = $s->fetchColumn();
+        return $id ? $this->get((int)$id) : null;
+    }
+
     public function dismiss(int $id, int $userId): array
     {
         $p = $this->get($id);
@@ -722,6 +735,11 @@ class ProductProposalService
         $result = ['ok' => false, 'message' => 'Unknown proposal'];
         $this->db->beginTransaction();
         try {
+            // Claim the proposal first: two taps at once (phone + web card) must not both write.
+            // The second UPDATE waits on the row lock, then finds it no longer pending.
+            $claim = $this->db->prepare("UPDATE product_proposals SET status = 'accepted' WHERE id = ? AND status = 'pending'");
+            $claim->execute([$id]);
+            if ($claim->rowCount() !== 1) { $this->db->rollBack(); return ['ok' => false, 'message' => 'Already decided.']; }
             switch ($p['kind']) {
                 case 'product_new':
                     $result = $this->acceptNewProduct($p, $pl, $opts);

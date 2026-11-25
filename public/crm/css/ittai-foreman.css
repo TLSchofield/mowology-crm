@@ -1,0 +1,47 @@
+/* =============================================================================
+   ittai-foreman.css — the Foreman page (deadlines, decisions, rules) in the Ittai v1.2 (Kanso) look.
+   Opt-in: foreman_calendar_appstack.php sets $bodyClass = 'it-list' and loads this file only for people on the
+   new design (it_design cookie). Every rule needs body.it-shell.it-list, so with the new design off nothing applies.
+   Design: docs/design/calendar-round-2026-11-23/ (approved by Tim 2026-11-23). Tokens only (ittai-tokens.css), no hex.
+   Page header, forms, cards and tabs come from ittai-lists.css; this file styles the deadline rows and Charlie's buttons.
+   ============================================================================= */
+
+body.it-shell.it-list .mw-charlie-tabs { border-bottom: var(--it-stroke-hairline) solid var(--it-line); gap: var(--it-space-1); }
+body.it-shell.it-list .mw-charlie-tabs .nav-link { min-height: var(--it-target-desktop); display: inline-flex; align-items: center; padding: 0 var(--it-space-4); border: 0; border-bottom: var(--it-stroke-focus) solid transparent; border-radius: 0; background: transparent; color: var(--it-meta); font-family: var(--it-font-sans); font-size: var(--it-body-14-size); font-weight: 500; }
+body.it-shell.it-list .mw-charlie-tabs .nav-link:hover { color: var(--it-text); background: var(--it-selected); }
+body.it-shell.it-list .mw-charlie-tabs .nav-link.active { color: var(--it-text); font-weight: 600; background: transparent; border-bottom-color: var(--it-brand); }
+
+body.it-shell.it-list .mw-charlie-page { color: var(--it-text); font-family: var(--it-font-sans); font-variant-numeric: tabular-nums; }
+body.it-shell.it-list .mw-charlie-dl-group h5 { color: var(--it-text); font-size: var(--it-heading-16-size); font-weight: 600; }
+body.it-shell.it-list .mw-charlie-dl-group h5 small { color: var(--it-meta); font-weight: 400; }
+body.it-shell.it-list .mw-charlie-dl-group.is-now h5 { color: var(--it-text); }
+body.it-shell.it-list .mw-charlie-dl-group.is-now h5::after { content: " Due soon"; font-size: 12px; font-weight: 600; color: var(--it-status-attention); }
+body.it-shell.it-list .mw-charlie-dl,
+body.it-shell.it-list .mw-charlie-rule { background: var(--it-surface); color: var(--it-text); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-sm); box-shadow: none; font-size: var(--it-body-14-size); }
+body.it-shell.it-list .mw-charlie-dl.is-overdue { border-left-width: var(--it-stroke-hairline); border-color: var(--it-status-attention); }
+body.it-shell.it-list .mw-charlie-dl.is-target { box-shadow: none; outline: var(--it-stroke-focus) solid var(--it-brand); outline-offset: -1px; }
+body.it-shell.it-list .mw-charlie-dl-group.is-off .mw-charlie-dl,
+body.it-shell.it-list .mw-charlie-rule.is-later { opacity: 1; background: var(--it-sunk); }
+body.it-shell.it-list .mw-charlie-dl-hd b { color: var(--it-text); font-weight: 600; }
+body.it-shell.it-list .mw-charlie-dl-when { color: var(--it-meta); font-size: var(--it-body-14-size); font-weight: 500; }
+body.it-shell.it-list .mw-charlie-dl.is-overdue .mw-charlie-dl-when { color: var(--it-status-attention); font-weight: 600; }
+body.it-shell.it-list .mw-charlie-dl.is-overdue .mw-charlie-dl-when::before { content: "\25B2  "; }
+body.it-shell.it-list .mw-charlie-dl-rule,
+body.it-shell.it-list .mw-charlie-note,
+body.it-shell.it-list .mw-charlie-prep { color: var(--it-meta); font-size: 12px; }
+body.it-shell.it-list .mw-charlie-note.is-confirm { color: var(--it-status-attention); }
+body.it-shell.it-list .mw-charlie-pack-list li.is-bad { color: var(--it-status-attention); font-weight: 600; }
+body.it-shell.it-list .mw-charlie-form label,
+body.it-shell.it-list .mw-charlie-rule-edit label { color: var(--it-meta); font-size: 12px; font-weight: 500; }
+
+/* Charlie's buttons: outlined, with one filled primary */
+body.it-shell.it-list .mw-charlie-btn { min-height: var(--it-target-desktop); padding: 0 var(--it-space-3); background: var(--it-surface); color: var(--it-text); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-md); font-family: var(--it-font-sans); font-size: var(--it-body-14-size); font-weight: 500; box-shadow: none; }
+body.it-shell.it-list .mw-charlie-btn:hover { background: var(--it-selected); border-color: var(--it-line); }
+body.it-shell.it-list .mw-charlie-btn.is-primary { background: var(--it-tenant); border-color: var(--it-tenant); color: var(--it-on-tenant); font-weight: 600; }
+body.it-shell.it-list .mw-charlie-btn.is-primary:hover { background: var(--it-tenant); filter: brightness(0.92); }
+body.it-shell.it-list .mw-charlie-btn.is-quiet { background: transparent; border-color: transparent; color: var(--it-meta); }
+
+@media (max-width: 1023px) {
+  body.it-shell.it-list .mw-charlie-tabs .nav-link,
+  body.it-shell.it-list .mw-charlie-btn { min-height: var(--it-target-phone); }
+}

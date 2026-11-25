@@ -80,7 +80,7 @@ itIconSprite();
     </div>
     <a class="it-job-anchor" href="/crm/messages_appstack.php"><span class="it-ad"><?= $__iySvg('mail') ?></span><span>Messages</span></a>
   </div></div>
-  <p class="it-job-foot"><span class="it-job-n"></span> · <button type="button" class="it-job-skip">Skip for now</button></p>
+  <p class="it-job-foot"><span class="it-job-n"></span><button type="button" class="it-job-skip">Skip for now</button></p>
   <p class="it-job-msg" role="status" aria-live="polite" hidden><span class="it-job-msgt"></span> <button type="button" class="it-job-undo" hidden>Undo</button></p>
   <template class="it-job-tpl-statement">
     <label>To <select name="recipient" class="it-ctl"></select></label>

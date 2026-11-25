@@ -70,4 +70,22 @@ final class UniversalSearchServiceTest extends TestCase
         $out = UniversalSearchService::wholeNamesFirst($items, UniversalSearchService::tokens('lindas'));
         self::assertSame(['Linda Chou', 'Linda Tam', 'Belinda Guttman', 'Melinda Meszaros'], array_column($out, 'label'));
     }
+
+    public function test_people_group_finds_company_through_a_matching_property(): void
+    {
+        $db=$this->db();
+        $db->exec('CREATE TABLE properties (id INTEGER PRIMARY KEY,property_name TEXT,billing_entity_name TEXT,address TEXT,company_id INT,property_manager_id INT)');
+        $db->exec("INSERT INTO companies VALUES(15,'Quay Pacific Property Management Ltd','property_manager','Vancouver','a@example.test','active'),(16,'Other Co','customer',NULL,NULL,'active')");
+        $db->exec("INSERT INTO properties VALUES(77,'Laburnum Heights','VR738 Laburnum Heights','1551 West 11th Avenue',NULL,15)");
+        $service=new UniversalSearchService($db);
+        $can=static function(string $permission):bool{return $permission==='clients.view';};
+        foreach (['laburnum','VR738'] as $q) {
+            $people=$service->search($q,$can,7)['groups'][0];
+            self::assertSame('people',$people['key']);
+            self::assertSame([15],array_column($people['items'],'id'));
+            self::assertStringContainsString('via property',$people['items'][0]['sublabel']);
+            self::assertSame('company',$people['items'][0]['kind']);
+            self::assertSame('briefcase',UniversalSearchService::flatForWeb([$people])[0]['icon']);
+        }
+    }
 }

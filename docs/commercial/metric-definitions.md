@@ -1,0 +1,11 @@
+# Commercial metric definitions (data dictionary). Change a definition only by adding a dated line at the bottom.
+- **MRR:** normalised monthly recurring subscription revenue; excludes one-time charges. Source: billing data (none yet).
+- **ARR:** MRR × 12 on the current recurring base. A run-rate, not cash collected.
+- **CAC:** acquisition spend ÷ new customers in the period. Report cash CAC and fully-loaded CAC (including founder time) separately.
+- **Conversion rate:** customers reaching a stage ÷ eligible population at the previous stage, same period. Stages are the 20 pipeline stages.
+- **LTV:** margin × expected lifetime from observed retention; always shown with assumptions and an uncertainty range; not reported until retention data exists.
+- **Churn:** customers lost in a period ÷ customers at its start. **Revenue retention:** retained recurring revenue, splitting expansion, contraction and loss.
+- **Payback period:** months for a customer's gross profit to recover CAC.
+- **Gross margin:** revenue less infrastructure, AI inference and direct service cost.
+- **Forecast buckets:** confirmed (billed), contracted (won), probable, potential, speculative — counts and known values only; no probability weighting until conversion history exists.
+- Changes: 2026-11-24 initial.

@@ -443,6 +443,8 @@ require_once APP_ROOT . '/Services/Messaging/IdentityMail.php';
                 (int)$user['id'],
             ]);
             $invoiceId = (int)$db->lastInsertId();
+            require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceRouting.php';
+            InvoiceRouting::stampClientId($db, $invoiceId);
             $invoiceNumber = $invNumber;
 
             // Line items — one per visit. visit_id + service_date make the
