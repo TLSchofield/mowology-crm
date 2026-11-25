@@ -10,7 +10,9 @@ STATE="$HOME/.mowology-parity"; BIN="$STATE/bin"
 PLIST="$HOME/Library/LaunchAgents/ca.mowology.parity-daily.plist"
 [ -d "$HOME/.mowology-codex/src" ] || { echo "run scripts/codex-schedule/install.sh first (it creates ~/.mowology-codex/src)"; exit 3; }
 mkdir -p "$BIN"
-cp "$HERE/parity.py" "$HERE/screens.json" "$HERE/run-daily.sh" "$BIN/"; chmod +x "$BIN/run-daily.sh" "$BIN/parity.py"
+cp "$HERE/parity.py" "$HERE/screens.json" "$HERE/run-daily.sh" "$HERE/start-android.sh" "$BIN/"; chmod +x "$BIN/run-daily.sh" "$BIN/start-android.sh" "$BIN/parity.py"
+# the checkout that holds the gitignored local-site files (secrets.php, tenants.php, .credentials.local)
+[ -f "$STATE/site-root" ] || git -C "$HERE" rev-parse --show-toplevel > "$STATE/site-root"
 cat > "$PLIST" <<PL
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

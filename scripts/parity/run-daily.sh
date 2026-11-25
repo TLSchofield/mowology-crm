@@ -12,8 +12,9 @@ log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG"; }
 log "parity run start"
 python3 "$BIN/parity.py" detect  2>&1 | tee -a "$LOG"
 python3 "$BIN/parity.py" queue   2>&1 | tee -a "$LOG"
-if [ "${PARITY_START_ANDROID:-0}" = "1" ] && [ -x "$HOME/.mowology-codex/src/scripts/local-android.sh" ]; then
-  "$HOME/.mowology-codex/src/scripts/local-android.sh" up >>"$LOG" 2>&1 || log "emulator did not start — Android screens skipped"
+# Start the local site + emulator unless told not to (PARITY_START_ANDROID=0). A failure only skips the Android shots.
+if [ "${PARITY_START_ANDROID:-1}" = "1" ] && [ -x "$BIN/start-android.sh" ]; then
+  "$BIN/start-android.sh" >>"$LOG" 2>&1 || log "emulator did not start — Android screens skipped"
 fi
 python3 "$BIN/parity.py" shots   2>&1 | tee -a "$LOG"
 python3 "$BIN/parity.py" report  2>&1 | tee -a "$LOG"

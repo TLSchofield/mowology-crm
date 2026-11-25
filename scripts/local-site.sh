@@ -29,7 +29,8 @@ LOCAL_MIGRATIONS=()   # repo migrations newer than the production schema snapsho
 DATADIR="$STATE/mysql-data"
 SOCK="$STATE/mysql.sock"
 MYSQL_PID="$STATE/mysqld.pid"
-PHP_PID="$STATE/php-server.pid"
+# One pid file per port: a second site on another LOCAL_SITE_PORT used to read the :8000 server's pid and report "already running" (2026-11-25).
+if [ "$PORT" = 8000 ]; then PHP_PID="$STATE/php-server.pid"; else PHP_PID="$STATE/php-server-$PORT.pid"; fi
 SCHEMA="$STATE/schema.sql"
 DBPASS_FILE="$STATE/db-password"
 mkdir -p "$STATE" "$STATE/sessions" "$STATE/tmp"
