@@ -77,6 +77,7 @@ Every head has one: `penny-bc-bookkeeping`, `kaname-chief-of-staff`, `sam-sales`
 `mia-marketing`, `yui-comms`, `ada-technology`; location rules (country/province/city) are in the
 shared `regions` skill. `tests/Unit/Docs/HeadSkillsTest.php` keeps them in step with the code, and
 the end-of-session hook names the skills whose code changed.
+Anything phone-facing (customer pages, public forms, the CRM on a phone, the iPhone/Android apps) or any motion: load the `mobile-ui-craft` skill first and run `python3 scripts/ui-audit.py` before and after.
 
 ---
 

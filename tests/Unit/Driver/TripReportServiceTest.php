@@ -26,6 +26,30 @@ class TripReportServiceTest extends TestCase
         $this->assertSame('closed', TripReportService::tripState(['pre_trip_at' => '2026-09-19 07:10:00', 'post_trip_at' => '2026-09-19 16:02:00']));
     }
 
+    // ---- postTripRefusal: one refusal body for every clock endpoint ---------
+
+    public function test_post_trip_refusal_says_still_clocked_in(): void
+    {
+        $r = TripReportService::postTripRefusal(['id' => '42']);
+        $this->assertFalse($r['success']);
+        // A client testing `success || !clocked_in` must not read this as a clock-out.
+        $this->assertTrue($r['clocked_in']);
+        $this->assertTrue($r['post_trip_required']);
+        $this->assertSame('post_trip_required', $r['error_code']);
+        $this->assertSame(42, $r['trip_report_id']);
+    }
+
+    public function test_post_trip_refusal_names_the_blocking_trip_sequence(): void
+    {
+        $this->assertSame(2, TripReportService::postTripRefusal(['id' => 9, 'trip_sequence' => '2'])['trip_sequence']);
+        $this->assertSame(1, TripReportService::postTripRefusal(['id' => 9])['trip_sequence']);
+    }
+
+    public function test_post_trip_refusal_survives_a_row_without_an_id(): void
+    {
+        $this->assertSame(0, TripReportService::postTripRefusal([])['trip_report_id']);
+    }
+
     // ---- mayDrive: the rule that protects people ----------------------------
 
     public function test_clean_inspection_may_drive(): void

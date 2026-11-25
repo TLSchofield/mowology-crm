@@ -808,3 +808,9 @@ Measure a shape once, get what to order (mulch yd³/bags, gravel tons, fertilize
 
 ## Invoice insight panels on iPhone and Android (Tim, 2026-11-24)
 Web Invoices page now has four insight panels (predicted cash, who holds your money, money in vs last year, days to get paid; `InvoiceInsightsService`). Same panels owed on native iPhone and Android. Also possible: cache `CashFlowForecastService::forecast()` for the page (adds ~300 ms), and the slowest-payer call-out dropped from this round.
+
+## Image gate: every image the CRM takes in is resized and weighed (Tim, 2026-11-25)
+Trigger: the portfolio page served two 6 MB phone photos (media #501/#502, no web copy, no uuid) and a 4 MB gallery upload; Guardian measured 17 MB. Fixing one pair does not stop the next. Plan awaiting approval in chat: one `ImageGate` service every upload path calls (resize to web widths, recompress, name by media id when uuid is empty, record variants), a publish-time check (page weight, alt text, dimensions, format, SEO basics) and a nightly sweep of existing media. 852 `media_assets` rows have an empty uuid, so files named `{uuid}_{w}w.jpg` collide.
+
+## Driver: manager-PIN lockout and trip-sequence races (found by Codex review, 2026-11-25)
+Both existed before the driver rework and are not new. (1) `PreTripBypassService::attempt` checks the lockout, verifies the PIN, then records a failure, so many parallel guesses can all pass the check before any is counted; the throttle is also keyed per user while the PIN is one global value, so guesses can be spread over several driver accounts. Fix: record the attempt first and key the lockout per IP as well. (2) `TripReportService::savePreTrip` and `bypassPreTrip` read `MAX(trip_sequence)+1` then insert; two simultaneous inserts can collide on the unique key and return a 500. Fix: retry once on a duplicate-key error.
