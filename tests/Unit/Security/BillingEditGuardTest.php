@@ -49,10 +49,10 @@ class BillingEditGuardTest extends TestCase
 
     public function testInvoiceContactLookupsNeedBillingPermission(): void
     {
-        // Codex nightly 2026-11-06: any login could list a client's properties, emails and phones by id.
+        // Codex nightly 2026-11-06/15: billing.edit (the invoice form's own gate) is required; any login could list a client's properties, emails and phones by id.
         foreach (['app/Modules/Invoices/Api/api-get-properties.php', 'app/Modules/Invoices/Api/api-get-recipients.php'] as $f) {
             $s = self::src($f);
-            $gate = strpos($s, "requireAnyPermission(['billing.view', 'billing.edit']);");
+            $gate = strpos($s, "requirePermission('billing.edit');");
             $this->assertNotFalse($gate, $f);
             $this->assertLessThan(strpos($s, 'getDB()'), $gate, $f . ': checked before any read');
         }
