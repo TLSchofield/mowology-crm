@@ -81,5 +81,8 @@ final class AppPhotoQueueDrainService {
         if SpecialRequestOutbox.shared.hasPending {
             await SpecialRequestOutbox.shared.drain(using: apiClient)
         }
+
+        // Visit checklist, materials, and notes saved without signal.
+        await VisitWorkQueue.shared.drain(using: apiClient)
     }
 }

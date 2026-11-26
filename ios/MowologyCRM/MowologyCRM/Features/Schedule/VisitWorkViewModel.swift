@@ -5,6 +5,7 @@
 
 import Foundation
 import UIKit
+import Combine
 
 @MainActor
 final class VisitWorkViewModel: ObservableObject {
@@ -16,6 +17,9 @@ final class VisitWorkViewModel: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var isSaving  = false
     @Published var errorMessage: String?
+    @Published private(set) var offlineStatusMessage: String?
+    @Published private(set) var queuedEntries: [VisitWorkEntry] = []
+    @Published private(set) var queuedCount = 0
 
     /// True when the checklist or materials on screen differ from what the server
     /// last confirmed — i.e. a save failed (usually no signal) and needs a retry.
@@ -26,10 +30,17 @@ final class VisitWorkViewModel: ObservableObject {
     private let apiClient: APIClient
     private let haptic = UINotificationFeedbackGenerator()
     private var checklistSaveTask: Task<Void, Never>?
+    private var queueSink: AnyCancellable?
+    private var isChecklistLocallyDirty = false
+    private var areMaterialsLocallyDirty = false
 
     init(visitId: Int, authSession: AuthSession) {
         self.visitId   = visitId
         self.apiClient = APIClient(authSession: authSession)
+        queueSink = VisitWorkQueue.shared.$entries
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.refreshQueueStatus() }
+        refreshQueueStatus()
     }
 
     var checkedCount: Int { checklist.filter(\.checked).count }
@@ -65,6 +76,7 @@ final class VisitWorkViewModel: ObservableObject {
 
     /// Crew tick several boxes in a burst — coalesce into one save.
     private func scheduleChecklistSave() {
+        isChecklistLocallyDirty = true
         hasUnsavedChecklist = true
         checklistSaveTask?.cancel()
         checklistSaveTask = Task { [weak self] in
@@ -80,7 +92,10 @@ final class VisitWorkViewModel: ObservableObject {
             "action": "save_checklist", "visit_id": visitId, "items": sent.map(\.payload)
         ])
         // Only clear the flag if nothing changed while the request was in flight.
-        if ok, sent == checklist { hasUnsavedChecklist = false }
+        if ok, sent == checklist {
+            isChecklistLocallyDirty = false
+            refreshQueueStatus()
+        }
     }
 
     // MARK: - Materials
@@ -100,12 +115,16 @@ final class VisitWorkViewModel: ObservableObject {
     }
 
     func saveMaterials() async {
+        areMaterialsLocallyDirty = true
         hasUnsavedMaterials = true
         let sent = materials
         let ok = await post([
             "action": "save_materials", "visit_id": visitId, "items": sent.map(\.payload)
         ])
-        if ok, sent == materials { hasUnsavedMaterials = false }
+        if ok, sent == materials {
+            areMaterialsLocallyDirty = false
+            refreshQueueStatus()
+        }
     }
 
     // MARK: - Notes
@@ -116,13 +135,15 @@ final class VisitWorkViewModel: ObservableObject {
         guard !isLocked, !trimmed.isEmpty else { return false }
         return await post([
             "action": "add_note", "visit_id": visitId, "content": trimmed,
-            "note_type": type.rawValue, "visible_to_customer": visibleToCustomer
+            "note_type": type.rawValue, "visible_to_customer": visibleToCustomer,
+            "client_request_id": UUID().uuidString
         ])
     }
 
     // MARK: - Private
 
     private func post(_ body: [String: Any]) async -> Bool {
+        let performedAt = Date()
         isSaving     = true
         errorMessage = nil
         defer { isSaving = false }
@@ -133,11 +154,76 @@ final class VisitWorkViewModel: ObservableObject {
                 return false
             }
             apply(state, keepLocalEdits: true)
+            if let kind = queueKind(for: body), kind != .note, let userId = apiClient.currentUserId {
+                VisitWorkQueue.shared.removeQueuedList(userId: userId, visitId: visitId, kind: kind)
+            }
             return true
         } catch {
-            fail(message(for: error))
-            return false
+            guard let apiError = error as? APIError, case .networkError = apiError,
+                  let userId = apiClient.currentUserId,
+                  let kind = queueKind(for: body) else {
+                fail(ErrorDetails.describe(error))
+                return false
+            }
+            let id = body["client_request_id"] as? String ?? UUID().uuidString
+            var queuedBody = body
+            if kind == .note { queuedBody["client_request_id"] = id }
+            guard VisitWorkQueue.shared.enqueue(
+                userId: userId,
+                visitId: visitId,
+                kind: kind,
+                body: queuedBody,
+                id: id,
+                performedAt: performedAt
+            ) else {
+                fail("\(ErrorDetails.describe(error)) The change also could not be saved on this phone.")
+                return false
+            }
+            errorMessage = nil
+            offlineStatusMessage = "Saved on this phone. It sends when you have signal."
+            refreshQueueStatus()
+            return kind == .note
         }
+    }
+
+    func discardQueuedEntry(_ id: String) {
+        guard let userId = apiClient.currentUserId else { return }
+        VisitWorkQueue.shared.discard(id, userId: userId)
+        refreshQueueStatus()
+    }
+
+    private func queueKind(for body: [String: Any]) -> VisitWorkEntry.Kind? {
+        switch body["action"] as? String {
+        case "save_checklist": return .checklist
+        case "save_materials": return .materials
+        case "add_note": return .note
+        default: return nil
+        }
+    }
+
+    private func refreshQueueStatus() {
+        guard let userId = apiClient.currentUserId else {
+            queuedEntries = []
+            queuedCount = 0
+            offlineStatusMessage = nil
+            return
+        }
+        queuedEntries = VisitWorkQueue.shared.entries(userId: userId, visitId: visitId)
+        let waitingCount = queuedEntries.filter { !$0.isRefused }.count
+        queuedCount = waitingCount
+        if waitingCount == 0 {
+            offlineStatusMessage = nil
+        }
+        hasUnsavedChecklist = VisitWorkQueueLogic.hasUnsavedList(
+            kind: .checklist,
+            localDirty: isChecklistLocallyDirty,
+            entries: queuedEntries
+        )
+        hasUnsavedMaterials = VisitWorkQueueLogic.hasUnsavedList(
+            kind: .materials,
+            localDirty: areMaterialsLocallyDirty,
+            entries: queuedEntries
+        )
     }
 
     /// Adopt server state, except for a list the crew has edited but not yet
@@ -154,10 +240,5 @@ final class VisitWorkViewModel: ObservableObject {
         errorMessage = text
     }
 
-    private func message(for error: Error) -> String {
-        if let api = error as? APIError, case .networkError = api {
-            return "No signal — your changes are still on screen. Tap Retry when you're back in range."
-        }
-        return (error as? APIError)?.localizedDescription ?? error.localizedDescription
-    }
+    private func message(for error: Error) -> String { ErrorDetails.describe(error) }
 }

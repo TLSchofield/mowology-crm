@@ -223,6 +223,8 @@
 		1FBB69D7B1C62988C150F79E /* OttoBorderSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F4B182F4C19470BE5219F62 /* OttoBorderSheet.swift */; };
 		C02D363686183527B6CE64A5 /* AddressSuggest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AD54FB9AE90263A3C366ACC /* AddressSuggest.swift */; };
 		6B99066548EF04674910DFB0 /* ScheduleCacheOwner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08BC1067BD7E73A6D65780BE /* ScheduleCacheOwner.swift */; };
+		48049FE50AA268C538761277 /* VisitWorkQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DCEE7C71B3DF501A367E5D7 /* VisitWorkQueue.swift */; };
+		7DD7CCF0A06B1A13265786D8 /* VisitWorkQueueLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = 241602C8236F958C5CC2C2D9 /* VisitWorkQueueLogic.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -444,6 +446,8 @@
 		5F4B182F4C19470BE5219F62 /* OttoBorderSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OttoBorderSheet.swift; sourceTree = "<group>"; };
 		7AD54FB9AE90263A3C366ACC /* AddressSuggest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddressSuggest.swift; sourceTree = "<group>"; };
 		08BC1067BD7E73A6D65780BE /* ScheduleCacheOwner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduleCacheOwner.swift; sourceTree = "<group>"; };
+		1DCEE7C71B3DF501A367E5D7 /* VisitWorkQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisitWorkQueue.swift; sourceTree = "<group>"; };
+		241602C8236F958C5CC2C2D9 /* VisitWorkQueueLogic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisitWorkQueueLogic.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -468,6 +472,8 @@
 				AAFBF79F68E73643CD620F5B /* OfflineDirectory.swift */,
 				5D5BF0728D4806D5A42F6E1C /* VendorItemCache.swift */,
 				08BC1067BD7E73A6D65780BE /* ScheduleCacheOwner.swift */,
+				1DCEE7C71B3DF501A367E5D7 /* VisitWorkQueue.swift */,
+				241602C8236F958C5CC2C2D9 /* VisitWorkQueueLogic.swift */,
 			);
 			path = Offline;
 			sourceTree = "<group>";
@@ -1160,6 +1166,8 @@
 				1FBB69D7B1C62988C150F79E /* OttoBorderSheet.swift in Sources */,
 				C02D363686183527B6CE64A5 /* AddressSuggest.swift in Sources */,
 				6B99066548EF04674910DFB0 /* ScheduleCacheOwner.swift in Sources */,
+				48049FE50AA268C538761277 /* VisitWorkQueue.swift in Sources */,
+				7DD7CCF0A06B1A13265786D8 /* VisitWorkQueueLogic.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

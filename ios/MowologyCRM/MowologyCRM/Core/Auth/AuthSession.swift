@@ -258,6 +258,7 @@ enum TenantDataReset {
         let metadataKeys = Set(exactKeys + prefixedKeys)
         let metadata = defaults.dictionaryRepresentation().filter { metadataKeys.contains($0.key) }
         let sources = [queue, support.appendingPathComponent("mw-trip-report-queue.json"),
+                       support.appendingPathComponent("mw-visit-work-queue.json"),
                        support.appendingPathComponent("mw-fix-store.json")]
         do {
             try TenantDataQuarantine.commit(sources: sources, metadata: metadata, to: quarantine, files: files)
@@ -270,10 +271,12 @@ enum TenantDataReset {
         for url in [
             files.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("mw-schedule"),
             support.appendingPathComponent("mw-trip-report-queue.json"),
+            support.appendingPathComponent("mw-visit-work-queue.json"),
             support.appendingPathComponent("mw-fix-store.json")
         ] { try? files.removeItem(at: url) }
         CreateOutbox.shared.clearAfterTenantQuarantine()
         TripReportQueue.shared.clearAfterTenantQuarantine()
+        VisitWorkQueue.shared.clearAfterTenantQuarantine()
         FixStore.shared.removeAll()
         TransitionQueue().clearForTenantSwitch()
         OfflineDirectory.shared.clear()

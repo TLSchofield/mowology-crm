@@ -46,6 +46,22 @@ struct VisitWorkView: View {
             if let error = viewModel.errorMessage {
                 banner(error, icon: "exclamationmark.triangle.fill", tint: appStyle.attention)
             }
+            if let status = viewModel.offlineStatusMessage {
+                banner(status, icon: "arrow.triangle.2.circlepath", tint: appStyle.meta)
+            }
+            if viewModel.queuedCount > 0 {
+                banner("\(viewModel.queuedCount) waiting to send", icon: "tray.full", tint: appStyle.meta)
+            }
+            ForEach(viewModel.queuedEntries.filter(\.isRefused)) { entry in
+                HStack {
+                    Label(entry.refusalMessage ?? "The server refused this saved change.", systemImage: "exclamationmark.triangle.fill")
+                        .font(appStyle.font(.footnote))
+                        .foregroundStyle(appStyle.attention)
+                    Spacer(minLength: 0)
+                    Button("Discard") { viewModel.discardQueuedEntry(entry.id) }
+                        .tint(appStyle.attention)
+                }
+            }
 
             List {
                 switch section {

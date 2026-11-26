@@ -61,6 +61,10 @@ run quotemath "$SRC/Features/Tasks/QuoteMath.swift" "$OUT/main.swift"
 cp "$ROOT/ios/LogicTests/CreateOutboxTests.swift" "$OUT/main.swift"
 run createoutbox "$SRC/Core/Offline/CreateOutboxLogic.swift" "$OUT/main.swift"
 
+# Visit work saved without signal: whole-list coalescing, ordered notes, ownership, refusal, removal.
+cp "$ROOT/ios/LogicTests/VisitWorkQueueTests.swift" "$OUT/main.swift"
+run visitworkqueue "$SRC/Core/Offline/VisitWorkQueueLogic.swift" "$OUT/main.swift"
+
 # Shared phones (2026-11-26): the cached schedule belongs to whoever signed in last.
 cp "$ROOT/ios/LogicTests/ScheduleCacheOwnerTests.swift" "$OUT/main.swift"
 run schedulecacheowner "$SRC/Core/Offline/ScheduleCacheOwner.swift" "$OUT/main.swift"
