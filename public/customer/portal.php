@@ -108,6 +108,7 @@ if ($contact && !$error) {
         WHERE ic.contact_id = ?
           AND i.access_token IS NOT NULL
           AND i.access_token != ''
+          AND i.status NOT IN ('draft', 'cancelled')
         GROUP BY i.id
         ORDER BY i.created_at DESC
     ");

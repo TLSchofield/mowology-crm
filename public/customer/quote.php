@@ -378,11 +378,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($quote) && $quote['status'] 
                     </div>
                 </body></html>";
 
-                sendEmailNotification(NOTIFICATION_EMAIL, $emailSubject, $emailBody);
+                // The quote is already accepted and committed: an email/SMS failure must not show the client an error (Codex review 2026-11-19).
+                try {
+                    sendEmailNotification(NOTIFICATION_EMAIL, $emailSubject, $emailBody);
 
-                // Send SMS notification
-                $smsMsg = "QUOTE ACCEPTED: {$quote['quote_number']} - $" . number_format(floatval($quote['amount']), 2) . " - " . htmlspecialchars($signatureName);
-                sendSMSNotification($smsMsg);
+                    // Send SMS notification
+                    $smsMsg = "QUOTE ACCEPTED: {$quote['quote_number']} - $" . number_format(floatval($quote['amount']), 2) . " - " . htmlspecialchars($signatureName);
+                    sendSMSNotification($smsMsg);
+                } catch (Throwable $notifyError) {
+                    error_log('Quote accepted but office notice failed: ' . $notifyError->getMessage());
+                }
 
             } catch (QuoteAlreadyAccepted $e) {
                 if ($db->inTransaction()) $db->rollBack();
