@@ -13,7 +13,7 @@ if [ "${1:-}" = "--uninstall" ]; then
 fi
 mkdir -p "$BIN/dept" "$BIN/sentinel/agent/agents" "$BIN/sentinel/agent/skills" "$D/briefings" "$LA"
 mkdir -p "$BIN/dept/demo" "$BIN/dept/agent-defs"
-cp "$HERE"/ada.py "$HERE"/commercial.py "$HERE"/agents.py "$HERE"/demo.py "$HERE"/registry.json "$HERE"/roster.json "$HERE"/oracle.py "$HERE"/heads.py "$HERE"/ship.py "$HERE"/reasons.py "$HERE"/forge.py "$HERE"/dashboard.py "$HERE"/dashboard_server.py "$HERE"/scaffold.py "$HERE"/ada "$BIN/dept/"
+cp "$HERE"/ada.py "$HERE"/commercial.py "$HERE"/agents.py "$HERE"/demo.py "$HERE"/registry.json "$HERE"/roster.json "$HERE"/oracle.py "$HERE"/heads.py "$HERE"/ship.py "$HERE"/reasons.py "$HERE"/forge.py "$HERE"/dashboard.py "$HERE"/dashboard_server.py "$HERE"/scaffold.py "$HERE"/codex_import.py "$HERE"/ada "$BIN/dept/"
 cp "$HERE"/demo/standin-claude.py "$BIN/dept/demo/"
 mkdir -p "$BIN/dept/heads"; cp "$HERE"/heads/snapshot.php "$BIN/dept/heads/"
 cp "$ROOT/docs/design/ittai-v1.2/tokens.css" "$BIN/dept/ittai-tokens.css"
