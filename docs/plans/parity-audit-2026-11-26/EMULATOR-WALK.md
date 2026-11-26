@@ -16,3 +16,19 @@ How to test offline on the emulator: switching Wi-Fi/data off is NOT enough (the
 `scripts/local-android.sh install` fails with two devices attached; use `adb -s emulator-5554 install -r <apk>`.
 
 Not yet tested: keyboards and Done key on every form, the offline Add job / Add client queue, large-screen layout, the quiz route fix on a real Android phone, TalkBack.
+
+## Round 2 — Add client + job offline, keyboards (2026-11-26, same debug build 582d366)
+
+**Passed**
+- Add client + job with no signal: Save kept it on the phone ("1 waiting to send / See"); on reconnect it was sent once. Local server: one new property, one contact, one job plan (PLN-2026-0007), no duplicates; the outbox for that user was empty afterwards.
+- Phone field opens the phone keypad with a Done tick. Price per visit opens the number keypad with a decimal point and a Done tick. Street address keypad shows the Done tick.
+- Service list opens offline (cached).
+
+**Found, not fixed (Android, New client)**
+1. "Create client and job" is greyed until a Service is chosen, with no sentence saying so (M17: disabled says why). Same family as the reasons already added on iPhone.
+2. After saving offline there was no "Saved on this phone" notice on this form (Add task has one). The waiting line appears, so the work is not lost, but the feedback is inconsistent.
+3. The empty-day card still says "Nothing on today — let's put your first work in" while a queued job waits; it should say a job is waiting.
+4. Add job needs a GPS fix and gives up after 4 seconds ("No usable position yet"); the emulator's fake GPS could not satisfy it, so the Add job form itself was not exercised here. Needs a real phone or the tablet.
+5. Autocorrect turned "St" into "Sth" in Street address: autocorrect should be off for address fields.
+
+**Not tested yet:** Done key on every other form, large-screen layout (tablet), TalkBack, a real phone.
