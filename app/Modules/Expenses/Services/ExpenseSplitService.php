@@ -363,11 +363,26 @@ class ExpenseSplitService
     private function lines(int $expenseId, string $lock = ''): array
     {
         try {
-            $s = $this->db->prepare("SELECT li.id, li.name, li.quantity, li.unit_price, li.line_total, li.product_id, COALESCE(p.track_inventory, 0) AS track_inventory
-                                     FROM expense_line_items li LEFT JOIN products p ON p.id = li.product_id
+            // Lock only the receipt's own lines. A FOR UPDATE on a join with products would also lock product rows
+            // (inventory contention, deadlock risk), and FOR UPDATE OF is MySQL 8 only.
+            $s = $this->db->prepare("SELECT li.id, li.name, li.quantity, li.unit_price, li.line_total, li.product_id
+                                     FROM expense_line_items li
                                      WHERE li.expense_id = ? ORDER BY li.sort_order, li.id" . $lock);
             $s->execute([$expenseId]);
-            return $s->fetchAll(PDO::FETCH_ASSOC);
+            $rows = $s->fetchAll(PDO::FETCH_ASSOC);
+            $ids = array_values(array_unique(array_filter(array_map(function ($r) { return (int)$r['product_id']; }, $rows))));
+            $flags = [];
+            if ($ids) {
+                $in = implode(',', array_fill(0, count($ids), '?'));
+                $p = $this->db->prepare("SELECT id, COALESCE(track_inventory, 0) AS track_inventory FROM products WHERE id IN ($in)");
+                $p->execute($ids);
+                foreach ($p->fetchAll(PDO::FETCH_ASSOC) as $pr) $flags[(int)$pr['id']] = $pr['track_inventory'];
+            }
+            foreach ($rows as &$r) {
+                $r['track_inventory'] = $flags[(int)$r['product_id']] ?? 0;
+            }
+            unset($r);
+            return $rows;
         } catch (Throwable $e) {
             return [];
         }
