@@ -16,11 +16,12 @@ declare(strict_types=1);
 // ── Bootstrap ──────────────────────────────────────────────────────────
 $__dir = __DIR__;
 for ($__i = 0; $__i < 5; $__i++) {
-    $__dir = dirname($__dir);
+    // Check this folder first: on production app/ sits inside public_html, next to this page.
     if (is_file($__dir . '/app/Core/paths.php')) {
         require_once $__dir . '/app/Core/paths.php';
         break;
     }
+    $__dir = dirname($__dir);
 }
 unset($__dir, $__i);
 
