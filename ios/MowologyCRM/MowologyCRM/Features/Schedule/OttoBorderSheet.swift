@@ -213,16 +213,24 @@ private struct OttoBorderMap: View {
 
     var body: some View {
         Map(initialPosition: .region(OttoBorderRules.region(for: ring)), interactionModes: [.zoom, .pan]) {
+            // Navy alone vanishes on dark satellite imagery, so every line gets
+            // a wide white casing underneath and the lot a pale wash.
             if shown >= ring.count {
                 MapPolygon(coordinates: ring)
-                    .foregroundStyle(appStyle.tenant.opacity(0.25))
-                    .stroke(appStyle.tenant, lineWidth: 3)
+                    .foregroundStyle(Color.white.opacity(0.22))
+                    .stroke(Color.white, lineWidth: 8)
+                MapPolygon(coordinates: ring)
+                    .foregroundStyle(Color.clear)
+                    .stroke(appStyle.tenant, lineWidth: 3.5)
             } else {
                 MapPolyline(coordinates: Array(ring.prefix(shown)))
-                    .stroke(appStyle.tenant, lineWidth: 3)
+                    .stroke(Color.white, lineWidth: 8)
+                MapPolyline(coordinates: Array(ring.prefix(shown)))
+                    .stroke(appStyle.tenant, lineWidth: 3.5)
                 ForEach(0..<min(shown, ring.count), id: \.self) { i in
                     Annotation("", coordinate: ring[i]) {
-                        Circle().fill(appStyle.tenant).frame(width: 9, height: 9)
+                        Circle().fill(appStyle.tenant).frame(width: 11, height: 11)
+                            .overlay(Circle().stroke(Color.white, lineWidth: 2.5))
                     }
                 }
             }

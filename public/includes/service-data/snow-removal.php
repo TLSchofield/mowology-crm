@@ -45,8 +45,8 @@ return [
                 ['title' => 'Same Crew, Same Site', 'desc' => 'The crew that maintains the grounds all year knows where the drains, curbs and problem corners are before the snow covers them.'],
                 ['title' => 'Ice Handled, Not Just Snow', 'desc' => 'Most Vancouver winter hazards are ice after a thaw and refreeze. Salting visits are scheduled for those days, not only for snowfall.'],
                 ['title' => 'Priorities Set in Advance', 'desc' => 'Entrances and walkways first, then parking. Every plan is written down with the council before the season starts.'],
-                ['title' => 'Strata & Commercial Scale', 'desc' => 'Townhouse complexes, apartment sites and commercial frontages across Vancouver, Burnaby and Richmond.'],
-                ['title' => 'Insured & Reliable', 'desc' => '$5M liability coverage and crews that respond when the weather does.'],
+                ['title' => 'Strata and commercial sites', 'desc' => 'Townhouse complexes, apartment sites and commercial frontages across Vancouver, Burnaby and Richmond.'],
+                ['title' => 'Insured', 'desc' => '$5M liability coverage. We respond when the weather does.'],
             ],
         ],
         [

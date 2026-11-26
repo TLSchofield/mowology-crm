@@ -4,7 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/includes/bootstrap.php';
 
 $pageTitle = 'Landscaping & Grounds Maintenance Vancouver | Mowology';
-$pageDescription = 'Professional landscaping and grounds maintenance services in Vancouver, Burnaby & Richmond. Specializing in strata properties and residential gardens.';
+$pageDescription = 'Landscaping and grounds maintenance in Vancouver, Burnaby & Richmond from a small, owner-run crew. We specialize in strata properties and residential gardens.';
 $pageKeywords = 'landscaping Vancouver, strata landscaping, property management landscaping, residential landscaping, grounds maintenance, Burnaby landscaping, Richmond landscaping';
 $activeNav = 'home';
 // Proves to Mia (Search & Website) that this site is ours. Remove this line to withdraw her permission to look at the site.
@@ -99,10 +99,10 @@ $heroImg = '/assets/img/hero/hero-lawn-care-1920x1080.jpg';
 
         <h1 class="mw-hero__headline">
           <?php
-          $words = explode(' ', 'Landscaping Services in Metro Vancouver, Photo-Verified Every Visit');
+          $words = explode(' ', 'Landscaping in Metro Vancouver From a Small, Owner-Run Crew');
           $baseDelay = 0.3;
           // Words are separated by a real space (not just margin) so the H1's text
-          // content reads "Landscaping Services in Metro Vancouver, Photo-Verified Every Visit" to
+          // content reads "Landscaping in Metro Vancouver From a Small, Owner-Run Crew" to
           // crawlers instead of one run-together token.
           foreach ($words as $i => $word) {
               $delay = number_format($baseDelay + ($i * 0.08), 2);
@@ -111,7 +111,7 @@ $heroImg = '/assets/img/hero/hero-lawn-care-1920x1080.jpg';
           ?>
         </h1>
 
-        <p class="mw-hero__sub">Weekly grounds maintenance for strata councils, property managers and homeowners in Vancouver, Burnaby &amp; Richmond, with a timestamped photo report after every visit</p>
+        <p class="mw-hero__sub">Weekly grounds maintenance for strata councils, property managers and homeowners in Vancouver, Burnaby &amp; Richmond. You get a timestamped photo report after every visit.</p>
 
         <div class="mw-hero__actions">
           <a href="/jobFlow/jobFlow-getQuote.php" class="btn btn-primary">Get My Free Quote</a>
@@ -189,12 +189,12 @@ $heroImg = '/assets/img/hero/hero-lawn-care-1920x1080.jpg';
             <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="7" width="20" height="15" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="17"/><line x1="9" y1="14.5" x2="15" y2="14.5"/></svg>
           </div>
           <h3>Strata &amp; Property Management</h3>
-          <p>Reliable, photo-verified <a href="/services/strata-landscaping-maintenance">strata landscaping maintenance</a> for townhomes, condos, and multi-unit complexes. Weekly maintenance and seasonal cleanups by insured, strata-dedicated crews, plus a fast call-out when a storm drops branches across a walkway.</p>
+          <p>Weekly <a href="/services/strata-landscaping-maintenance">strata landscaping maintenance</a> and seasonal cleanups for townhomes, condos and multi-unit complexes. The crew is insured, and we come out fast when a storm drops branches across a walkway.</p>
           <ul class="service-features">
-            <li>Photo-verified service reports</li>
-            <li>Dedicated account managers</li>
+            <li>Photo report after every visit</li>
+            <li>One person to call</li>
             <li>Storm call-outs within 24 hours</li>
-            <li>Fully insured crews</li>
+            <li>Fully insured</li>
           </ul>
           <a href="/services/strata-landscaping-maintenance" class="btn-link">Strata Landscaping Maintenance &rarr;</a>
         </div>
@@ -204,11 +204,11 @@ $heroImg = '/assets/img/hero/hero-lawn-care-1920x1080.jpg';
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 21v-6h6v6"/><line x1="9" y1="10" x2="9" y2="10.01"/><line x1="15" y1="10" x2="15" y2="10.01"/></svg>
           </div>
           <h3>Commercial Properties</h3>
-          <p>Year-round <a href="/services/commercial-landscape-maintenance">commercial landscape maintenance</a> for offices, retail centres, and business parks. Scheduled crews, full insurance, and a photo report after every visit so the grounds always reflect your business.</p>
+          <p>Year-round <a href="/services/commercial-landscape-maintenance">commercial landscape maintenance</a> for offices, retail centres and business parks. A set schedule, full insurance and a photo report after every visit.</p>
           <ul class="service-features">
             <li>Weekly and bi-weekly programs</li>
             <li>Lawn, beds, hedges and cleanups</li>
-            <li>Photo-verified visit reports</li>
+            <li>Photo report after every visit</li>
             <li>$5M liability insurance</li>
           </ul>
           <a href="/services/commercial-landscape-maintenance" class="btn-link">Commercial Landscape Maintenance &rarr;</a>
@@ -219,11 +219,11 @@ $heroImg = '/assets/img/hero/hero-lawn-care-1920x1080.jpg';
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
           </div>
           <h3>Residential Properties</h3>
-          <p>Professional <a href="/services/yard-maintenance-vancouver">yard maintenance</a> and <a href="/services/landscape-maintenance-vancouver">landscape maintenance</a> for homeowners who want beautiful, well-maintained outdoor spaces. From weekly <a href="/services/professional-lawn-mowing-care">lawn care in Vancouver</a> to <a href="/services/hedge-trimming">hedge trimming</a>, seasonal cleanups and <a href="/services/kitsilano-landscaping">Kitsilano landscaping</a>.</p>
+          <p><a href="/services/yard-maintenance-vancouver">Yard maintenance</a> and <a href="/services/landscape-maintenance-vancouver">landscape maintenance</a> for homeowners. From weekly <a href="/services/professional-lawn-mowing-care">lawn care in Vancouver</a> to <a href="/services/hedge-trimming">hedge trimming</a>, seasonal cleanups and <a href="/services/kitsilano-landscaping">Kitsilano landscaping</a>.</p>
           <ul class="service-features">
-            <li>Personalized service</li>
+            <li>Same crew each visit</li>
             <li>Flexible scheduling</li>
-            <li>Garden enhancement</li>
+            <li>Beds, hedges and lawns</li>
             <li>Seasonal programs</li>
           </ul>
           <a href="/services/professional-lawn-mowing-care" class="btn-link">Lawn Mowing &amp; Lawn Care &rarr;</a>
@@ -236,55 +236,55 @@ $heroImg = '/assets/img/hero/hero-lawn-care-1920x1080.jpg';
   <!-- Why Choose Us -->
   <section class="why-choose">
     <div class="container">
-      <h2 class="section-title">Why Choose Mowology</h2>
+      <h2 class="section-title">How We Work</h2>
       <div class="features-grid">
 
         <div class="feature">
           <div class="feature-icon">
             <svg viewBox="0 0 24 24" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
           </div>
-          <h3>Higher Standards</h3>
-          <p>We deliver a higher degree of service with attention to detail and consistent quality.</p>
+          <h3>Small on purpose</h3>
+          <p>We are a small crew. You deal with the people who do the work.</p>
         </div>
 
         <div class="feature">
           <div class="feature-icon">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
           </div>
-          <h3>Photo Verification</h3>
-          <p>Every service includes photo documentation so you know the work was completed to standard.</p>
+          <h3>Photos every visit</h3>
+          <p>You get timestamped photos after every service, so you know the work was done.</p>
         </div>
 
         <div class="feature">
           <div class="feature-icon">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
           </div>
-          <h3>Fully Insured</h3>
-          <p>All crews are fully insured and trained in proper safety and landscaping techniques.</p>
+          <h3>Insured</h3>
+          <p>Every crew is fully insured and trained in safety and proper landscaping technique.</p>
         </div>
 
         <div class="feature">
           <div class="feature-icon">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
           </div>
-          <h3>Professional Team</h3>
-          <p>Experienced landscaping professionals who take pride in their work and your property.</p>
+          <h3>Same crew</h3>
+          <p>The same crew comes to your property each visit, so they learn what it needs.</p>
         </div>
 
         <div class="feature">
           <div class="feature-icon">
             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
           </div>
-          <h3>Reliable Service</h3>
-          <p>Consistent scheduling and dependable service delivery, rain or shine.</p>
+          <h3>We show up</h3>
+          <p>We keep the schedule, rain or shine.</p>
         </div>
 
         <div class="feature">
           <div class="feature-icon">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22V12"/><path d="M12 12C12 12 7 10 7 6a5 5 0 0 1 10 0c0 4-5 6-5 6z"/><path d="M12 22c-3 0-7-2-7-8"/><path d="M12 22c3 0 7-2 7-8"/></svg>
           </div>
-          <h3>Eco-Friendly</h3>
-          <p>Sustainable practices and environmentally conscious maintenance methods.</p>
+          <h3>Easy on the garden</h3>
+          <p>We use sustainable practices and keep waste down.</p>
         </div>
 
       </div>
@@ -295,7 +295,7 @@ $heroImg = '/assets/img/hero/hero-lawn-care-1920x1080.jpg';
   <section class="service-areas">
     <div class="container">
       <h2 class="section-title">Service Areas</h2>
-      <p class="section-subtitle">Proudly serving Metro Vancouver communities</p>
+      <p class="section-subtitle">Where the crew works</p>
       <div class="areas-grid">
         <div class="area-card">
           <h3>Vancouver</h3>
