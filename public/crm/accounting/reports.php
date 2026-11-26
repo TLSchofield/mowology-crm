@@ -4,6 +4,7 @@ require_once dirname(__DIR__) . '/includes/functions.php';
 requireLogin();
 requirePermission('ledger.view'); // Codex 2026-11-17: crew hold expenses.view; P&L, GST and margins are office + accountant only
 
+$isAccountantLogin = class_exists('AccountantFence') && AccountantFence::activeForSession();
 $pageTitle  = 'Financial Reports';
 $activePage = 'accounting';
 ?>
@@ -14,8 +15,12 @@ $activePage = 'accounting';
         <h1 class="h3 mb-0">Financial Reports</h1>
         <p class="text-muted mb-0 small">Profit &amp; Loss · Cash Flow · GST Filing · Job Profitability · Budget vs Actual · Crew</p>
     </div>
+    <?php if ($isAccountantLogin): ?>
+    <a href="/crm/ledger/" class="btn btn-sm btn-outline-secondary">← Ledger</a>
+    <?php else: ?>
     <a href="/crm/accounting_appstack.php" class="btn btn-sm btn-outline-secondary">← Dashboard</a>
     <a href="/crm/accounting/cashflow.php" class="btn btn-sm btn-outline-primary">Cash-flow forecast</a>
+    <?php endif; ?>
 </div>
 
 <!-- ── Report Tabs ──────────────────────────────────────────────────────────── -->
@@ -23,10 +28,10 @@ $activePage = 'accounting';
     <button class="mw-filter-tab active" id="tab-pl"       onclick="switchTab('pl')">Profit &amp; Loss</button>
     <button class="mw-filter-tab"        id="tab-cashflow" onclick="switchTab('cashflow')">Cash Flow</button>
     <button class="mw-filter-tab"        id="tab-tax"      onclick="switchTab('tax')">GST/HST Filing</button>
-    <button class="mw-filter-tab"        id="tab-jobs"     onclick="switchTab('jobs')">Job Profitability</button>
+    <?php if (!$isAccountantLogin): ?><button class="mw-filter-tab"        id="tab-jobs"     onclick="switchTab('jobs')">Job Profitability</button><?php endif; ?>
     <button class="mw-filter-tab"        id="tab-expense"  onclick="switchTab('expense')">Expense Breakdown</button>
-    <button class="mw-filter-tab"        id="tab-budget"   onclick="switchTab('budget')">Budget vs Actual</button>
-    <button class="mw-filter-tab"        id="tab-crew"     onclick="switchTab('crew')">Crew Profitability</button>
+    <?php if (!$isAccountantLogin): ?><button class="mw-filter-tab"        id="tab-budget"   onclick="switchTab('budget')">Budget vs Actual</button><?php endif; ?>
+    <?php if (!$isAccountantLogin): ?><button class="mw-filter-tab"        id="tab-crew"     onclick="switchTab('crew')">Crew Profitability</button><?php endif; ?>
 </div>
 
 <!-- ── Date Range Controls ──────────────────────────────────────────────────── -->

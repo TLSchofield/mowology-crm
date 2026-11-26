@@ -33,6 +33,8 @@ final class AccountantFence
         '/crm/accounting/trial-balance.php',
         '/crm/accounting/balance-sheet.php',
         '/crm/accounting/income-statement.php',
+        '/crm/accounting/reports.php',          // Reports page (Tim, 2026-11-26); job/crew tabs are hidden and their actions refused
+        '/crm/api/accounting-reports.php',      // its data; ReportsApi allowlists the actions an accountant may ask for
         '/crm/api/get-csrf.php',
         '/crm/logout_secure.php',
         '/api/expenses/receipt-image',     // HMAC-signed receipt photo links the Ledger hands out
