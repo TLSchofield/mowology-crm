@@ -39,6 +39,13 @@ try {
         exit;
     }
 
+    // Same gate as expense-update and receipt-capture (Codex nightly 2026-11-13).
+    if (!jwtUserHasPermission($jwtUser, 'expenses.edit')) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'error' => 'Permission denied: expenses.edit required']);
+        exit;
+    }
+
     $input = json_decode(file_get_contents('php://input'), true);
     // A refusal is a 4xx, never a 200: the phone's queue reads a 200 with no expense_id as "try later" for ever.
     if (!is_array($input)) {

@@ -36,7 +36,7 @@ class UnbilledWorkFinderTest extends TestCase
         $db->exec("CREATE TABLE contracts (id INTEGER PRIMARY KEY, status TEXT, billing_cycle TEXT)");
         $db->exec("CREATE TABLE invoices (id INTEGER PRIMARY KEY, invoice_number TEXT, property_id INT, visit_id INT, status TEXT,
                    invoice_date TEXT, subtotal REAL DEFAULT 0, tax_rate REAL DEFAULT 0.05, tax_amount REAL, total_amount REAL,
-                   total REAL, balance_due REAL, pdf_path TEXT)");
+                   total REAL, balance_due REAL, amount_paid REAL DEFAULT 0, pdf_path TEXT)");
         $db->exec("CREATE TABLE invoice_line_items (id INTEGER PRIMARY KEY, invoice_id INT, description TEXT, quantity REAL,
                    unit_price REAL, line_total REAL, visit_id INT, service_date TEXT, sort_order INT)");
         $db->exec("CREATE TABLE job_time_entries (id INTEGER PRIMARY KEY, visit_id INT, user_id INT, start_time TEXT, end_time TEXT,
@@ -247,6 +247,16 @@ class UnbilledWorkFinderTest extends TestCase
         ]);
     }
 
+    public function testRetotalKeepsWhatWasAlreadyPaidOutOfTheBalance(): void
+    {
+        $this->db->exec("UPDATE invoices SET amount_paid = 60 WHERE id = 439");
+        $this->db->exec("DELETE FROM invoice_line_items WHERE invoice_id = 439");
+        $this->db->exec("INSERT INTO invoice_line_items (invoice_id, description, quantity, unit_price, line_total) VALUES (439, 'x', 1, 100, 100)");
+        $tot = $this->finder()->retotalInvoice(439);
+        $this->assertSame(105.0, $tot['total']);
+        $this->assertEquals(45.0, (float)$this->db->query("SELECT balance_due FROM invoices WHERE id = 439")->fetchColumn());
+    }
+
     public function testClaimingThePossiblyDoneVisitMarksItCompletedOnTheRealDayAtomically(): void
     {
         $this->db->beginTransaction();
@@ -389,5 +399,13 @@ class UnbilledWorkFinderTest extends TestCase
             [['visit_id' => 5, 'amount' => null], ['visit_id' => 6, 'amount' => 12.5]],
             UnbilledWorkFinder::normaliseSelections(['5', ['visit_id' => 6, 'amount' => '12.5'], ['visit_id' => 5], 0, 'x'])
         );
+    }
+
+    public function testAnActiveAnnualContractDoesNotCoverAVisitOverAYearOldWithNoInvoice(): void
+    {
+        $v = ['scheduled_date' => '2024-05-01', 'contract_status' => 'active', 'contract_invoice_dates' => []];
+        $this->assertFalse(UnbilledVisitService::contractCovers($v, 'annual', '2026-11-16'));
+        $v['scheduled_date'] = '2026-09-01';
+        $this->assertTrue(UnbilledVisitService::contractCovers($v, 'annual', '2026-11-16'));
     }
 }

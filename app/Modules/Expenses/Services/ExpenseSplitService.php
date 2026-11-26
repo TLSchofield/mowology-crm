@@ -147,9 +147,19 @@ class ExpenseSplitService
         if ($pst > 0 && $flags && in_array(true, $flags, true)) {
             $taxable = array_keys(array_filter($flags));
             $rule = 'owner';
-        } elseif ($pst > 0 && ($sub = self::pstSubset($nets, $pst)) !== null) {
-            $taxable = $sub;
-            $rule = 'printed';
+        } elseif ($pst > 0) {
+            // Lines the owner marked non-taxable never carry PST, even when no line is marked taxable.
+            $off = array_keys(array_filter($flags, static function ($v) { return !$v; }));
+            $cand = $nets;
+            foreach ($off as $k) unset($cand[$k]);
+            if (!$cand) $cand = $nets;
+            if (($sub = self::pstSubset($cand, $pst)) !== null) {
+                $taxable = $sub;
+                $rule = 'printed';
+            } elseif ($off && count($cand) < count($nets)) {
+                $taxable = array_keys($cand);
+                $rule = 'owner';
+            }
         }
         $pstWeights = [];
         foreach ($nets as $k => $v) {
@@ -327,25 +337,52 @@ class ExpenseSplitService
     }
 
     /** The receipt's header + lines (with the product's stock flag). */
-    public function receipt(int $expenseId): ?array
+    /** @param bool $forUpdate read the receipt as it is now and hold it until the caller's transaction ends (save) */
+    public function receipt(int $expenseId, bool $forUpdate = false): ?array
     {
+        $lock = $this->lockClause($forUpdate);
         $s = $this->db->prepare("SELECT id, expense_date, vendor_id, vendor_name_raw, total, gst_amount, pst_amount, accounting_category,
-                                        job_id, asset_tag, status FROM expenses WHERE id = ?");
+                                        job_id, asset_tag, status FROM expenses WHERE id = ?" . $lock);
         $s->execute([$expenseId]);
         $e = $s->fetch(PDO::FETCH_ASSOC);
         if (!$e) return null;
-        $e['lines'] = $this->lines($expenseId);
+        $e['lines'] = $this->lines($expenseId, $lock);
         return $e;
     }
 
-    private function lines(int $expenseId): array
+    /**
+     * FOR UPDATE inside a transaction on MySQL: a plain read there sees the transaction's old
+     * snapshot, so a total changed by another save meanwhile would be split at the old figure
+     * (Codex nightly 2026-11-06). SQLite tests have no FOR UPDATE.
+     */
+    public function lockClause(bool $forUpdate): string
+    {
+        return $forUpdate && $this->db->inTransaction() && $this->db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? ' FOR UPDATE' : '';
+    }
+
+    private function lines(int $expenseId, string $lock = ''): array
     {
         try {
-            $s = $this->db->prepare("SELECT li.id, li.name, li.quantity, li.unit_price, li.line_total, li.product_id, COALESCE(p.track_inventory, 0) AS track_inventory
-                                     FROM expense_line_items li LEFT JOIN products p ON p.id = li.product_id
-                                     WHERE li.expense_id = ? ORDER BY li.sort_order, li.id");
+            // Lock only the receipt's own lines. A FOR UPDATE on a join with products would also lock product rows
+            // (inventory contention, deadlock risk), and FOR UPDATE OF is MySQL 8 only.
+            $s = $this->db->prepare("SELECT li.id, li.name, li.quantity, li.unit_price, li.line_total, li.product_id
+                                     FROM expense_line_items li
+                                     WHERE li.expense_id = ? ORDER BY li.sort_order, li.id" . $lock);
             $s->execute([$expenseId]);
-            return $s->fetchAll(PDO::FETCH_ASSOC);
+            $rows = $s->fetchAll(PDO::FETCH_ASSOC);
+            $ids = array_values(array_unique(array_filter(array_map(function ($r) { return (int)$r['product_id']; }, $rows))));
+            $flags = [];
+            if ($ids) {
+                $in = implode(',', array_fill(0, count($ids), '?'));
+                $p = $this->db->prepare("SELECT id, COALESCE(track_inventory, 0) AS track_inventory FROM products WHERE id IN ($in)");
+                $p->execute($ids);
+                foreach ($p->fetchAll(PDO::FETCH_ASSOC) as $pr) $flags[(int)$pr['id']] = $pr['track_inventory'];
+            }
+            foreach ($rows as &$r) {
+                $r['track_inventory'] = $flags[(int)$r['product_id']] ?? 0;
+            }
+            unset($r);
+            return $rows;
         } catch (Throwable $e) {
             return [];
         }
@@ -363,7 +400,7 @@ class ExpenseSplitService
      */
     public function save(int $expenseId, array $choices, ?int $userId, string $source = 'owner'): array
     {
-        $e = $this->receipt($expenseId);
+        $e = $this->receipt($expenseId, true);
         if (!$e) throw new InvalidArgumentException('Receipt not found');
         $lines = $e['lines'];
         if (count($lines) < 2) throw new InvalidArgumentException('A receipt needs two or more lines to split');

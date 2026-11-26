@@ -79,4 +79,26 @@ class StatementServiceTest extends TestCase
         $this->assertSame('payment', $l['rows'][1]['type']);
         $this->assertEqualsWithDelta(0.00, $l['closing'], 0.001);
     }
+
+    /** @test */
+    public function manual_payments_use_their_allocation_date_not_the_due_date(): void
+    {
+        if (!extension_loaded('pdo_sqlite')) { $this->markTestSkipped('pdo_sqlite not available'); }
+        $db = new PDO('sqlite::memory:');
+        $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $db->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+        $db->exec("CREATE TABLE stripe_payments (invoice_id INT, amount_cents INT, webhook_received_at TEXT, payment_method_type TEXT, stripe_receipt_url TEXT, status TEXT)");
+        $db->exec("CREATE TABLE invoice_payment_allocations (id INTEGER PRIMARY KEY, invoice_id INT, amount REAL, payment_date TEXT, method TEXT)");
+        $db->exec("INSERT INTO invoice_payment_allocations (invoice_id, amount, payment_date, method) VALUES (1, 40, '2025-03-10', 'cheque')");
+        $inv = ['id' => 1, 'invoice_number' => 'INV-1', 'issue_date' => '2025-03-01', 'due_date' => '2025-04-15',
+                'total' => 100, 'amount_paid' => 70, 'paid_at' => null, 'payment_method' => 'cash'];
+        $m = new ReflectionMethod(StatementService::class, 'buildEvents');
+        $ev = $m->invoke(new StatementService($db), [$inv]);
+        $pay = array_values(array_filter($ev, fn($e) => $e['type'] === 'payment'));
+        $this->assertCount(2, $pay);
+        $this->assertSame('2025-03-10', $pay[0]['date']);
+        $this->assertEqualsWithDelta(40.0, $pay[0]['amount'], 0.001);
+        $this->assertEqualsWithDelta(30.0, $pay[1]['amount'], 0.001);   // remainder, no allocation
+        $this->assertEqualsWithDelta(70.0, $pay[0]['amount'] + $pay[1]['amount'], 0.001);
+    }
 }

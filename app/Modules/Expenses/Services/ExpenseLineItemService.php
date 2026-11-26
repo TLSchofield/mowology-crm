@@ -246,12 +246,21 @@ class ExpenseLineItemService
         $oldProductId = !empty($li['product_id']) ? (int)$li['product_id'] : null;
         $qty = (float)$li['quantity'];
 
-        if ($oldProductId) {
-            updateProductInventory($this->db, $oldProductId, -$qty);
-        }
-        $this->db->prepare("UPDATE expense_line_items SET product_id = ? WHERE id = ?")->execute([$newProductId, $lineItemId]);
-        if ($newProductId) {
-            updateProductInventory($this->db, $newProductId, $qty);
+        // Reverse old stock, move the link, add new stock: all or none (Codex nightly 2026-11-13).
+        $own = !$this->db->inTransaction();
+        if ($own) $this->db->beginTransaction();
+        try {
+            if ($oldProductId) {
+                updateProductInventory($this->db, $oldProductId, -$qty);
+            }
+            $this->db->prepare("UPDATE expense_line_items SET product_id = ? WHERE id = ?")->execute([$newProductId, $lineItemId]);
+            if ($newProductId) {
+                updateProductInventory($this->db, $newProductId, $qty);
+            }
+            if ($own) $this->db->commit();
+        } catch (Throwable $e) {
+            if ($own && $this->db->inTransaction()) $this->db->rollBack();
+            throw $e;
         }
 
         // Train as you link — vendor catalog alias + SKU memory

@@ -236,6 +236,23 @@ class StatementService
             $paymentsByInvoice[$sp['invoice_id']][] = $sp;
         }
 
+        // Recorded manual payments (deposit allocations) carry their real payment date.
+        $allocByInvoice = [];
+        try {
+            $stmt = $this->db->prepare("
+                SELECT invoice_id, amount, payment_date, method
+                FROM invoice_payment_allocations
+                WHERE invoice_id IN ($ph)
+                ORDER BY payment_date ASC, id ASC
+            ");
+            $stmt->execute($invIds);
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $al) {
+                $allocByInvoice[$al['invoice_id']][] = $al;
+            }
+        } catch (PDOException $e) {
+            $allocByInvoice = [];
+        }
+
         foreach ($invoices as $inv) {
             $events[] = [
                 'date'       => substr((string)($inv['issue_date'] ?? ''), 0, 10) ?: date('Y-m-d'),
@@ -262,8 +279,25 @@ class StatementService
                 ];
             }
 
-            // Manual payments = amount_paid not covered by Stripe rows.
-            $manual = round((float)($inv['amount_paid'] ?? 0) - $stripeTotal, 2);
+            // Allocated manual payments, each on its own payment date.
+            $allocTotal = 0.0;
+            foreach ($allocByInvoice[$inv['id']] ?? [] as $al) {
+                $amt = round((float)$al['amount'], 2);
+                if ($amt <= 0.005) continue;
+                $allocTotal += $amt;
+                $m = (string)($al['method'] ?? '');
+                $events[] = [
+                    'date'       => substr((string)$al['payment_date'], 0, 10),
+                    'type'       => 'payment',
+                    'desc'       => ($m !== '' ? ucwords(str_replace('_', ' ', $m)) : 'Payment received') . ' — ' . $inv['invoice_number'],
+                    'amount'     => $amt,
+                    'invoice_id' => (int)$inv['id'],
+                    'receipt'    => '',
+                ];
+            }
+
+            // Manual payments = amount_paid not covered by Stripe rows or allocations.
+            $manual = round((float)($inv['amount_paid'] ?? 0) - $stripeTotal - $allocTotal, 2);
             if ($manual > 0.005) {
                 $pm = $inv['payment_method'] ?? '';
                 $label = ($pm && $pm !== 'stripe') ? ucwords(str_replace('_', ' ', $pm)) : 'Payment received';

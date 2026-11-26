@@ -30,9 +30,10 @@ try {
     require_once CRM_INCLUDES . '/functions.php';
 
     requireLogin();
-    requirePermission('expenses.view');
+    requirePermission('ledger.view'); // Codex 2026-11-17: crew hold expenses.view; P&L, GST and margins are office + accountant only
 
     $db = getDB();
+    $isAccountant = class_exists('AccountantFence') && AccountantFence::activeForSession();
     session_write_close();
 
     require_once APP_ROOT . '/Modules/Accounting/Services/AccountingService.php';
@@ -45,6 +46,12 @@ try {
     $reporting = new ReportingService($db);
 
     $action    = $_GET['action'] ?? '';
+    // Outside accountant (Tim, 2026-11-26): company-level reports only, never per-job margins.
+    if ($isAccountant && !in_array($action, ['pl','cashflow','tax','tax_year','expense_breakdown','trial_balance','balance_sheet','income_statement','cost_drilldown','accountant_export'], true)) {
+        http_response_code(403);
+        echo json_encode(['ok' => false, 'error' => 'Not available to the accountant login']);
+        exit;
+    }
     $thisMonth = date('Y-m-01');
     $today     = date('Y-m-d');
     $dateFrom  = $_GET['date_from'] ?? $thisMonth;

@@ -71,6 +71,31 @@ class ExpenseService
         return null;
     }
 
+    /** Delete follows the edit rule: crew can't remove a receipt the office already approved (Codex nightly 2026-11-13). */
+    public static function deleteBlockReason(array $expense, array $actor): ?string
+    {
+        $isAdmin = !empty($actor['is_admin']);
+        if (!$isAdmin && (int)($expense['created_by'] ?? 0) !== (int)($actor['id'] ?? 0)) {
+            return 'You can only delete your own expenses';
+        }
+        if (($expense['status'] ?? '') === 'forwarded' || (int)($expense['forwarded_to_accounting'] ?? 0) === 1) {
+            return 'This expense has been sent to accounting and can no longer be deleted';
+        }
+        if (!$isAdmin && ($expense['status'] ?? '') === 'approved') {
+            return 'This receipt is approved — ask the office to remove it';
+        }
+        return null;
+    }
+
+    /** A supplied date that isn't a real day is refused, not swapped for today (it would move the receipt's GST period). */
+    public static function suppliedDateProblem($v): ?string
+    {
+        if ($v === null || trim((string)$v) === '') return null;
+        $c = substr(trim((string)$v), 0, 10);
+        $d = DateTime::createFromFormat('Y-m-d', $c);
+        return ($d && $d->format('Y-m-d') === $c) ? null : "That date isn't valid";
+    }
+
     /** The office sees and changes everyone's receipts: admin/manager role, or the approve permission. */
     public static function isOffice(string $role, bool $canApprove): bool
     {
@@ -172,6 +197,9 @@ class ExpenseService
             throw new Exception($why);
         }
 
+        if (array_key_exists('expense_date', $input) && ($why = self::suppliedDateProblem($input['expense_date'])) !== null) {
+            throw new Exception($why);
+        }
         $expenseDate = $this->sanitizeDate($input['expense_date'] ?? null) ?? date('Y-m-d');
         $vendorRaw   = $this->nullIfBlank($input['vendor_name_raw'] ?? null);
 
@@ -232,13 +260,8 @@ class ExpenseService
             throw new Exception('Expense not found');
         }
 
-        $isAdmin = !empty($currentUser['is_admin']);
-        if (!$isAdmin && (int)$expense['created_by'] !== (int)($currentUser['id'] ?? 0)) {
-            throw new Exception('You can only delete your own expenses');
-        }
-
-        if ($expense['status'] === 'forwarded' || (int)$expense['forwarded_to_accounting'] === 1) {
-            throw new Exception('This expense has been sent to accounting and can no longer be deleted');
+        if (($why = self::deleteBlockReason($expense, $currentUser)) !== null) {
+            throw new Exception($why);
         }
 
         // Through the gate: stock reversed, a posted entry reversed (append-only), the split

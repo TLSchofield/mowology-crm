@@ -46,6 +46,7 @@ if (strpos($contentType, 'application/json') === false) {
 
 // Require login
 requireLogin();
+requirePermission('billing.edit');   // same gate as the invoice form that calls this (Codex 2026-11-15)
 
 // Parse JSON input
 $json = json_decode(file_get_contents('php://input'), true);

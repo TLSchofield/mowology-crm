@@ -572,6 +572,15 @@ try {
         echo json_encode($r);
 
     } elseif ($action === 'remove-upsell') {
+        // Same per-quote lock as add-upsell (Codex review 2026-11-19): an add and a remove running together could
+        // leave the stored total counting a line that was just deleted.
+        $upLock = 'mw_quote_upsell_' . (int)$quoteId;
+        if ((int)$db->query("SELECT GET_LOCK(" . $db->quote($upLock) . ", 10)")->fetchColumn() !== 1) {
+            throw new Exception('Still updating the quote — please try again in a moment.');
+        }
+        register_shutdown_function(function () use ($db, $upLock) {
+            try { $db->query("SELECT RELEASE_LOCK(" . $db->quote($upLock) . ")"); } catch (Throwable $e) { /* lock ends with the connection */ }
+        });
         $upsellProductId = intval($_POST['upsell_product_id'] ?? 0);
         $upsellBundleId  = intval($_POST['upsell_bundle_id'] ?? 0);
         if (!$upsellProductId && !$upsellBundleId) throw new Exception('Upsell product or bundle ID required');
@@ -656,7 +665,8 @@ function recalculateQuoteTotals(int $quoteId): array {
 
     $db->prepare("
         UPDATE quotes SET
-            subtotal = ?, tax_amount = ?, amount = ?, total_amount = ?
+            subtotal = ?, tax_amount = ?, amount = ?, total_amount = ?,
+            pdf_path = NULL, pdf_version = 0, pdf_generated_at = NULL
         WHERE id = ?
     ")->execute([$subtotal, $taxAmount, $total, $total, $quoteId]);
 

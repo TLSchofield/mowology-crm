@@ -29,6 +29,7 @@ require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 require_once PUBLIC_ROOT . '/includes/functions.php';
 
 requireLogin();
+requirePermission('billing.edit');   // same gate as the invoice form that calls this (Codex 2026-11-15)
 
 header('Content-Type: application/json');
 

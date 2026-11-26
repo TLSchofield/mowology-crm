@@ -77,4 +77,33 @@ final class ReceiptAmountRulesTest extends TestCase
         $i = strpos($src, 'function handleUpdate(');
         $this->assertStringContainsString('SELECT * FROM expenses', substr($src, $i, 1400));
     }
+
+    public function testExemptVendorKeepsThePrintedTotal(): void
+    {
+        // No GST line: the parser estimated GST and derived subtotal = total / 1.05.
+        $p = ReceiptAmountRules::exemptParsed(['total' => '105.00', 'subtotal' => '100.00', 'gst' => '5.00', 'gst_estimated' => true, 'pst' => null]);
+        self::assertSame('105.00', $p['total']);
+        self::assertSame('105.00', $p['subtotal']);
+        self::assertSame('0.00', $p['gst']);
+        self::assertTrue($p['gst_exempt']);
+        self::assertFalse($p['gst_estimated']);
+        // With PST: the amount is the total less PST.
+        $p = ReceiptAmountRules::exemptParsed(['total' => '107.00', 'subtotal' => '100.00', 'gst' => '0.00', 'pst' => '7.00']);
+        self::assertSame('107.00', $p['total']);
+        self::assertSame('100.00', $p['subtotal']);
+        // No total read: nothing invented.
+        $p = ReceiptAmountRules::exemptParsed(['total' => null, 'subtotal' => '40.00']);
+        self::assertNull($p['total']);
+        self::assertSame('40.00', $p['subtotal']);
+    }
+
+    public function testCameraAndQueuePathsUseTheExemptRule(): void
+    {
+        $root = dirname(__DIR__, 3) . '/app/Modules/Expenses';
+        foreach (['/Services/ReceiptIntakeService.php', '/Cron/process_ocr_queue.php'] as $f) {
+            $src = (string)file_get_contents($root . $f);
+            self::assertStringContainsString('ReceiptAmountRules::exemptParsed($parsed)', $src, $f);
+            self::assertStringNotContainsString("\$parsed['total'] = \$parsed['subtotal']", $src, $f);
+        }
+    }
 }
