@@ -40,7 +40,7 @@ final class ManagerPinTest extends TestCase
         $src = file_get_contents(__DIR__ . '/../../../app/Modules/Driver/Services/PreTripBypassService.php');
         $this->assertStringContainsString('AttemptThrottle::pinIsLocked(', $src);
         $this->assertStringContainsString('ManagerPin::verify(', $src);
-        $this->assertStringContainsString("logActivity(\$userId, null, 'Manager PIN failed'", $src);
+        $this->assertStringContainsString("self::audit(\$userId, 'Manager PIN failed'", $src);
         $this->assertStringNotContainsString('hash_equals($stored', $src);
         foreach (['public/crm/api/manager-pin-verify.php', 'app/Modules/Schedule/Api/trip-report.php'] as $f) {
             $this->assertStringContainsString('PreTripBypassService::attempt(', file_get_contents(__DIR__ . '/../../../' . $f), $f);
