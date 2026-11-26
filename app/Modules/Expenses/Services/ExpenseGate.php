@@ -168,7 +168,7 @@ class ExpenseGate
             return 'Choose how this was paid before it is approved.';
         }
         $known = array_merge(EXPENSE_PAYMENT_METHODS, ['credit', 'visa', 'mastercard', 'amex', 'card', 'paid_personally', 'personal_card', 'debit_card']);
-        if (in_array($pm, $known, true) || str_contains($pm, 'debit') || str_contains($pm, 'credit')) {
+        if (in_array($pm, $known, true) || strpos($pm, 'debit') !== false || strpos($pm, 'credit') !== false) {
             return null;
         }
         return 'That payment method is not one this system knows. Choose how this was paid.';
