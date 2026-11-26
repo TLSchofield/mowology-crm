@@ -54,7 +54,8 @@ class BillingEditGuardTest extends TestCase
             $s = self::src($f);
             $gate = strpos($s, "requirePermission('billing.edit');");
             $this->assertNotFalse($gate, $f);
-            $this->assertLessThan(strpos($s, 'getDB()'), $gate, $f . ': checked before any read');
+            $read = min(array_filter([strpos($s, 'getDB()'), strpos($s, 'InvoiceRouting::')], function ($p) { return $p !== false; }));
+            $this->assertLessThan($read, $gate, $f . ': checked before any read');
         }
     }
 }
