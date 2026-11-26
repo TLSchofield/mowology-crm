@@ -267,6 +267,21 @@ def render(ada, db, interactive=False):
         g.append("<h3>Page weight, phone view</h3>" + _table(["Page", "Latest", "Trend", "History"], trs))
     S.append("<section><h2>Guardian <span class='meta'>measured, no model</span></h2>%s</section>" % "".join(g))
 
+    # ---- Codex (nightly review findings that need Tim)
+    try:
+        import codex_import
+        cx = codex_import.open_rows(db)
+        ready = [r for r in cx if r["bucket"] == "ready"]
+        dec = [r for r in cx if r["bucket"] != "ready"]
+        def _cx_rows(rs):
+            return [["%s %s" % (ICON.get(r["severity"], ""), E(r["severity"])), E(r["title"]), E(r["note"] or ""), E(r["branch"] or ""), E((r["found_on"] or "")[:10])] for r in rs[:40]]
+        c = ['<p><span class="pill attention">%d fix ready, needs your yes</span> <span class="pill">%d need a decision</span></p>' % (len(ready), len(dec))]
+        c.append("<h3>Fix ready, needs your yes to deploy</h3>" + _table(["Severity", "Finding", "Note", "Branch", "Found"], _cx_rows(ready), "Nothing waiting."))
+        c.append("<h3>Needs a design or your call</h3>" + _table(["Severity", "Finding", "Note", "Branch", "Found"], _cx_rows(dec), "Nothing waiting."))
+        S.append("<section><h2>Codex <span class='meta'>nightly review, checked by Claude</span></h2>%s</section>" % "".join(c))
+    except Exception as e:  # noqa: BLE001  (a bad findings file must never take the dashboard down)
+        S.append("<section><h2>Codex</h2><p class='meta'>unavailable: %s</p></section>" % E(str(e)[:120]))
+
     # ---- Sentinel
     sen = _sentinel()
     s_html = []
