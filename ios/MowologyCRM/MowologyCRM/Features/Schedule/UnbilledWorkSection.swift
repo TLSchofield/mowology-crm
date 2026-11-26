@@ -94,6 +94,9 @@ struct UnbilledWorkSection: View {
                     .textFieldStyle(.roundedBorder)
                     .frame(maxWidth: 110)
                 }
+                ItDisabledReason(
+                    vm.tickedUnbilled.contains(item.visitId) ? nil : FormReasonRules.positivePrice(vm.unbilledPrices[item.visitId])
+                )
             }
 
             ForEach(item.evidence, id: \.self) { e in
@@ -111,5 +114,6 @@ struct UnbilledWorkSection: View {
             }
         }
         .padding(.vertical, 8)
+        .itKeyboardDone()
     }
 }

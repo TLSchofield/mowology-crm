@@ -428,7 +428,13 @@ class ReceiptArchiveService
             if (@unlink($originalAbs)) {
                 $freed += $size;
             } else {
+                // The original is still on disk: say so, or the record claims a removal that never happened (Codex nightly 2026-11-06).
                 error_log('[ReceiptArchiveService] could not unlink archived original: ' . $originalAbs);
+                try {
+                    $this->db->prepare("UPDATE media_assets SET original_removed = 0 WHERE id = ?")->execute([$mediaId]);
+                } catch (Throwable $e) {
+                    error_log('[ReceiptArchiveService] original_removed reset failed for media ' . $mediaId . ': ' . $e->getMessage());
+                }
             }
             $archived++;
         }

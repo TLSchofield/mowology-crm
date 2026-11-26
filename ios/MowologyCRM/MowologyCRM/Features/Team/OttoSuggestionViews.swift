@@ -266,6 +266,7 @@ struct OttoSuggestionRow: View {
                 .frame(width: 56)
             Text("min").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
         }
+        .itKeyboardDone()
     }
 
     // MARK: Work with nothing scheduled / extra work

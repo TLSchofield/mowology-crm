@@ -395,10 +395,32 @@ class ReceiptInboxService
         $mediaId  = $stored['media_id'];
         $diskPath = $stored['disk_path'];
 
-        // 2) OCR (rasterise PDFs first). Unreadable PDFs return readable=false.
-        $ocr = $this->runOcr($diskPath, $isPdf);
+        try {
+            // 2) OCR (rasterise PDFs first). Unreadable PDFs return readable=false.
+            $ocr = $this->runOcr($diskPath, $isPdf);
 
-        return $this->createExpenseFromRead($msg, $ocr, $mediaId, $dedup, true, $isPdf ? 'pdf not OCR-able' : 'no text extracted', $systemUserId);
+            return $this->createExpenseFromRead($msg, $ocr, $mediaId, $dedup, true, $isPdf ? 'pdf not OCR-able' : 'no text extracted', $systemUserId);
+        } catch (\Throwable $e) {
+            // The claim is released and the next poll stores the file again: drop this copy unless an
+            // expense already points at it (Codex nightly 2026-11-06 — orphan media on every retry).
+            $this->dropUnusedMedia((int)$mediaId, (string)$diskPath);
+            throw $e;
+        }
+    }
+
+    /** Remove a media row + file stored for an attachment whose expense never got made. Never throws. */
+    private function dropUnusedMedia(int $mediaId, string $diskPath): void
+    {
+        if ($mediaId <= 0) return;
+        try {
+            $used = $this->db->prepare("SELECT 1 FROM expenses WHERE receipt_media_id = ? LIMIT 1");
+            $used->execute([$mediaId]);
+            if ($used->fetchColumn()) return;
+            $this->db->prepare("DELETE FROM media_assets WHERE id = ?")->execute([$mediaId]);
+            if ($diskPath !== '' && is_file($diskPath)) @unlink($diskPath);
+        } catch (\Throwable $e) {
+            error_log('[ReceiptInboxService] could not drop unused media ' . $mediaId . ': ' . $e->getMessage());
+        }
     }
 
     /**
@@ -517,7 +539,17 @@ class ReceiptInboxService
         //    BookkeeperDeskService::afterInboxApproval).
         $outcome = 'pending';
         $logNote = $ocr['readable'] ? ($clean ? self::HIGH_CONFIDENCE_NOTE : null) : $unreadableNote;
-        $this->finalizeClaim($dedup, $mediaId, $expenseId, $outcome, $confidence, $logNote);
+        try {
+            $this->finalizeClaim($dedup, $mediaId, $expenseId, $outcome, $confidence, $logNote);
+        } catch (\Throwable $e) {
+            // The expense already exists. Throwing here would release the claim and the next poll would create it again
+            // (Codex 2026-11-15): record what we can and report the receipt as created.
+            error_log('[ReceiptInboxService] finalizeClaim failed after expense #' . $expenseId . ': ' . $e->getMessage());
+            try {
+                $this->db->prepare("UPDATE receipt_inbox_messages SET expense_id = ?, media_id = ? WHERE dedup_key = ?")
+                         ->execute([$expenseId, $mediaId, $dedup]);
+            } catch (\Throwable $e2) { /* the claim row stays 'processing' and is never released: a duplicate is worse than a stuck row */ }
+        }
 
         return ['status' => $outcome, 'expense_id' => $expenseId, 'note' => $logNote, 'high_confidence' => $clean];
     }

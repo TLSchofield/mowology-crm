@@ -391,6 +391,7 @@ struct PennyCardView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .itKeyboardDone()
     }
 
     private var actions: some View {

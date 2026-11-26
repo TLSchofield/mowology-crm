@@ -52,10 +52,19 @@ class SnowWeeklyStatementService
     public static function group(array $rows): array
     {
         $out = [];
+        $seen = [];
         foreach ($rows as $r) {
             $email = strtolower(trim((string)($r['email'] ?? '')));
             if ($email === '') {
                 continue;
+            }
+            // One address under two contact roles joins to the same invoice twice (Codex 2026-11-11).
+            if (isset($r['invoice_id'])) {
+                $key = $email . '|' . $r['invoice_id'];
+                if (isset($seen[$key])) {
+                    continue;
+                }
+                $seen[$key] = true;
             }
             if (!isset($out[$email])) {
                 $out[$email] = ['email' => $email, 'lines' => [], 'total' => 0.0, 'balance' => 0.0];

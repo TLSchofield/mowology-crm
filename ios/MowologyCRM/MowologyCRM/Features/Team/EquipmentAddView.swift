@@ -346,6 +346,8 @@ struct EquipmentAddView: View {
                     }
                 }
             }
+            .itAppForm()
+            .itAppScreen()
             .navigationTitle(vm.editingId == nil ? "Add equipment" : "Edit equipment")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -488,6 +490,7 @@ struct EquipmentAddView: View {
                 HStack { if vm.busy { ProgressView() }; Text(vm.editingId == nil ? "Add to equipment" : "Save changes") }
             }
             .disabled(vm.busy)
+            ItDisabledReason(vm.busy ? "Saving equipment…" : nil)
         }
     }
 

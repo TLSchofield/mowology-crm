@@ -47,6 +47,23 @@ class ReceiptInboxRereadServiceTest extends TestCase
         $this->assertNotNull($r['gst_note']);
     }
 
+    public function testEstimatedGstWithPrintedSubtotalStillFootsToTheTotal(): void
+    {
+        $r = ReceiptInboxRereadService::fieldsFromRead($this->parsed(['total' => 105.0, 'gst' => 5.0, 'gst_estimated' => true, 'subtotal' => 100.0]), $this->sugg());
+        $this->assertSame(0.0, $r['gst_amount']);
+        $this->assertSame(105.0, $r['amount']);                    // amount + gst + pst == total, not 100 / 0 / 0 / 105
+        $this->assertSame(105.0, $r['total']);
+    }
+
+    public function testUntouchedSinceRefusesAValueTheOwnerTypedMeanwhile(): void
+    {
+        $loaded = $this->unreadRow();
+        $changes = ['amount' => 120.0, 'total' => 128.4, 'raw_ocr_json' => '{}'];
+        $this->assertTrue(ReceiptInboxRereadService::untouchedSince($loaded, $this->unreadRow(), $changes));
+        $this->assertFalse(ReceiptInboxRereadService::untouchedSince($loaded, $this->unreadRow(['total' => '126.40']), $changes));
+        $this->assertFalse(ReceiptInboxRereadService::untouchedSince($loaded, $this->unreadRow(['vendor_name_raw' => 'Typed']), ['vendor_name_raw' => 'Read']));
+    }
+
     public function testGstExemptVendorClaimsNoGst(): void
     {
         $r = ReceiptInboxRereadService::fieldsFromRead($this->parsed(), $this->sugg(['vendor_gst_exempt' => true]));

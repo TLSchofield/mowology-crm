@@ -110,4 +110,15 @@ class VisitWorkServiceTest extends TestCase
         $this->assertFalse(VisitWorkService::canAccess($visit, 11, false, [9, 10]), 'unrelated crew');
         $this->assertFalse(VisitWorkService::canAccess([], 0, false, []), 'no user, unassigned visit');
     }
+
+    /** A note queued on the phone is replayed when the first answer is lost: that must not make a second note. */
+    public function test_replayed_note_is_deduplicated_but_typed_notes_are_not(): void
+    {
+        $service = file_get_contents(dirname(__DIR__, 3) . '/app/Modules/Jobs/Services/VisitWorkService.php');
+        $this->assertStringContainsString('bool $isReplay = false', $service, 'the guard is opt-in, so typed notes behave as before');
+        $this->assertMatchesRegularExpression('/if \(\$isReplay\) \{.*?INTERVAL 15 MINUTE.*?return \$existing;/s', $service);
+
+        $api = file_get_contents(dirname(__DIR__, 3) . '/app/Modules/Schedule/Api/visit-work.php');
+        $this->assertStringContainsString("!empty(\$input['client_request_id'])", $api, 'only a queued note (it sends client_request_id) is a replay');
+    }
 }

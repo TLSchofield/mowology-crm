@@ -303,11 +303,25 @@ class VisitWorkService
     }
 
     /** @throws InvalidArgumentException when the note is empty */
-    public function addNote(int $visitId, int $userId, string $content, string $noteType, bool $visibleToCustomer): int
+    public function addNote(int $visitId, int $userId, string $content, string $noteType, bool $visibleToCustomer, bool $isReplay = false): int
     {
         $content = trim($content);
         if ($content === '') {
             throw new InvalidArgumentException('Note content required');
+        }
+        // A note the phone saved while offline is sent again when the first answer was lost: the same note from the
+        // same person on the same visit in the last 15 minutes is that note, not a second one. Only for a replay
+        // (the phone sends a client_request_id), so two real, identical notes typed by hand are still two notes.
+        if ($isReplay) {
+            $dup = $this->db->prepare("
+                SELECT id FROM visit_notes
+                WHERE visit_id = ? AND created_by = ? AND content = ? AND note_type = ?
+                  AND created_at >= DATE_SUB(NOW(), INTERVAL 15 MINUTE)
+                ORDER BY id DESC LIMIT 1
+            ");
+            $dup->execute([$visitId, $userId, $content, self::normalizeNoteType($noteType)]);
+            $existing = (int)$dup->fetchColumn();
+            if ($existing > 0) return $existing;
         }
         $this->db->prepare("
             INSERT INTO visit_notes (visit_id, note_type, content, is_visible_to_customer, created_by)

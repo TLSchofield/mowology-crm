@@ -19,6 +19,13 @@ class IttaiContrastAaaTest extends TestCase
         ['focus', 'surface', 4.5],
     ];
 
+    /** Non-text: the edge of a field or control is what shows where to tap (WCAG 1.4.11, mobile-ui-craft M16). `line` is a decorative hairline and does not count. */
+    private const EDGES = [
+        ['field-border', 'page', 3.0], ['field-border', 'surface', 3.0], ['field-border', 'sunk', 3.0],
+        ['focus', 'page', 3.0], ['focus', 'surface', 3.0], ['focus', 'sunk', 3.0],
+        ['status-blocked', 'surface', 3.0],
+    ];
+
     private static function palettes(): array
     {
         $dir = __DIR__ . '/../../../docs/design/ittai-v1.2/';
@@ -67,5 +74,26 @@ class IttaiContrastAaaTest extends TestCase
             }
         }
         $this->assertSame([], $fails, "Ittai colours below AAA:\n" . implode("\n", $fails));
+    }
+
+    public function test_field_borders_and_focus_rings_meet_three_to_one_in_every_mode(): void
+    {
+        $fails = [];
+        foreach (self::palettes() as $mode => $p) {
+            foreach (self::EDGES as [$fg, $bg, $need]) {
+                if (!isset($p[$fg], $p[$bg])) { $fails[] = "$mode: missing $fg or $bg"; continue; }
+                $r = self::ratio($p[$fg], $p[$bg]);
+                if ($r < $need) $fails[] = sprintf('%s: %s on %s is %.2f:1, needs %.1f:1', $mode, $fg, $bg, $r, $need);
+            }
+        }
+        $this->assertSame([], $fails, "Field edges below 3:1:\n" . implode("\n", $fails));
+    }
+
+    /** The old hairline must not come back as a field border. */
+    public function test_ittai_field_uses_the_field_border_token_not_the_hairline(): void
+    {
+        $src = (string)file_get_contents(__DIR__ . '/../../../ios/MowologyCRM/MowologyCRM/Features/Onboarding/SignedOutViews.swift');
+        $this->assertStringContainsString('it.color(.fieldBorder)', $src);
+        $this->assertStringNotContainsString('error == nil ? it.line', $src);
     }
 }

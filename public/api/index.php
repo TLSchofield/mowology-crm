@@ -67,6 +67,7 @@ $moduleMap = [
     'device'    => 'Device',      // Mobile iOS push-notification device token registration (JWT-authenticated)
     'sales'     => 'Sales',       // Mobile iOS Sam (sales head) card: sales-head-mobile (JWT-authenticated)
     'tasks'     => 'Tasks',       // Mobile iOS Add → Task: tasks-mobile (JWT-authenticated)
+    'quiz'      => 'Quiz',        // Android quiz: preshift/start/answer/finish/categories/stats (JWT). Was missing: every call 404'd (2026-11-26)
 ];
 
 if (!isset($moduleMap[$module])) {

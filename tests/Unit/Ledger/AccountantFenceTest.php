@@ -60,6 +60,16 @@ class AccountantFenceTest extends TestCase
         }
     }
 
+    public function test_accountant_can_open_reports_but_the_api_keeps_job_margins_closed(): void
+    {
+        foreach (['/crm/accounting/reports.php', '/crm/api/accounting-reports.php?action=tax&year=2026'] as $uri) {
+            $this->assertSame('allow', AccountantFence::verdict('accountant', $uri), $uri);
+        }
+        $api = (string)file_get_contents(__DIR__ . '/../../../app/Modules/Accounting/Api/reports.php');
+        $this->assertStringContainsString('$isAccountant && !in_array($action', $api);
+        $this->assertStringNotContainsString("'job_profitability','monthly_trend'", $api);
+    }
+
     public function test_accountant_is_refused_on_clients_schedule_payroll_sin_and_gps(): void
     {
         foreach (['/crm/clients_appstack.php', '/crm/companies/index.php', '/crm/contacts/view.php?id=3',

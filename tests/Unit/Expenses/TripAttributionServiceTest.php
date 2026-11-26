@@ -142,6 +142,17 @@ class TripAttributionServiceTest extends TestCase
         $this->assertSame(99, (int)$db->query("SELECT job_id FROM expenses WHERE id = 501")->fetchColumn());
         $this->assertSame(5, (int)$db->query("SELECT COUNT(*) FROM ops_trip_job_costs")->fetchColumn());
         $this->assertSame(1, (int)$db->query("SELECT COUNT(*) FROM ops_trip_job_costs WHERE is_stock = 1 AND job_plan_id IS NULL")->fetchColumn());
+        // A rebuild that fails half way keeps the day's rows (Codex nightly 2026-11-06): one transaction.
+        $db->exec("CREATE TRIGGER fail_rebuild BEFORE INSERT ON ops_trip_job_costs BEGIN SELECT RAISE(ABORT, 'interrupted'); END");
+        try {
+            $svc->attribute(CostFactsFixture::DATE);
+            $this->fail('the insert should have failed');
+        } catch (PDOException $e) {
+            $this->assertStringContainsString('interrupted', $e->getMessage());
+        }
+        $db->exec("DROP TRIGGER fail_rebuild");
+        $this->assertFalse($db->inTransaction());
+        $this->assertSame(5, (int)$db->query("SELECT COUNT(*) FROM ops_trip_job_costs")->fetchColumn());
 
         $this->assertSame([7 => ['trip_overhead' => 48.77, 'trip_runs' => 2]], $svc->overheadForJobs([7, 8]));
 

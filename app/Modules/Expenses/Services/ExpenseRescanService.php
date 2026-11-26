@@ -167,7 +167,7 @@ class ExpenseRescanService
         return [
             'success' => true, 'ocr_available' => $ocrAvailable, 'ocr_source' => $ocrSource, 'ocr_text' => $ocrText,
             'parsed' => $parsed, 'suggestions' => $suggestions, 'pre_screen' => $preScreen,
-            'line_items_stored' => !empty($fresh), 'baseline_set' => $baselineSet,
+            'line_items_stored' => !empty($fresh) && !$frozen, 'baseline_set' => $baselineSet,
             'amounts_repaired' => $amountsRepaired, 'penny_refreshed' => $pennyRefreshed,
         ];
     }

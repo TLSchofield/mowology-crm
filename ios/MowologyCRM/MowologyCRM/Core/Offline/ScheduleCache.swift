@@ -49,6 +49,27 @@ final class ScheduleCache {
         return try? JSONDecoder().decode([Appointment].self, from: data)
     }
 
+    // MARK: - Owner (shared phones)
+
+    /// Everything cached here belongs to whoever signed in last. Sign-out empties it, and signing in as a
+    /// different person empties it too (a crash or a 401 can skip sign-out), so on a shared phone nobody sees
+    /// the previous person's offline schedule.
+    func clear() {
+        let fm = FileManager.default
+        if let items = try? fm.contentsOfDirectory(at: cacheDir, includingPropertiesForKeys: nil) {
+            for url in items { try? fm.removeItem(at: url) }
+        }
+        UserDefaults.standard.removeObject(forKey: Self.ownerKey)
+    }
+
+    func claim(for userId: Int) {
+        let defaults = UserDefaults.standard
+        if ScheduleCacheOwner.shouldClear(recordedOwner: defaults.object(forKey: Self.ownerKey) as? Int, signingIn: userId) { clear() }
+        defaults.set(userId, forKey: Self.ownerKey)
+    }
+
+    private static let ownerKey = "mw.scheduleCache.ownerId"
+
     // MARK: - Maintenance
 
     /// Deletes cached files older than `days`. Safe to call from any context.

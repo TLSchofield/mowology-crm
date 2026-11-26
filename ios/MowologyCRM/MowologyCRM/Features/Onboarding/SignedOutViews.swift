@@ -113,7 +113,7 @@ struct IttaiField<Trailing: View>: View {
             }
             .padding(.horizontal, ItSpace.s3).frame(minHeight: ItSize.targetPhone)
             .background(RoundedRectangle(cornerRadius: ItRadius.md).fill(it.surface))
-            .overlay(RoundedRectangle(cornerRadius: ItRadius.md).stroke(error == nil ? it.line : it.color(.statusBlocked), lineWidth: error == nil ? 1 : 2))
+            .overlay(RoundedRectangle(cornerRadius: ItRadius.md).stroke(error == nil ? it.color(.fieldBorder) : it.color(.statusBlocked), lineWidth: error == nil ? 1 : 2))
             if let error { Text(error).itText(.caption12).foregroundStyle(it.color(.statusBlocked)) }
         }
     }

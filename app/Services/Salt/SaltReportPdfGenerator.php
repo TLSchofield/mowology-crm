@@ -384,9 +384,15 @@ class SaltReportPdfGenerator
 
         // Logo — embed as base64
         $logoBase64 = '';
-        $logoPath   = $this->publicRoot . '/assets/img/mowology-logo.png';
-        if (file_exists($logoPath)) {
-            $logoBase64 = 'data:image/png;base64,' . base64_encode(file_get_contents($logoPath));
+        require_once APP_ROOT . '/Modules/Settings/Services/TenantBrand.php';
+        $brand = TenantBrand::forCurrent($this->db);
+        if (!empty($brand['useDefaultLogo'])) {
+            $logoPath = $this->publicRoot . '/assets/img/mowology-logo.png';
+            if (file_exists($logoPath)) {
+                $logoBase64 = 'data:image/png;base64,' . base64_encode(file_get_contents($logoPath));
+            }
+        } else {
+            $logoBase64 = TenantBrand::logoDataUri($brand);
         }
 
         // GPS map — embed as base64
@@ -521,7 +527,7 @@ body { font-family: helvetica, arial, sans-serif; font-size: 11px; color: #1a1a1
         <?php if ($logoBase64): ?>
         <img src="<?= $logoBase64 ?>">
         <?php else: ?>
-        <span style="font-size:22px;font-weight:bold;color:#7FD858;">MOWOLOGY</span>
+        <span style="font-size:22px;font-weight:bold;color:#7FD858;"><?= !empty($brand['useDefaultLogo']) ? 'MOWOLOGY' : htmlspecialchars(strtoupper(_idFromName())) ?></span>
         <?php endif; ?>
     </div>
     <div class="cover-eyebrow">Proof of Service</div>
@@ -927,7 +933,7 @@ body { font-family: helvetica, arial, sans-serif; font-size: 11px; color: #1a1a1
 </body>
 </html>
 <?php
-        return ob_get_clean();
+        return TenantBrand::recolor(ob_get_clean(), $brand, ['#0D3B2E' => 'primary', '#7FD858' => 'tint']);
     }
 
     // ─── mPDF rendering ───────────────────────────────────────────────────────

@@ -46,4 +46,16 @@ class BillingEditGuardTest extends TestCase
         $s = self::src('public/crm/team/index.php');
         $this->assertMatchesRegularExpression("/!userHasPermission\('team\.edit'\)\)\s*\{\s*foreach \(\\\$employees as &\\\$emp\) \{ unset\(\\\$emp\['hourly_rate'\]\)/", $s);
     }
+
+    public function testInvoiceContactLookupsNeedBillingPermission(): void
+    {
+        // Codex nightly 2026-11-06/15: billing.edit (the invoice form's own gate) is required; any login could list a client's properties, emails and phones by id.
+        foreach (['app/Modules/Invoices/Api/api-get-properties.php', 'app/Modules/Invoices/Api/api-get-recipients.php'] as $f) {
+            $s = self::src($f);
+            $gate = strpos($s, "requirePermission('billing.edit');");
+            $this->assertNotFalse($gate, $f);
+            $read = min(array_filter([strpos($s, 'getDB()'), strpos($s, 'InvoiceRouting::')], function ($p) { return $p !== false; }));
+            $this->assertLessThan($read, $gate, $f . ': checked before any read');
+        }
+    }
 }

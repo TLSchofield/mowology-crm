@@ -25,6 +25,10 @@ struct SpecialRequestCard: View {
     @State private var extraDescription = ""
     @State private var extraMinutes = ""
 
+    private var disabledReason: String? {
+        form == "extra_done" ? FormReasonRules.specialRequestMinutes(extraMinutes) : nil
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .center, spacing: 10) {
@@ -80,38 +84,48 @@ struct SpecialRequestCard: View {
 
     @ViewBuilder
     private var actions: some View {
-        if let form {
-            VStack(alignment: .leading, spacing: 6) {
-                if form == "not_done" {
-                    TextField("Why wasn't it done?", text: $reason, axis: .vertical)
-                        .textFieldStyle(.roundedBorder)
-                } else {
-                    TextField("What did you do?", text: $extraDescription)
-                        .textFieldStyle(.roundedBorder)
-                    TextField("Minutes it took", text: $extraMinutes)
-                        .keyboardType(.numberPad)
-                        .textFieldStyle(.roundedBorder)
-                }
-                HStack {
-                    Button("Cancel") { self.form = nil }
-                        .buttonStyle(.bordered)
-                    Button(isSaving ? "Saving…" : "Save") {
-                        Task {
-                            let ok = await onAnswer(form, reason, extraDescription, Int(extraMinutes) ?? 0)
-                            if ok { self.form = nil }
+        Group {
+            if let form {
+                VStack(alignment: .leading, spacing: 6) {
+                    if form == "not_done" {
+                        TextField("Why wasn't it done?", text: $reason, axis: .vertical)
+                            .textFieldStyle(.roundedBorder)
+                    } else {
+                        TextField("What did you do?", text: $extraDescription)
+                            .textFieldStyle(.roundedBorder)
+                        VStack(alignment: .leading, spacing: ItSpace.s1) {
+                            Text("Minutes it took")
+                                .font(appStyle.font(.caption))
+                                .foregroundStyle(appStyle.meta)
+                            TextField("e.g. 15", text: $extraMinutes)
+                                .keyboardType(.numberPad)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(minHeight: ItSize.targetPhone)
                         }
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(appStyle.tenant)
-                    .disabled(isSaving)
+                    HStack {
+                        Button("Cancel") { self.form = nil }
+                            .buttonStyle(.bordered)
+                        Button(isSaving ? "Saving…" : "Save") {
+                            Task {
+                                let ok = await onAnswer(form, reason, extraDescription, Int(extraMinutes) ?? 0)
+                                if ok { self.form = nil }
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(appStyle.tenant)
+                        .disabled(isSaving || disabledReason != nil)
+                    }
+                    ItDisabledReason(disabledReason)
+                }
+            } else {
+                ViewThatFits {
+                    HStack(spacing: 8) { buttons }
+                    VStack(alignment: .leading, spacing: 8) { buttons }
                 }
             }
-        } else {
-            ViewThatFits {
-                HStack(spacing: 8) { buttons }
-                VStack(alignment: .leading, spacing: 8) { buttons }
-            }
         }
+        .itKeyboardDone()
     }
 
     @ViewBuilder

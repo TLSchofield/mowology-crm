@@ -46,6 +46,22 @@ struct VisitWorkView: View {
             if let error = viewModel.errorMessage {
                 banner(error, icon: "exclamationmark.triangle.fill", tint: appStyle.attention)
             }
+            if let status = viewModel.offlineStatusMessage {
+                banner(status, icon: "arrow.triangle.2.circlepath", tint: appStyle.meta)
+            }
+            if viewModel.queuedCount > 0 {
+                banner("\(viewModel.queuedCount) waiting to send", icon: "tray.full", tint: appStyle.meta)
+            }
+            ForEach(viewModel.queuedEntries.filter(\.isRefused)) { entry in
+                HStack {
+                    Label(entry.refusalMessage ?? "The server refused this saved change.", systemImage: "exclamationmark.triangle.fill")
+                        .font(appStyle.font(.footnote))
+                        .foregroundStyle(appStyle.attention)
+                    Spacer(minLength: 0)
+                    Button("Discard") { viewModel.discardQueuedEntry(entry.id) }
+                        .tint(appStyle.attention)
+                }
+            }
 
             List {
                 switch section {
@@ -126,6 +142,7 @@ struct VisitWorkView: View {
                         .disabled(newChecklistItem.trimmingCharacters(in: .whitespaces).isEmpty)
                         .tint(appStyle.tenant)
                 }
+                ItDisabledReason(FormReasonRules.requiredText(newChecklistItem, reason: "Enter a checklist item"))
             }
         }
     }
@@ -164,9 +181,13 @@ struct VisitWorkView: View {
             Section {
                 TextField("Material (e.g. Fertilizer 20-5-10)", text: $materialName)
                 AnyLayout(appStyle.isEnabled && dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout())) {
-                    TextField("Qty", text: $materialQty)
-                        .keyboardType(.decimalPad)
-                        .frame(maxWidth: appStyle.isEnabled && dynamicTypeSize.isAccessibilitySize ? .infinity : 90)
+                    VStack(alignment: .leading, spacing: ItSpace.s1) {
+                        Text("Qty").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
+                        TextField("e.g. 2", text: $materialQty)
+                            .keyboardType(.decimalPad)
+                            .frame(maxWidth: appStyle.isEnabled && dynamicTypeSize.isAccessibilitySize ? .infinity : 90,
+                                   minHeight: ItSize.targetPhone)
+                    }
                     Divider()
                     TextField("Unit (kg, bags, yd)", text: $materialUnit)
                         .textInputAutocapitalization(.never)
@@ -182,6 +203,7 @@ struct VisitWorkView: View {
                 }
                 .disabled(materialName.trimmingCharacters(in: .whitespaces).isEmpty)
                 .tint(appStyle.tenant)
+                ItDisabledReason(FormReasonRules.requiredText(materialName, reason: "Enter a material"))
             } header: {
                 Text("Log a material")
             }
@@ -213,6 +235,7 @@ struct VisitWorkView: View {
                 }
                 .disabled(noteText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || viewModel.isSaving)
                 .tint(appStyle.tenant)
+                ItDisabledReason(FormReasonRules.requiredText(noteText, reason: "Enter a note"))
             } header: {
                 Text("New note")
             }

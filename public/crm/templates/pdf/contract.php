@@ -84,6 +84,7 @@ $dateOrDash = function ($d) { return $d ? date('F j, Y', strtotime((string)$d)) 
 
     .footer { margin-top: 26px; padding-top: 10px; border-top: 1px solid #E8F3F0;
         font-size: 8pt; color: #94a3b8; text-align: center; }
+<?php echo TenantBrand::css($brand, 'contract'); ?>
 </style>
 
 <div class="header">

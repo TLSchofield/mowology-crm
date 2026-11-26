@@ -304,6 +304,16 @@ try {
     error_log('[schedule/day] appointments: ' . $e->getMessage());
 }
 
+// ── Tasks due today (and overdue on today) — their own list, never stops (TaskScheduleService, 2026-11-26) ──
+// Same people filter as the stops. Older app builds ignore the key.
+$tasks = [];
+try {
+    require_once APP_ROOT . '/Modules/Tasks/Services/TaskScheduleService.php';
+    $tasks = (new TaskScheduleService(getDB()))->forDay($date, is_array($crewFilter) ? $crewFilter : ($crewFilter ? [(int)$crewFilter] : null));
+} catch (Throwable $e) {
+    error_log('[schedule/day] tasks: ' . $e->getMessage());
+}
+
 // ── Respond ───────────────────────────────────────────────────────────────────
 http_response_code(200);
 echo json_encode([
@@ -320,6 +330,7 @@ echo json_encode([
     'extras_rate_per_5min' => $extrasRate,
     'stops'                => $stops,
     'appointments'         => $appointments,
+    'tasks'                => $tasks,
     'snow_choices'         => class_exists('VisitNeedsService') ? VisitNeedsService::snowChoices() : [],
     // Salt & snow run state (SnowRunGate): route stops are in `stops` only while `active`;
     // POST /api/schedule/snow-run {action:start|end, kind} when `may_control`.
