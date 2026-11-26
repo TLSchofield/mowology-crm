@@ -59,14 +59,17 @@ class ReceiptInboxRereadService
         $gst   = isset($parsed['gst'])   && $parsed['gst']   !== null ? (float)$parsed['gst']   : 0.0;
         $pst   = isset($parsed['pst'])   && $parsed['pst']   !== null ? (float)$parsed['pst']   : 0.0;
         $gstNote = null;
+        $gstZeroed = false;
         if (!empty($suggestions['vendor_gst_exempt'])) {
-            $gst = 0.0;
+            $gst = 0.0; $gstZeroed = true;
         } elseif (!empty($parsed['gst_estimated'])) {
-            $gst = 0.0;
+            $gst = 0.0; $gstZeroed = true;
             $gstNote = 'GST not printed on the receipt, so no ITC claimed; add it if the receipt shows GST.';
         }
         $subtotal = isset($parsed['subtotal']) && $parsed['subtotal'] !== null ? (float)$parsed['subtotal'] : null;
-        $amount   = $subtotal !== null ? $subtotal : max(0.0, $total - $gst - $pst);
+        // When the GST is zeroed the pre-tax subtotal no longer foots to the total: take the amount from the total, as the
+        // email-ingestion path does (Codex 2026-11-15: subtotal 100 + estimated GST 5 saved as 100/0/0/105, out by 5).
+        $amount   = ($subtotal !== null && !$gstZeroed) ? $subtotal : max(0.0, $total - $gst - $pst);
         $date     = (string)($parsed['date'] ?? '');
         $validDate = (bool)preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) && checkdate((int)substr($date, 5, 2), (int)substr($date, 8, 2), (int)substr($date, 0, 4));
         return [
@@ -128,6 +131,25 @@ class ReceiptInboxRereadService
         return $changes;
     }
 
+    /**
+     * True when none of the columns about to be filled has changed since the row was read. The OCR can take a while;
+     * if the owner typed a value in the meantime, the gate must refuse rather than write over it (Codex 2026-11-15).
+     *
+     * @param array $loaded  the row as read before the OCR
+     * @param array $current the row as the gate sees it now
+     * @param array $changes mergeBlankOnly() output
+     */
+    public static function untouchedSince(array $loaded, array $current, array $changes): bool
+    {
+        foreach (array_keys($changes) as $k) {
+            if (!array_key_exists($k, $loaded)) continue;   // not a column we loaded (raw_ocr_json etc.)
+            $a = $loaded[$k] ?? null; $b = $current[$k] ?? null;
+            if (is_numeric($a) && is_numeric($b)) { if (abs((float)$a - (float)$b) > 0.004) return false; continue; }
+            if (trim((string)$a) !== trim((string)$b)) return false;
+        }
+        return true;
+    }
+
     // ═══ Loaders / writers ═══════════════════════════════════════════════════════════════════
 
     /**
@@ -184,7 +206,10 @@ class ReceiptInboxRereadService
                                                JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_UNICODE) ?: null;
         try {
             $this->gate->apply($expenseId, $changes, ['id' => $userId ?: null, 'kind' => 'user'], 'email_inbox_reread', [
-                'only_if' => function (array $e) { return ($e['source'] ?? '') === 'email_inbox' && in_array($e['status'], ExpenseGate::OPEN, true); },
+                'only_if' => function (array $e) use ($row, $changes) {
+                    return ($e['source'] ?? '') === 'email_inbox' && in_array($e['status'], ExpenseGate::OPEN, true)
+                        && self::untouchedSince($row, $e, $changes);
+                },
             ]);
             if (defined('APP_ROOT')) {
                 require_once APP_ROOT . '/Services/Receipts/ReceiptLearning.php';
