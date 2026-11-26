@@ -30,14 +30,16 @@ struct AddTaskView: View {
     /// Made once per task, so a second tap or a resend can't make a second one.
     @State private var requestId = UUID().uuidString
 
-    private var canSave: Bool {
-        !title.trimmingCharacters(in: .whitespaces).isEmpty && !saving && (!forClient || client != nil)
+    private var disabledReason: String? {
+        FormReasonRules.addTask(title: title, needsClient: forClient, hasClient: client != nil)
     }
+
+    private var canSave: Bool { disabledReason == nil && !saving }
 
     var body: some View {
         NavigationStack {
             Form {
-                Section {
+                Section("Title") {
                     TextField("What needs doing?", text: $title, axis: .vertical)
                     TextField("Note (optional)", text: $note, axis: .vertical)
                 }
@@ -78,6 +80,7 @@ struct AddTaskView: View {
                             .font(appStyle.font(.footnote)).foregroundStyle(appStyle.meta)
                     }
                 }
+                if disabledReason != nil { Section { ItDisabledReason(disabledReason) } }
             }
             .itAppForm()
             .itAppScreen()

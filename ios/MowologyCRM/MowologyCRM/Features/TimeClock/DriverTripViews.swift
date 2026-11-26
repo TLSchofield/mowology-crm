@@ -190,6 +190,7 @@ struct PreTripView: View {
                         .frame(minHeight: appStyle.isEnabled ? 48 : nil)
                     }
                     .disabled(viewModel.isWorking || (viewModel.vehicles.count > 1 && vehicleId == nil))
+                    ItDisabledReason(FormReasonRules.vehicle(required: viewModel.vehicles.count > 1, selected: vehicleId != nil))
                 } footer: {
                     if !allChecked && criticalDefects.isEmpty && otherDefects.isEmpty {
                         Text("Some items are unticked with no defect described — add a note so the log explains why.")

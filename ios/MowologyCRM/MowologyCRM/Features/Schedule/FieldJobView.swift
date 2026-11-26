@@ -758,8 +758,14 @@ private struct FieldJobFormSections: View {
                 ForEach(serviceTypes, id: \.self) { Text($0).tag($0) }
             }
             TextField("Title (optional)", text: $draft.title)
-            TextField("Price per visit, before GST (optional)", text: $draft.price)
-                .keyboardType(.decimalPad)
+            VStack(alignment: .leading, spacing: ItSpace.s1) {
+                Text("Price per visit")
+                    .font(appStyle.font(.caption))
+                    .foregroundStyle(appStyle.meta)
+                TextField("e.g. 75.00 before GST (optional)", text: $draft.price)
+                    .keyboardType(.decimalPad)
+                    .frame(minHeight: ItSize.targetPhone)
+            }
             if let price = lastPrice?.price {
                 Button {
                     draft.price = String(format: "%.2f", price)

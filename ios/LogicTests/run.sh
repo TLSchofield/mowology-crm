@@ -16,6 +16,10 @@ run() {
 
 python3 -B "$ROOT/ios/LogicTests/test_swift_bridge.py"
 
+# iPhone form disabled reasons and validation order (2026-11-26).
+cp "$ROOT/ios/LogicTests/FormReasonTests.swift" "$OUT/main.swift"
+run formreasons "$SRC/Core/Design/Ittai/FormReasonRules.swift" "$OUT/main.swift"
+
 # Receipt review: aligned values, missing/not-proposed states, and derived selection.
 cp "$ROOT/ios/LogicTests/ReceiptCompareTests.swift" "$OUT/main.swift"
 run receiptcompare "$SRC/Core/Models/BookkeeperModels.swift" "$OUT/main.swift"

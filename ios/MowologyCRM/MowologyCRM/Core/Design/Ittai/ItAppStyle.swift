@@ -1,6 +1,9 @@
 // Ittai styling for the existing field screens. This layer changes presentation only;
 // the same views, state objects, navigation, and actions are used with either design.
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 struct ItAppStyle {
     var isEnabled = false
@@ -165,6 +168,29 @@ private struct ItAppFormModifier: ViewModifier {
         content.scrollContentBackground(style.isEnabled ? .hidden : .automatic)
             .background(style.isEnabled ? style.page : Color.clear)
             .tint(style.tenant)
+            .itKeyboardDone()
+    }
+}
+
+private struct ItKeyboardDoneModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        #if canImport(UIKit)
+        content.toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") {
+                    UIApplication.shared.sendAction(
+                        #selector(UIResponder.resignFirstResponder),
+                        to: nil,
+                        from: nil,
+                        for: nil
+                    )
+                }
+            }
+        }
+        #else
+        content
+        #endif
     }
 }
 
@@ -174,6 +200,24 @@ extension View {
     }
     func itAppScreen() -> some View { modifier(ItAppScreenModifier()) }
     func itAppForm() -> some View { modifier(ItAppFormModifier()) }
+    func itKeyboardDone() -> some View { modifier(ItKeyboardDoneModifier()) }
+}
+
+struct ItDisabledReason: View {
+    let text: String?
+    @Environment(\.itAppStyle) private var appStyle
+
+    init(_ text: String?) { self.text = text }
+
+    var body: some View {
+        if let text {
+            Text(text)
+                .font(appStyle.font(.caption))
+                .foregroundStyle(appStyle.meta)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityLabel("Action unavailable: \(text)")
+        }
+    }
 }
 
 
