@@ -8,8 +8,18 @@ class SnowWeeklyStatementServiceTest extends TestCase
 {
     private function row(string $email, string $date, string $addr, float $amt, string $inv): array
     {
-        return ['email' => $email, 'invoice_id' => 1, 'invoice_number' => $inv, 'visit_date' => $date,
+        return ['email' => $email, 'invoice_id' => $inv, 'invoice_number' => $inv, 'visit_date' => $date,
                 'address' => $addr, 'service' => 'Salted', 'amount' => $amt, 'balance' => $amt, 'link' => null];
+    }
+
+    public function test_one_address_under_two_contact_roles_counts_an_invoice_once(): void
+    {
+        $g = SnowWeeklyStatementService::group([
+            $this->row('ap@example.com', '2026-11-10', '1 Main St', 100.00, 'INV-1'),
+            $this->row('ap@example.com', '2026-11-10', '1 Main St', 100.00, 'INV-1'),
+        ]);
+        $this->assertCount(1, $g['ap@example.com']['lines']);
+        $this->assertSame(100.00, $g['ap@example.com']['total']);
     }
 
     public function test_last_week_is_the_previous_monday_to_sunday(): void
