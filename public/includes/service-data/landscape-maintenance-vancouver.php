@@ -19,7 +19,7 @@ return [
 
     'hero' => [
         'headline'    => 'Landscape Maintenance in Vancouver <em>That Stays Maintained</em>',
-        'subheadline' => 'Scheduled grounds care for houses, townhomes, small buildings and businesses — lawns, beds, hedges, trees under 4 m and every season\'s cleanup, by one accountable crew.',
+        'subheadline' => 'Scheduled grounds care for houses, townhomes, small buildings and businesses — lawns, beds, hedges, trees under 4 m and every season\'s cleanup, by one small crew.',
         'cta_text'    => 'Get a Maintenance Quote →',
         'cta_url'     => '/quote?service=maintenance&src=landscape-maintenance-vancouver',
         'image'       => '/assets/img/hero/hero-strata-crew.jpg',
@@ -30,14 +30,14 @@ return [
         [
             'type'    => 'benefits',
             'heading' => 'What Professional Landscape Maintenance Means Here',
-            'intro'   => 'Anyone can mow. Maintenance is the discipline of keeping a landscape at the standard it was planted to, month after month, in a climate that never stops growing things.',
+            'intro'   => 'Anyone can mow. Maintenance means keeping a landscape the way it was planted, month after month, in a climate that never stops growing things.',
             'items'   => [
                 ['title' => 'A plan, not a visit list', 'desc' => 'Each property gets a written maintenance plan: what gets done monthly, what is seasonal, and what we watch for (drainage, disease, irrigation) so problems are caught early.'],
-                ['title' => 'Horticultural judgement', 'desc' => 'Pruning at the right time for the plant, not the schedule. Hydrangeas, roses, laurels and cedars all want different things and get them.'],
+                ['title' => 'Pruning at the right time', 'desc' => 'Pruning at the right time for the plant, not the schedule. Hydrangeas, roses, laurels and cedars all want different things and get them.'],
                 ['title' => 'Photo-verified, every visit', 'desc' => 'Timestamped before and after photos with GPS. Owners see the work; strata councils and property managers get a record that stands up in a meeting.'],
                 ['title' => 'One number to call', 'desc' => 'A Vancouver company, a crew lead you know by name, and an office that answers. Storm damage, a broken sprinkler head or a complaint from next door gets dealt with the same day.'],
                 ['title' => 'Priced for the whole year', 'desc' => 'Monthly pricing that averages the busy months and the quiet ones, so budgeting is simple and the fall leaf drop is not a surprise invoice.'],
-                ['title' => 'Insured and equipped', 'desc' => 'Fully insured crews and commercial equipment maintained to do the job without damaging the landscape it is there to keep.'],
+                ['title' => 'Insured and equipped', 'desc' => 'A fully insured crew. Commercial equipment, kept in good shape so it does not damage what we are there to look after.'],
             ],
         ],
         [
@@ -61,7 +61,7 @@ return [
                 ['title' => 'Site walk',        'desc' => 'We walk the property with you, note every planted area and surface, and listen to what has and hasn\'t worked before.'],
                 ['title' => 'Written plan and price', 'desc' => 'A maintenance plan with a monthly price. Nothing vague: it lists what is done and how often.'],
                 ['title' => 'First visit reset', 'desc' => 'The first visit brings the landscape up to the standard the plan maintains. This is often the biggest visible change.'],
-                ['title' => 'Steady state',      'desc' => 'Scheduled visits, photo reports, and a seasonal check-in to adjust the plan as the landscape matures.'],
+                ['title' => 'Regular visits',      'desc' => 'Scheduled visits, photo reports, and a seasonal check-in to adjust the plan as the landscape matures.'],
             ],
         ],
     ],
@@ -76,7 +76,7 @@ return [
     ],
 
     'cta' => [
-        'headline'       => 'Ready for a Landscape That Looks After Itself?',
+        'headline'       => 'Book a Site Walk and Get a Plan',
         'subheadline'    => 'Book a site walk and get a written maintenance plan with a fixed monthly price.',
         'primary_text'   => 'Request a Site Walk →',
         'primary_url'    => '/quote?service=maintenance&src=landscape-maintenance-vancouver',

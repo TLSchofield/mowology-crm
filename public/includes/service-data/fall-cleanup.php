@@ -43,10 +43,10 @@ return [
             'items'   => [
                 ['title' => 'Repeat Visits When You Need Them', 'desc' => 'Leaves do not fall on one day. For heavily treed sites we schedule two or three passes from October into December instead of one visit that is too early or too late.'],
                 ['title' => 'Drains Actually Cleared', 'desc' => 'A blocked surface drain in November means water against a foundation or across a walkway. Clearing grates and basins is on every checklist.'],
-                ['title' => 'Photo-Verified', 'desc' => 'Before-and-after photos of every visit, so councils and property managers can see the work without a site visit.'],
-                ['title' => 'Strata & Commercial Scale', 'desc' => 'Multi-building sites with shared courtyards, visitor parking and long entrance drives are our daily work.'],
+                ['title' => 'Photos of every visit', 'desc' => 'Before-and-after photos of every visit, so councils and property managers can see the work without a site visit.'],
+                ['title' => 'Strata and commercial sites', 'desc' => 'Multi-building sites with shared courtyards, visitor parking and long entrance drives are our regular work.'],
                 ['title' => 'Everything Hauled Away', 'desc' => 'No leaf piles left at the curb. Disposal is included.'],
-                ['title' => 'Insured & Reliable', 'desc' => '$5M liability coverage and crews that show up on the scheduled day, whatever the weather.'],
+                ['title' => 'Insured', 'desc' => '$5M liability coverage. We come on the scheduled day, whatever the weather.'],
             ],
         ],
         [

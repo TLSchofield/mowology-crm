@@ -41,11 +41,11 @@ return [
             'type'    => 'benefits',
             'heading' => 'Why Strata Councils, Property Managers and Homeowners Book Us',
             'items'   => [
-                ['title' => 'Photo-Verified', 'desc' => 'You get before-and-after photos of every area we worked on. No driving over to check, no guessing what was done.'],
+                ['title' => 'Photos of the work', 'desc' => 'You get before-and-after photos of every area we worked on. No driving over to check, no guessing what was done.'],
                 ['title' => 'Right Timing', 'desc' => 'We schedule spring cleanups from late February through April, once the Lower Mainland ground has drained enough to work beds without compacting them.'],
                 ['title' => 'Strata-Ready Crews', 'desc' => 'Multi-building sites, shared courtyards, visitor parking and entrances are our everyday work. Crews arrive with a plan for the whole property.'],
                 ['title' => 'Nothing Left Behind', 'desc' => 'Green waste, branches and bagged debris leave with us. Hard surfaces are blown clean before the crew drives away.'],
-                ['title' => 'Insured & Reliable', 'desc' => '$5M liability coverage and a crew that shows up on the scheduled day, rain or shine.'],
+                ['title' => 'Insured', 'desc' => '$5M liability coverage. We come on the scheduled day, rain or shine.'],
                 ['title' => 'A Head Start on the Season', 'desc' => 'Pair the cleanup with a weekly maintenance plan and the property never falls behind again.'],
             ],
         ],

@@ -24,7 +24,7 @@ return [
 
     'hero' => [
         'headline'    => '<em>Lawn Maintenance</em> in Vancouver — Weekly Mowing & Lawn Care',
-        'subheadline' => 'Reliable lawn maintenance, landscaping services, and snow removal for residential and commercial properties across Vancouver, Burnaby, and the Lower Mainland.',
+        'subheadline' => 'Weekly mowing and lawn care for homes, strata and commercial properties in Vancouver, Burnaby and the Lower Mainland. We also do landscaping and snow removal.',
         'cta_text'    => 'Get a Free Quote →',
         'cta_url'     => '/quote?service=maintenance&src=professional-lawn-mowing-care',
         'image'       => '/assets/img/hero/hero-lawn-care-1920x1080.jpg',
@@ -34,67 +34,67 @@ return [
     'proof_sections' => [
         [
             'type'    => 'benefits',
-            'heading' => 'Why Vancouver Homeowners & Businesses Trust Mowology',
-            'intro'   => 'We\'re not just lawn contractors — we\'re your long-term outdoor property maintenance partner.',
+            'heading' => 'How We Work',
+            'intro'   => 'We are a small crew. We look after your property all year.',
             'items'   => [
                 [
-                    'title' => 'Local Vancouver Expertise',
-                    'desc' => 'We understand Vancouver\'s unique climate, soil conditions, and growing seasons. Our lawn care programs are built specifically for Pacific Northwest properties.'
+                    'title' => 'We know Vancouver lawns',
+                    'desc' => 'We know the climate, the soil and the growing seasons here. Our lawn care is built for Pacific Northwest properties.'
                 ],
                 [
-                    'title' => 'Consistent & Reliable',
-                    'desc' => 'Show up when we say we will, every time. Automated scheduling, same-day service confirmations, and a crew that treats your property with care.'
+                    'title' => 'We show up',
+                    'desc' => 'We come when we say we will. You get a same-day confirmation of each service, from a crew that treats your property with care.'
                 ],
                 [
-                    'title' => 'Residential & Commercial',
-                    'desc' => 'Whether it\'s a single residential lawn in Burnaby or a multi-property strata contract in Vancouver City Centre, we scale our services to fit your needs.'
+                    'title' => 'Homes, strata, business',
+                    'desc' => 'One lawn in Burnaby or a multi-property strata contract in Vancouver City Centre. We fit the service to the property.'
                 ],
                 [
                     'title' => 'Year-Round Property Care',
-                    'desc' => 'Lawn mowing in summer. Leaf cleanup in fall. Snow removal in winter. Spring prep. Mowology is your single provider for complete outdoor property maintenance all year.'
+                    'desc' => 'Mowing in summer. Leaf cleanup in fall. Snow removal in winter. Spring prep. One crew all year.'
                 ],
                 [
                     'title' => 'Photo Verification',
-                    'desc' => 'Timestamped photos after every service. Proof of work you can trust — whether for residential peace of mind or strata management compliance.'
+                    'desc' => 'Timestamped photos after every service. You can see the work was done, whether you own the lawn or manage the strata.'
                 ],
                 [
-                    'title' => 'Expert Support',
-                    'desc' => 'Our team includes certified landscape professionals and horticulturists who understand soil health, disease prevention, and optimal mowing practices.'
+                    'title' => 'People who know plants',
+                    'desc' => 'The team includes certified landscape professionals and horticulturists who know soil health, disease prevention and how to mow properly.'
                 ],
             ],
         ],
         [
             'type'    => 'checklist',
-            'heading' => 'Complete Lawn Mowing & Landscape Maintenance Services',
-            'intro'   => 'From routine residential lawn mowing to full commercial grounds maintenance, Mowology delivers professional results your property deserves.',
+            'heading' => 'What We Do',
+            'intro'   => 'From a weekly home mow to full commercial grounds maintenance.',
             'items'   => [
-                'Lawn Mowing Service — Weekly and bi-weekly professional lawn mowing for Vancouver homes. Clean lines, consistent cuts, and reliable scheduling all season long.',
-                'Lawn Care & Maintenance — Comprehensive lawn maintenance including fertilization, aeration, overseeding, and weed control. We keep your Vancouver lawn healthy and green year-round.',
-                'Commercial Lawn Mowing — Professional grounds maintenance for commercial properties, office parks, and retail spaces. Consistent service that reflects well on your business.',
-                'Strata Landscaping Vancouver — Dedicated strata landscaping services tailored for townhouse complexes and multi-unit properties. Custom maintenance plans and responsive communication with strata councils.',
-                'Landscaping Services — Full landscape maintenance including hedge trimming, garden bed care, shrub pruning, leaf removal, and seasonal property clean-ups.',
-                'Snow Removal Vancouver — Reliable snow removal you can trust. On-call and contract-based snow clearing, salting, and de-icing for residential and commercial properties.',
+                'Lawn Mowing Service: weekly and bi-weekly mowing for Vancouver homes. Clean lines, even cuts and a steady schedule all season.',
+                'Lawn Care & Maintenance: fertilization, aeration, overseeding and weed control. We keep the lawn healthy and green all year.',
+                'Commercial Lawn Mowing: grounds maintenance for commercial properties, office parks and retail spaces, on a set schedule.',
+                'Strata Landscaping Vancouver: maintenance for townhouse complexes and multi-unit properties. We set a plan with the council and answer when they call.',
+                'Landscaping Services: hedge trimming, garden bed care, shrub pruning, leaf removal and seasonal clean-ups.',
+                'Snow Removal Vancouver: on-call and contract snow clearing, salting and de-icing for homes and commercial properties.',
             ],
         ],
         [
             'type'    => 'process',
-            'heading' => 'Getting Started Is Straightforward',
+            'heading' => 'How It Starts',
             'steps'   => [
                 [
                     'title' => 'Request a Quote',
-                    'desc' => 'Tell us about your property and service needs. We\'ll reach out within 24 hours to discuss your lawn care requirements.'
+                    'desc' => 'Tell us about the property and what you need. We will reach out within 24 hours.'
                 ],
                 [
                     'title' => 'Free Property Assessment',
-                    'desc' => 'We evaluate your lawn size, condition, soil, and unique needs to recommend the best service plan for your Vancouver property.'
+                    'desc' => 'We look at the lawn size, condition and soil, then suggest a service plan.'
                 ],
                 [
                     'title' => 'Flexible Service Plans',
-                    'desc' => 'Choose weekly, bi-weekly, or monthly mowing. Add optional services like fertilization, snow removal, or landscape design.'
+                    'desc' => 'Choose weekly, bi-weekly or monthly mowing. Add fertilization, snow removal or landscape design if you want them.'
                 ],
                 [
-                    'title' => 'Reliable Maintenance',
-                    'desc' => 'Your dedicated crew begins service on the agreed schedule with photo documentation and transparent communication throughout the season.'
+                    'title' => 'Service Starts',
+                    'desc' => 'The crew starts on the agreed schedule. You get photos after each visit and we keep in touch through the season.'
                 ],
             ],
         ],
@@ -103,41 +103,41 @@ return [
     'faq' => [
         [
             'q' => 'How much does lawn mowing cost in Vancouver?',
-            'a' => 'Lawn mowing in Vancouver typically starts at $45 for a standard residential lot. Pricing depends on lawn size, terrain, and frequency. Contact Mowology for a free personalized quote.'
+            'a' => 'Lawn mowing in Vancouver starts at $45 for a standard residential lot. The price depends on lawn size, terrain and how often. Ask for a free quote.'
         ],
         [
             'q' => 'Do you offer strata landscaping services in Vancouver?',
-            'a' => 'Yes. Mowology provides full strata landscaping services across Vancouver and Burnaby, including lawn mowing, hedge trimming, seasonal clean-ups, and ongoing grounds maintenance for strata properties.'
+            'a' => 'Yes. We do full strata landscaping across Vancouver and Burnaby: mowing, hedge trimming, seasonal clean-ups and ongoing grounds maintenance.'
         ],
         [
             'q' => 'What areas do you serve for lawn care?',
-            'a' => 'Mowology serves Vancouver, Burnaby, New Westminster, North Vancouver, Richmond, and surrounding Lower Mainland communities for residential and commercial lawn care.'
+            'a' => 'Vancouver, Burnaby, New Westminster, North Vancouver, Richmond and nearby Lower Mainland communities, for homes and commercial properties.'
         ],
         [
             'q' => 'Do you provide snow removal services in Vancouver?',
-            'a' => 'Yes. Mowology offers reliable snow removal for residential and commercial properties across Vancouver. We provide on-call and contract-based snow clearing, salting, and de-icing services.'
+            'a' => 'Yes. We clear, salt and de-ice on call or under contract, for homes and commercial properties across Vancouver.'
         ],
         [
             'q' => 'How often should I have my lawn mowed in Vancouver?',
-            'a' => 'During the peak growing season (April through October), we recommend weekly or bi-weekly mowing for most Vancouver lawns. Frequency depends on your grass type, watering schedule, and desired lawn appearance.'
+            'a' => 'In the growing season (April to October) most Vancouver lawns need weekly or bi-weekly mowing. It depends on the grass, the watering and how you like it to look.'
         ],
         [
             'q' => 'What\'s included in your lawn maintenance service?',
-            'a' => 'Our residential lawn maintenance service includes professional mowing, edging, trimming around obstacles, and grass clipping cleanup. We also offer add-on services including fertilization, aeration, weed control, and overseeding.'
+            'a' => 'Mowing, edging, trimming around obstacles and clipping cleanup. Fertilization, aeration, weed control and overseeding are add-ons.'
         ],
         [
             'q' => 'Can I get on a recurring service schedule?',
-            'a' => 'Absolutely. We offer weekly, bi-weekly, and monthly recurring schedules. Recurring customers receive priority scheduling and automated reminders before each service visit.'
+            'a' => 'Yes. We offer weekly, bi-weekly and monthly schedules. Recurring customers get priority scheduling and automated reminders before each visit.'
         ],
         [
             'q' => 'Do you service commercial properties?',
-            'a' => 'Yes. We maintain office buildings, retail centres, strata properties, business parks, and multi-unit residential complexes across Vancouver, Burnaby, and the Lower Mainland with photo-verified service.'
+            'a' => 'Yes. Office buildings, retail centres, strata properties, business parks and multi-unit residential across Vancouver, Burnaby and the Lower Mainland, with a photo report after every visit.'
         ],
     ],
 
     'cta' => [
-        'headline'       => 'Ready for a Better-Looking Lawn?',
-        'subheadline'    => 'Get a free, no-obligation quote for professional lawn mowing and lawn care in Vancouver.',
+        'headline'       => 'Tell Us About Your Lawn',
+        'subheadline'    => 'Ask for a free, no-obligation quote for lawn mowing and lawn care in Vancouver.',
         'primary_text'   => 'Request Your Free Quote →',
         'primary_url'    => '/quote?service=maintenance&src=professional-lawn-mowing-care',
         'secondary_text' => 'Call 778-846-9273',
