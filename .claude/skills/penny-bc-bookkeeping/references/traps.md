@@ -941,3 +941,7 @@ could empty the whole queue. **Rule:** only the app's own 413/415 are refusals, 
 
 ## 2026-11-19 — "vendor doesn't charge PST" lives on the vendor, not in the parser
 A review screen that nags "PST is missing" for a vendor that never charges it (City of Vancouver landfill) is fixed with the vendor's `pst_exempt` flag (migration 1459), beside `gst_exempt`; `applyVendorPstExempt()` zeroes PST at intake. Emailed-receipt paths (`ReceiptInboxService`, `ReceiptInboxRereadService`) do not read it yet.
+
+### Split PST and unbilled-contract cover (2026-11-16)
+- `ExpenseSplitService::allocate()`: a line the owner marked `pst_taxable=false` must never carry PST. Before, with no line marked true the printed-PST inference ran over every line, so the "off" line could still get PST. Explicit false removes the line from the inference.
+- `UnbilledVisitService::contractCovers()`: an active seasonal/annual/custom contract covers a visit with no invoice only when the visit is under a year old. Older visits with no invoice are `contract_gap`, whatever the contract's status today.

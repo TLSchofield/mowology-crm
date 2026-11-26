@@ -147,9 +147,19 @@ class ExpenseSplitService
         if ($pst > 0 && $flags && in_array(true, $flags, true)) {
             $taxable = array_keys(array_filter($flags));
             $rule = 'owner';
-        } elseif ($pst > 0 && ($sub = self::pstSubset($nets, $pst)) !== null) {
-            $taxable = $sub;
-            $rule = 'printed';
+        } elseif ($pst > 0) {
+            // Lines the owner marked non-taxable never carry PST, even when no line is marked taxable.
+            $off = array_keys(array_filter($flags, static function ($v) { return !$v; }));
+            $cand = $nets;
+            foreach ($off as $k) unset($cand[$k]);
+            if (!$cand) $cand = $nets;
+            if (($sub = self::pstSubset($cand, $pst)) !== null) {
+                $taxable = $sub;
+                $rule = 'printed';
+            } elseif ($off && count($cand) < count($nets)) {
+                $taxable = array_keys($cand);
+                $rule = 'owner';
+            }
         }
         $pstWeights = [];
         foreach ($nets as $k => $v) {

@@ -175,4 +175,11 @@ class ExpenseSplitServiceTest extends TestCase
             'allocations' => [['account' => '5200', 'net' => 120, 'gst' => 6, 'pst' => 8.4], ['account' => '5200', 'net' => 80, 'gst' => 4, 'pst' => 0, 'job_id' => 501]]]);
         $this->assertSame(['5200' => 208.4], LedgerRepostService::categoryMap($entry));
     }
+
+    public function test_a_line_marked_not_taxable_never_gets_pst_when_no_line_is_marked_taxable(): void
+    {
+        $a = ExpenseSplitService::allocate([['key' => 1, 'net' => 50.0, 'pst_taxable' => false], ['key' => 2, 'net' => 50.0]], 112.00, 5.00, 7.00);
+        $this->assertSame(0.0, $a[1]['pst']);
+        $this->assertSame(7.0, $a[2]['pst']);
+    }
 }
