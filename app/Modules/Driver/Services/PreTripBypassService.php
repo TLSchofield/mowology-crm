@@ -23,6 +23,25 @@ class PreTripBypassService
     }
 
     /**
+     * The audit row. logActivity() lives in loginAuth/auth.php, which the phone (JWT) endpoint does not load — calling it
+     * there fataled AFTER a correct PIN was verified, so the waiver was never saved (found by the local driver-flow test,
+     * 2026-11-26). Use it when present, else write the same row directly.
+     */
+    private static function audit(int $userId, string $action, ?string $details): void
+    {
+        if (function_exists('logActivity')) {
+            logActivity($userId, null, $action, $details);
+            return;
+        }
+        try {
+            getDB()->prepare('INSERT INTO activity_log (user_id, contact_id, action, details, ip_address) VALUES (?, NULL, ?, ?, ?)')
+                ->execute([$userId, $action, $details, $_SERVER['REMOTE_ADDR'] ?? null]);
+        } catch (Throwable $e) {
+            error_log('AUDIT WRITE FAILED (activity_log, PreTripBypassService): ' . $e->getMessage());
+        }
+    }
+
+    /**
      * @return array{ok:bool, status:int, error?:string, report_id?:int}
      *   status is the HTTP status the caller should send (200 on success).
      */
@@ -40,7 +59,7 @@ class PreTripBypassService
         // 5 wrong PINs in 10 minutes locks this user out of the bypass (Fable audit 2026-10-12):
         // a 4-digit PIN otherwise falls to 10,000 tries.
         if (AttemptThrottle::pinIsLocked($db, $userId)) {
-            logActivity($userId, null, 'Manager PIN locked out', 'IP: ' . $ip);
+            self::audit($userId, 'Manager PIN locked out', 'IP: ' . $ip);
             return ['ok' => false, 'status' => 429, 'error' => 'Too many wrong PINs. Try again in 10 minutes or call the office.'];
         }
 
@@ -55,7 +74,7 @@ class PreTripBypassService
         if (!$check['ok']) {
             AttemptThrottle::record($db, AttemptThrottle::pinKey($userId), $ip);
             error_log('[pre-trip-bypass] failed PIN attempt for user #' . $userId);
-            logActivity($userId, null, 'Manager PIN failed', 'IP: ' . $ip);
+            self::audit($userId, 'Manager PIN failed', 'IP: ' . $ip);
             return ['ok' => false, 'status' => 403, 'error' => 'Incorrect PIN'];
         }
         AttemptThrottle::clear($db, AttemptThrottle::pinKey($userId));
@@ -66,7 +85,7 @@ class PreTripBypassService
 
         $reason   = self::cleanReason($reason);
         $reportId = (new TripReportService($db))->bypassPreTrip($userId, $vehicleId, $reason, $date);
-        logActivity($userId, null, 'Pre-trip bypassed via manager PIN', 'Reason: ' . $reason);
+        self::audit($userId, 'Pre-trip bypassed via manager PIN', 'Reason: ' . $reason);
 
         return ['ok' => true, 'status' => 200, 'report_id' => $reportId];
     }
