@@ -262,9 +262,15 @@ class PowPdfGenerator
 
         $serviceLabel = $this->serviceLabel($serviceType);
         $logoTag      = '';
-        if (file_exists($this->logoPath)) {
-            $logoData = base64_encode(file_get_contents($this->logoPath));
-            $logoTag  = '<img src="data:image/png;base64,' . $logoData . '" class="logo" alt="' . htmlspecialchars(_idFromName()) . '">';
+        require_once APP_ROOT . '/Modules/Settings/Services/TenantBrand.php';
+        $brand = TenantBrand::forCurrent($this->db);
+        if (!empty($brand['useDefaultLogo'])) {
+            if (file_exists($this->logoPath)) {
+                $logoData = base64_encode(file_get_contents($this->logoPath));
+                $logoTag  = '<img src="data:image/png;base64,' . $logoData . '" class="logo" alt="' . htmlspecialchars(_idFromName()) . '">';
+            }
+        } elseif (($uri = TenantBrand::logoDataUri($brand)) !== '') {
+            $logoTag = '<img src="' . $uri . '" class="logo" alt="' . htmlspecialchars(_idFromName()) . '">';
         }
 
         $mapTag = '';
@@ -604,7 +610,7 @@ class PowPdfGenerator
 </body>
 </html>
         <?php
-        return ob_get_clean();
+        return TenantBrand::recolor(ob_get_clean(), $brand, ['#1A5F4A' => 'primary', '#2D8659' => 'primary', '#0D3B2E' => 'primary']);
     }
 
     /**

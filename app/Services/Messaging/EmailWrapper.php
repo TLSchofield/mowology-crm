@@ -43,6 +43,10 @@ class EmailWrapper
         $colForest   = '#0D3B2E';
         $colTextMid  = '#4a6b5d';
         $colBgSub    = '#f8fffe';
+        // A business with its own colours (TenantBrand) prints them; Mowology and businesses that never chose keep these.
+        require_once dirname(__DIR__, 2) . '/Modules/Settings/Services/TenantBrand.php';
+        $brandOwn = TenantBrand::current();
+        if (!empty($brandOwn['custom'])) { $colGreen = $colDark = $colForest = $brandOwn['primary']; }
         $colBorder   = '#e5ede9';
         $colTextLt   = '#7a9e8c';
 

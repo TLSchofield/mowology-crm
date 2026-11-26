@@ -580,6 +580,9 @@ class PdfGenerator
      */
     private function renderTemplate(string $templateFile, array $data): string
     {
+        // The business's own logo and colours (TenantBrand): every template gets $brand, never Mowology's by default.
+        require_once APP_ROOT . '/Modules/Settings/Services/TenantBrand.php';
+        if (!isset($data['brand'])) $data['brand'] = TenantBrand::forCurrent($this->db);
         extract($data);
         ob_start();
         include $this->templatePath . '/' . $templateFile;

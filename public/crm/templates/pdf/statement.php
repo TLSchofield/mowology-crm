@@ -54,6 +54,7 @@ $closing = (float)$ledger['closing'];
     .totals td.num { text-align:right; }
     .payinstr { margin-top:18px; background:#E8F3F0; border-left:3px solid #2D8659; padding:8px 12px; font-size:8.5pt; color:#0D3B2E; }
     .footer { margin-top:22px; padding-top:8px; border-top:1px solid #e5e7eb; font-size:7.5pt; color:#94a3b8; text-align:center; }
+<?php echo TenantBrand::css($brand, 'statement'); ?>
 </style>
 
 <table class="header-table" width="100%"><tr>

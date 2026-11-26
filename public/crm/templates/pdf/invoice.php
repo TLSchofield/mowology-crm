@@ -366,6 +366,7 @@ if ($modern && $invoiceFooterText !== '' && !$dropFooterText) {
     .total-callout.paid .tc-label { color: #DCEBE2; }
     /* Tighter rows with a hairline between them */
     .items-table td { padding-top: 3px; padding-bottom: 3px; border-bottom: 0.4pt solid #D9DFDA; }
+<?php echo TenantBrand::css($brand, 'invoice'); ?>
 </style>
 <?php endif; ?>
 
@@ -373,6 +374,7 @@ if ($modern && $invoiceFooterText !== '' && !$dropFooterText) {
 <table class="header-table" cellpadding="0" cellspacing="0">
     <tr>
         <td style="width: 50%; vertical-align: top;">
+            <?php if (!empty($brand['useDefaultLogo'])): ?>
             <?php
                 // Build correct logo path based on project root
                 $logoPath = $projectRoot ?? dirname(__DIR__, 3);
@@ -383,6 +385,9 @@ if ($modern && $invoiceFooterText !== '' && !$dropFooterText) {
                 $logoPath = $logoPath . '/assets/img/logo/mowology-logo.jpg';
             ?>
             <img src="<?php echo $logoPath; ?>" alt="<?php echo $esc($bizName); ?>" style="max-height: 30px; margin-bottom: 3px;">
+            <?php elseif (!empty($brand['logoFile'])): ?>
+            <img src="<?php echo $esc($brand['logoFile']); ?>" alt="<?php echo $esc($brand['logoAlt'] !== '' ? $brand['logoAlt'] : $bizName); ?>" style="max-height: 30px; margin-bottom: 3px;">
+            <?php endif; ?>
             <div class="brand-name"><?php echo $esc(strtoupper($bizName)); ?></div>
             <?php if ($bizTagline !== ''): ?>
                 <div class="brand-tagline"><?php echo $esc($bizTagline); ?></div>
