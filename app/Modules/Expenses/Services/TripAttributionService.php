@@ -352,15 +352,24 @@ class TripAttributionService
     public function attribute(string $date): array
     {
         $b = $this->build($date);
-        $this->db->prepare("DELETE FROM ops_trip_job_costs WHERE run_date = ?")->execute([$date]);
-        $ins = $this->db->prepare("
-            INSERT INTO ops_trip_job_costs (run_id, run_date, trip_key, kind, property_id, job_plan_id, visit_id, source,
-                                            expense_id, expense_line_id, amount, is_stock, label)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ");
-        foreach ($b['rows'] as $r) {
-            $ins->execute([$r['run_id'], $r['run_date'], $r['trip_key'], $r['kind'], $r['property_id'], $r['job_plan_id'], $r['visit_id'],
-                           $r['source'], $r['expense_id'], $r['expense_line_id'], $r['amount'], $r['is_stock'], mb_substr((string)$r['label'], 0, 255)]);
+        // Replace the day in one transaction: a failure half way keeps the old rows, not none (Codex nightly 2026-11-06).
+        $own = !$this->db->inTransaction();
+        if ($own) $this->db->beginTransaction();
+        try {
+            $this->db->prepare("DELETE FROM ops_trip_job_costs WHERE run_date = ?")->execute([$date]);
+            $ins = $this->db->prepare("
+                INSERT INTO ops_trip_job_costs (run_id, run_date, trip_key, kind, property_id, job_plan_id, visit_id, source,
+                                                expense_id, expense_line_id, amount, is_stock, label)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ");
+            foreach ($b['rows'] as $r) {
+                $ins->execute([$r['run_id'], $r['run_date'], $r['trip_key'], $r['kind'], $r['property_id'], $r['job_plan_id'], $r['visit_id'],
+                               $r['source'], $r['expense_id'], $r['expense_line_id'], $r['amount'], $r['is_stock'], mb_substr((string)$r['label'], 0, 255)]);
+            }
+            if ($own) $this->db->commit();
+        } catch (Throwable $e) {
+            if ($own && $this->db->inTransaction()) $this->db->rollBack();
+            throw $e;
         }
         // Single-purpose receipts take the job — through the expense gate (audited), and only
         // while the receipt has no job (never overwritten).

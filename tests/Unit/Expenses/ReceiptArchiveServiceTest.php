@@ -113,4 +113,39 @@ class ReceiptArchiveServiceTest extends TestCase
     {
         $this->assertSame([], ReceiptArchiveService::recipientList([]));
     }
+
+    // ── archiveAndPurge: an original that won't delete ───────────────────
+
+    public function test_original_that_cannot_be_removed_is_not_marked_removed(): void
+    {
+        if (function_exists('posix_geteuid') && posix_geteuid() === 0) $this->markTestSkipped('root can unlink anything');
+        $db = class_exists('Pdo\Sqlite') ? PDO::connect('sqlite::memory:') : new PDO('sqlite::memory:');
+        $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $now = function () { return date('Y-m-d H:i:s'); };
+        if ($db instanceof Pdo\Sqlite) $db->createFunction('NOW', $now, 0);
+        else $db->sqliteCreateFunction('NOW', $now, 0);
+        $db->exec("CREATE TABLE media_assets (id INTEGER PRIMARY KEY, archived_at TEXT, archive_path TEXT, archive_batch_id INTEGER,
+                   original_removed INTEGER DEFAULT 0, thumb_path TEXT)");
+        $db->exec("INSERT INTO media_assets (id) VALUES (9)");
+        $dir = sys_get_temp_dir() . '/mw-archive-test-' . getmypid();
+        @mkdir($dir);
+        $file = $dir . '/r.jpg';
+        file_put_contents($file, 'x');
+        chmod($dir, 0555);   // the file can't be unlinked
+        try {
+            $res = (new ReceiptArchiveService($db))->archiveAndPurge([[
+                'media_id' => 9, '_abs' => $file, 'file_path' => 'uploads/receipts/r.jpg', 'stored_filename' => 'r.jpg',
+                'mime_type' => 'image/jpeg', 'expense_date' => '2026-01-15', 'size' => 1,
+            ]], 3, false);
+        } finally {
+            chmod($dir, 0755);
+            @unlink($file);
+            @rmdir($dir);
+        }
+        $row = $db->query("SELECT archived_at, original_removed, archive_batch_id FROM media_assets WHERE id = 9")->fetch(PDO::FETCH_ASSOC);
+        $this->assertNotNull($row['archived_at'], 'the archive copy is recorded');
+        $this->assertSame(3, (int)$row['archive_batch_id']);
+        $this->assertSame(0, (int)$row['original_removed'], 'the original is still on disk');
+        $this->assertIsArray($res);
+    }
 }

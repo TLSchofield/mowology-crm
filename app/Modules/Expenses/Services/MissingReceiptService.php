@@ -771,17 +771,33 @@ class MissingReceiptService
         if ((int)$e['created_by'] !== (int)$user['id'] && !self::isManager($user)) {
             return ['ok' => false, 'message' => 'Pick one of your own receipts'];
         }
-        $s = $this->db->prepare("SELECT id, reason_note FROM penny_missing_receipts WHERE expense_id = ? AND status = 'received' AND id <> ?");
-        $s->execute([$expenseId, $itemId]);
-        if ($other = $s->fetch(PDO::FETCH_ASSOC)) {
-            // The person's own answer beats Penny's amount-and-date guess (onReceipt): reopen that one.
-            if (!preg_match('/^Receipt #\d+ came in$/', (string)$other['reason_note'])) {
-                return ['ok' => false, 'message' => 'That receipt already answers another charge'];
+        // One transaction, and the receipt's other match read locked: the reopen and the close land
+        // together, and two answers at once can't give one receipt two charges (Codex nightly 2026-11-06).
+        $own = !$this->db->inTransaction();
+        if ($own) $this->db->beginTransaction();
+        try {
+            $lock = $this->db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? ' FOR UPDATE' : '';
+            $s = $this->db->prepare("SELECT id, reason_note FROM penny_missing_receipts WHERE expense_id = ? AND status = 'received' AND id <> ?" . $lock);
+            $s->execute([$expenseId, $itemId]);
+            if ($other = $s->fetch(PDO::FETCH_ASSOC)) {
+                // The person's own answer beats Penny's amount-and-date guess (onReceipt): reopen that one.
+                if (!preg_match('/^Receipt #\d+ came in$/', (string)$other['reason_note'])) {
+                    if ($own) $this->db->rollBack();
+                    return ['ok' => false, 'message' => 'That receipt already answers another charge'];
+                }
+                $this->db->prepare("UPDATE penny_missing_receipts SET status = 'open', expense_id = NULL, resolved_by = NULL, resolved_at = NULL, reason_note = NULL
+                                    WHERE id = ?")->execute([(int)$other['id']]);
             }
-            $this->db->prepare("UPDATE penny_missing_receipts SET status = 'open', expense_id = NULL, resolved_by = NULL, resolved_at = NULL, reason_note = NULL
-                                WHERE id = ?")->execute([(int)$other['id']]);
+            if (!$this->close($itemId, 'received', $expenseId, (int)$user['id'], 'Receipt #' . $expenseId . ' — from the crew card')) {
+                // Answered meanwhile: keep Penny's match where it was.
+                if ($own) $this->db->rollBack();
+                return ['ok' => true, 'message' => 'Already sorted — thanks!', 'status' => (string)(($this->item($itemId) ?? [])['status'] ?? '')];
+            }
+            if ($own) $this->db->commit();
+        } catch (Throwable $e) {
+            if ($own && $this->db->inTransaction()) $this->db->rollBack();
+            throw $e;
         }
-        $this->close($itemId, 'received', $expenseId, (int)$user['id'], 'Receipt #' . $expenseId . ' — from the crew card');
         return ['ok' => true, 'message' => 'Got it — thanks! Penny will match it to the bank line.', 'status' => 'received'];
     }
 

@@ -32,6 +32,9 @@ requireLogin();
 
 header('Content-Type: application/json');
 
+// Client addresses: billing staff only, not every login (Codex nightly 2026-11-06).
+requireAnyPermission(['billing.view', 'billing.edit']);
+
 $contactId = intval($_GET['contact_id'] ?? 0);
 $companyId = intval($_GET['company_id'] ?? 0);
 
