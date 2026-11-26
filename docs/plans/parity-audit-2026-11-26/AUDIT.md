@@ -18,7 +18,7 @@ Read-only. Built from the two inventories next to this file (`ios-inventory.md` 
 
 ### P1 — missing or dark features
 - **Android has no Add task** and no "outbox status line" equivalent (only sync badges). iPhone has both.
-- **Android special-request gate: not found** (iPhone row 17, `SpecialRequestOutbox`). **verify** that it truly does not exist.
+- **Android special-request gate exists** (corrected 2026-11-26: `day/DayModels.kt:252` reads `special_requests`, `day/DayScreens.kt:994` holds Start until an unread request is acknowledged). Not yet checked: whether Android queues the "Got it" and answer actions offline the way the iPhone's `SpecialRequestOutbox` does. **verify**.
 - **Android Recommend a service**: drafts in prefs and photos queued, but sending is server-first. iPhone queues the whole thing (`RecommendationQueue`). Partial.
 - **Owner one-box search + ask** (iPhone) vs Android client search plus a separate Ask section. Partial.
 - **Nine native Android features are built but dark.** Each needs a decision: turn on for Ittai, finish first, or remove. They are the cheapest parity wins and carry the most untested code.
