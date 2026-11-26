@@ -32,3 +32,20 @@ Not yet tested: keyboards and Done key on every form, the offline Add job / Add 
 5. Autocorrect turned "St" into "Sth" in Street address: autocorrect should be off for address fields.
 
 **Not tested yet:** Done key on every other form, large-screen layout (tablet), TalkBack, a real phone.
+
+## Round 2 fixes (Android `codex/native` 3a64bae, 2026-11-26) — emulator re-check
+
+| # | Finding | Fix | Seen working on emulator? |
+|---|---|---|---|
+| 1 | Create button greyed with no reason | One-line reason under the button ("Add the client's first name…", "Add the street address…", "Choose a service…", prospect: "Add a phone number or an email…"); pure functions + test | Yes: "Add the client's first name to save this." and "Add the street address to save this." showed, and went away when complete |
+| 2 | No "Saved on this phone" after an offline save | The form's message is now handed to the schedule's notice | Yes: green "Saved on this phone. It is sent when you have signal." with OK. Earlier "missing" screenshots were just too slow (the notice appears about 1.3 s after Save and stays 5 s) |
+| 3 | Empty-day card said "Nothing on today" with a save waiting | Card says "1 save is waiting to send…" when one is queued; test | **Not seen**: an offline day with nothing cached shows a different error card. Covered by unit test only |
+| 4 | Autocorrect changed "St" to "Sth" | Autocorrect off on first/last name, street address, city | **Not proven**: set in code; the emulator keyboard was not seen autocorrecting afterwards |
+| 5 | Add job gives up after 4 s without GPS | Not changed. A real phone gets a fix; the emulator's fake GPS never reaches the fused provider. Needs the tablet/real phone | n/a |
+
+**New finding while testing (not fixed):** a save that the office system answers with a server error (HTTP 500) every time stays "waiting to send" and is retried forever. Cause here: 20 characters typed into Postal code (column holds 10), so the database refused it and the server answered 500 instead of a clear 422. Two parts:
+- Server: `field-job` should validate field lengths and answer 422 with a message (then the app marks it "refused" and shows why). Production code, so needs its own plan and deploy.
+- App: the worker stops at the first failing row (`return Result.retry()`), so one bad save blocks every save behind it. Needs a rule (for example, after several 5xx on the same row, mark it "needs attention" and carry on). Design decision.
+The app now caps Postal code at 10 characters so this particular input can't happen.
+
+Unit tests: 1081 run, 0 fail (1076 before + 5 new).
