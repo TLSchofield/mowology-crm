@@ -1,5 +1,5 @@
 {
-  "_comment": "samtest (Heritage rehearsal for Sam Chapman and Claudia's shared onboarding flow, 2026-11-26): every native switch ON so the Ittai build is fully native, as a founding business gets it. Release details pinned so the app never asks for the Mowology build. Copy of rehearsal2's; flip a switch by editing this file only.",
+  "_comment": "samtest (Heritage rehearsal for Sam Chapman, 2026-11-26): Sam's real scope only, receipts and ledger. Sign-up, onboarding, camera, receipts and review on; field tools, schedule extras, time clock, GPS setup, quiz, invoice, trips and plants OFF, so the Kaname welcome offers 'Take my first receipt' and not 'Add my first job'. Release pinned. Flip a switch by editing this file only.",
   "android": {
     "version": "1.8.0",
     "build": 22,
@@ -10,24 +10,24 @@
     "native_auth": true,
     "native_day": true,
     "webview_shell_disabled": true,
-    "native_schedule_header": true,
-    "native_schedule_plus": true,
-    "native_timeclock": true,
+    "native_schedule_header": false,
+    "native_schedule_plus": false,
+    "native_timeclock": false,
     "native_offline_start": true,
     "native_queue_safety": true,
-    "native_tracking_setup": true,
+    "native_tracking_setup": false,
     "native_camera": true,
-    "native_visit": true,
-    "native_photo_gallery": true,
-    "native_quiz": true,
+    "native_visit": false,
+    "native_photo_gallery": false,
+    "native_quiz": false,
     "native_ai_office": true,
     "native_receipts": true,
     "native_receipt_review": true,
-    "native_field_tools": true,
-    "native_invoice": true,
-    "native_trip_report": true,
-    "native_plants": true,
+    "native_field_tools": false,
+    "native_invoice": false,
+    "native_trip_report": false,
+    "native_plants": false,
     "native_signup": true,
-    "native_crew_schedule": true
+    "native_crew_schedule": false
   }
 }
