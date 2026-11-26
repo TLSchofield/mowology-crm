@@ -57,7 +57,15 @@ final class RecommendationViewModel: ObservableObject {
 
     /// Ask first needs a service, the 1180 server, someone with an email, and consent.
     var canAsk: Bool {
-        canSubmit && (selected?.canAsk ?? false) && recipients?.askBlockedReason == nil
+        !isSubmitting && askDisabledReason == nil
+    }
+
+    var askDisabledReason: String? {
+        FormReasonRules.askFirst(
+            hasSelectedService: selected != nil,
+            serviceCanAsk: selected?.canAsk ?? false,
+            blockedReason: recipients?.askBlockedReason
+        )
     }
 
     /// Label for the quote button — a service with no price goes to the office first.
@@ -516,44 +524,47 @@ struct RecommendationSection: View {
     }
 
     private var submitButtons: some View {
-        submitLayout {
-            Button {
-                Task { await viewModel.submit(intent: "ask") }
-            } label: {
-                Text("Ask first")
-                    .font(appStyle.font(.subheadline, weight: .semibold))
+        VStack(alignment: .leading, spacing: ItSpace.s2) {
+            submitLayout {
+                Button {
+                    Task { await viewModel.submit(intent: "ask") }
+                } label: {
+                    Text("Ask first")
+                        .font(appStyle.font(.subheadline, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .frame(minHeight: 48)
+                        .foregroundColor(viewModel.canAsk ? appStyle.tenant : (appStyle.isEnabled ? appStyle.meta : Color(.systemGray3)))
+                        .background(
+                            RoundedRectangle(cornerRadius: appStyle.cornerRadius(10))
+                                .stroke(viewModel.canAsk ? appStyle.tenant : (appStyle.isEnabled ? appStyle.line : Color(.systemGray4)), lineWidth: 2)
+                        )
+                }
+                .buttonStyle(.plain)
+                .disabled(!viewModel.canAsk)
+
+                Button {
+                    Task { await viewModel.submit(intent: "quote") }
+                } label: {
+                    HStack {
+                        if viewModel.isSubmitting {
+                            ProgressView().tint(appStyle.onTenant)
+                        }
+                        Text(viewModel.isSubmitting ? "Sending…" : viewModel.quoteButtonTitle)
+                            .font(appStyle.font(.subheadline, weight: .semibold))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
-                .frame(minHeight: 48)
-                    .foregroundColor(viewModel.canAsk ? appStyle.tenant : (appStyle.isEnabled ? appStyle.meta : Color(.systemGray3)))
-                    .background(
-                        RoundedRectangle(cornerRadius: appStyle.cornerRadius(10))
-                            .stroke(viewModel.canAsk ? appStyle.tenant : (appStyle.isEnabled ? appStyle.line : Color(.systemGray4)), lineWidth: 2)
-                    )
-            }
-            .buttonStyle(.plain)
-            .disabled(!viewModel.canAsk)
-
-            Button {
-                Task { await viewModel.submit(intent: "quote") }
-            } label: {
-                HStack {
-                    if viewModel.isSubmitting {
-                        ProgressView().tint(appStyle.onTenant)
-                    }
-                    Text(viewModel.isSubmitting ? "Sending…" : viewModel.quoteButtonTitle)
-                        .font(appStyle.font(.subheadline, weight: .semibold))
-                        .fixedSize(horizontal: false, vertical: true)
+                    .frame(minHeight: 48)
+                    .background(viewModel.canSubmit ? appStyle.tenant : (appStyle.isEnabled ? appStyle.line : Color(.systemGray4)))
+                    .foregroundColor(appStyle.onTenant)
+                    .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .frame(minHeight: 48)
-                .background(viewModel.canSubmit ? appStyle.tenant : (appStyle.isEnabled ? appStyle.line : Color(.systemGray4)))
-                .foregroundColor(appStyle.onTenant)
-                .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
+                .buttonStyle(.plain)
+                .disabled(!viewModel.canSubmit)
             }
-            .buttonStyle(.plain)
-            .disabled(!viewModel.canSubmit)
+            ItDisabledReason(viewModel.askDisabledReason)
         }
     }
 

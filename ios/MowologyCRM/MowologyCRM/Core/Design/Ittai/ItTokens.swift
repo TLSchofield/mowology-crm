@@ -13,6 +13,7 @@ enum ItTokenHex {
         .sunk: 0xEEF1EE,
         .selected: 0xE8ECE9,
         .line: 0xD9DFDA,
+        .fieldBorder: 0x78827B,
         .text: 0x131D17,
         .meta: 0x48534C,
         .tenant: 0x1A5A39,
@@ -45,6 +46,7 @@ enum ItTokenHex {
         .sunk: 0x222D27,
         .selected: 0x1F2A24,
         .line: 0x2C3832,
+        .fieldBorder: 0x7C8981,
         .text: 0xE9EEEA,
         .meta: 0xAFB9B3,
         .tenant: 0x72C897,
@@ -77,6 +79,7 @@ enum ItTokenHex {
         .sunk: 0xF1F3F1,
         .selected: 0xE6EAE7,
         .line: 0xA9B2AD,
+        .fieldBorder: 0x6C766F,
         .text: 0x0F1512,
         .meta: 0x33413A,
         .tenant: 0x1A5A39,
@@ -117,6 +120,8 @@ enum ItColorToken: String, CaseIterable {
     case selected = "selected"
     /// Hairlines (1 px) between rows and sections, and the six resting spokes. Decorative: never the only carrier of meaning.
     case line = "line"
+    /// Resting border of a text field or other control edge. 3:1 or better against page, surface and sunk in every mode (WCAG 1.4.11). Use this, never line, when the e
+    case fieldBorder = "field-border"
     /// Primary text. 17.3:1 on surface (light), 14.5:1 (dark). Also highlighted spokes.
     case text = "text"
     /// Metadata, secondary text, idle and unavailable states. 6.3:1 on surface (light), 7.5:1 (dark).

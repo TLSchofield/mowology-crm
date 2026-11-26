@@ -760,6 +760,7 @@ struct ReceiptsView: View {
                 Section("Reason for rejection (applies to all \(selectedIds.count) selected)") {
                     TextField("Explain why these expenses are being rejected…", text: $bulkRejectReason, axis: .vertical)
                         .lineLimit(3...6)
+                    ItDisabledReason(FormReasonRules.requiredText(bulkRejectReason, reason: "Enter a reason for rejection"))
                 }
                 .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
             }
@@ -1199,6 +1200,7 @@ private struct AddProductFlow: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            .itKeyboardDone()
             .confirmationDialog("Add a product", isPresented: $showChoice, titleVisibility: .visible) {
                 Button("Take a photo of the label", action: onCamera)
                 Button("Choose from photo library", action: onLibrary)
@@ -1209,9 +1211,10 @@ private struct AddProductFlow: ViewModifier {
             .alert(proposal?.isNew == false ? "Add the photo" : "Add this product?", isPresented: $showAdd) {
                 if proposal?.isNew != false {
                     TextField("Name", text: $name)
-                    TextField("Cost (optional)", text: $cost).keyboardType(.decimalPad)
+                    TextField("e.g. 25.00", text: $cost).keyboardType(.decimalPad)
                 }
                 Button("Add") { addTapped() }
+                    .disabled(proposal?.isNew != false && FormReasonRules.requiredText(name, reason: "Enter a product name") != nil)
                 Button("Not now", role: .cancel) { addError = nil; viewModel.labelResult = nil }
             } message: {
                 Text(addMessage)
@@ -1226,8 +1229,11 @@ private struct AddProductFlow: ViewModifier {
     private var addMessage: String {
         guard let r = viewModel.labelResult, let p = r.proposal else { return "" }
         if let addError { return "Couldn't add it: \(addError)" }
-        return p.isNew ? "\(r.message)\n\n\"Not now\" leaves it on Penny's card on the dashboard."
-                       : "That's \(p.name). Add this photo to it?"
+        guard p.isNew else { return "That's \(p.name). Add this photo to it?" }
+
+        let nameReason = FormReasonRules.requiredText(name, reason: "Enter a product name")
+            .map { "\n\n\($0)." } ?? ""
+        return "\(r.message)\(nameReason)\n\nCost (optional)\n\n\"Not now\" leaves it on Penny's card on the dashboard."
     }
 
     private func addTapped() {

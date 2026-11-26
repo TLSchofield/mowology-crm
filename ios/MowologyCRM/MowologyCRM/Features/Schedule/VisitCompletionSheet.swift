@@ -68,10 +68,12 @@ struct VisitCompletionSheet: View {
                     // A snow & salt route stop can't be completed until the crew say what was done.
                     .disabled(vm.snowIsRoute && vm.snowChoice == nil)
                     .opacity(vm.snowIsRoute && vm.snowChoice == nil ? 0.45 : 1)
+                ItDisabledReason(vm.snowIsRoute && vm.snowChoice == nil ? "Choose what was done" : nil)
             }
             .padding(16)
         }
         .background(appStyle.page)
+        .itKeyboardDone()
         .task {
             // Snow & salt route stop? Then the crew record what was done before completing.
             await vm.loadSnowRoute(visitId: visit.visitId, serviceType: visit.serviceType)

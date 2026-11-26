@@ -1872,6 +1872,9 @@ private struct EditExpenseView: View {
                     Section { Text(err).foregroundStyle(appStyle.blocked).font(appStyle.font(.subheadline)) }
                     .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
                 }
+                if FormReasonRules.receiptTotal(total) != nil {
+                    Section { ItDisabledReason(FormReasonRules.receiptTotal(total)) }
+                }
             }
             .navigationTitle("Edit Receipt")
             .navigationBarTitleDisplayMode(.inline)
@@ -1893,7 +1896,7 @@ private struct EditExpenseView: View {
                                 .foregroundStyle(appStyle.tenant)
                         }
                     }
-                    .disabled(viewModel.isSaving || total.isEmpty)
+                    .disabled(viewModel.isSaving || FormReasonRules.receiptTotal(total) != nil)
                 }
             }
         }

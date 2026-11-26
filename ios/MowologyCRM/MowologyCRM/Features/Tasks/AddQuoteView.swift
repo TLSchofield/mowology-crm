@@ -42,10 +42,15 @@ struct AddQuoteView: View {
     /// Made once per quote, so a second tap or a resend can't make a second one.
     @State private var requestId = UUID().uuidString
 
-    private var canSave: Bool {
-        client != nil && !title.trimmingCharacters(in: .whitespaces).isEmpty && !lines.isEmpty
-            && lines.allSatisfy(\.isValid) && !saving
+    private var disabledReason: String? {
+        FormReasonRules.addQuote(
+            hasClient: client != nil,
+            title: title,
+            lines: lines.map { ($0.description, $0.quantityValue, $0.priceValue) }
+        )
     }
+
+    private var canSave: Bool { disabledReason == nil && !saving }
 
     private var totals: (subtotal: Double, gst: Double, total: Double) {
         QuoteMath.totals(lines: lines.map { (quantity: $0.quantityValue ?? 0, price: $0.priceValue ?? 0) },
@@ -69,23 +74,30 @@ struct AddQuoteView: View {
                             .font(appStyle.font(.footnote)).foregroundStyle(appStyle.meta)
                     }
                 }
-                Section {
+                Section("Title") {
                     TextField("Title, e.g. Fall cleanup", text: $title)
                 }
                 Section("Lines") {
                     ForEach($lines) { $line in
                         VStack(alignment: .leading, spacing: 8) {
                             TextField("Description", text: $line.description, axis: .vertical)
-                            HStack(spacing: 12) {
-                                TextField("Qty", text: $line.quantity)
-                                    .keyboardType(.decimalPad)
-                                    .frame(maxWidth: 70)
-                                    .accessibilityLabel("Quantity")
+                            HStack(alignment: .bottom, spacing: 12) {
+                                VStack(alignment: .leading, spacing: ItSpace.s1) {
+                                    Text("Qty").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
+                                    TextField("e.g. 1", text: $line.quantity)
+                                        .keyboardType(.decimalPad)
+                                        .frame(maxWidth: 70, minHeight: ItSize.targetPhone)
+                                        .accessibilityLabel("Quantity")
+                                }
                                 if !line.unit.isEmpty { Text(line.unit).foregroundStyle(appStyle.meta) }
                                 Text("×").foregroundStyle(appStyle.meta).accessibilityHidden(true)
-                                TextField("Price", text: $line.price)
-                                    .keyboardType(.decimalPad)
-                                    .accessibilityLabel("Price")
+                                VStack(alignment: .leading, spacing: ItSpace.s1) {
+                                    Text("Price").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
+                                    TextField("e.g. 25.00", text: $line.price)
+                                        .keyboardType(.decimalPad)
+                                        .frame(minHeight: ItSize.targetPhone)
+                                        .accessibilityLabel("Price")
+                                }
                                 Spacer(minLength: 0)
                                 Text(Self.money(QuoteMath.lineTotal(quantity: line.quantityValue ?? 0, price: line.priceValue ?? 0)))
                                     .monospacedDigit()
@@ -123,6 +135,7 @@ struct AddQuoteView: View {
                 Section("Note for the customer (optional)") {
                     TextField("Note", text: $note, axis: .vertical)
                 }
+                if disabledReason != nil { Section { ItDisabledReason(disabledReason) } }
             }
             .itAppForm()
             .itAppScreen()

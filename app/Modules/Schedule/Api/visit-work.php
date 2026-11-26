@@ -102,7 +102,8 @@ try {
                     $userId,
                     (string)($input['content'] ?? ''),
                     (string)($input['note_type'] ?? 'general'),
-                    !empty($input['visible_to_customer'])
+                    !empty($input['visible_to_customer']),
+                    !empty($input['client_request_id'])   // queued on the phone: replaying it must not add a second note
                 );
                 break;
 
