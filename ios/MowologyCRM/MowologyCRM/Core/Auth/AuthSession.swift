@@ -182,6 +182,7 @@ final class AuthSession: ObservableObject {
         user            = newUser
         isAuthenticated = true
         FixStore.shared.claim(for: newUser.id)   // someone else's unsent GPS is dropped first
+        ScheduleCache.shared.claim(for: newUser.id)   // and someone else's cached schedule
     }
 
     // MARK: - Logout
@@ -196,6 +197,7 @@ final class AuthSession: ObservableObject {
         KeychainStore.delete(key: KeychainKey.jwt)
         KeychainStore.delete(key: KeychainKey.user)
         OfflineDirectory.shared.clear()
+        ScheduleCache.shared.clear()   // the next person on this phone must not see this schedule offline
         token           = nil
         user            = nil
         isAuthenticated = false
@@ -219,6 +221,7 @@ final class AuthSession: ObservableObject {
         user            = storedUser
         isAuthenticated = true
         FixStore.shared.claim(for: storedUser.id)
+        ScheduleCache.shared.claim(for: storedUser.id)
     }
 
     private func extractErrorMessage(from data: Data) -> String? {

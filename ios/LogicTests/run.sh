@@ -61,6 +61,10 @@ run quotemath "$SRC/Features/Tasks/QuoteMath.swift" "$OUT/main.swift"
 cp "$ROOT/ios/LogicTests/CreateOutboxTests.swift" "$OUT/main.swift"
 run createoutbox "$SRC/Core/Offline/CreateOutboxLogic.swift" "$OUT/main.swift"
 
+# Shared phones (2026-11-26): the cached schedule belongs to whoever signed in last.
+cp "$ROOT/ios/LogicTests/ScheduleCacheOwnerTests.swift" "$OUT/main.swift"
+run schedulecacheowner "$SRC/Core/Offline/ScheduleCacheOwner.swift" "$OUT/main.swift"
+
 # The head's spine (2026-11-07): right-hand counts, open state, role lines.
 cp "$ROOT/ios/LogicTests/HeadSpineTests.swift" "$OUT/main.swift"
 run headspine "$SRC/Features/Team/HeadSpineLogic.swift" "$OUT/main.swift"
@@ -110,7 +114,7 @@ run scheduletimeline "$SRC/Core/Design/MWTheme.swift" "$SRC/Core/Models/ServiceH
 # Display-only schedule names and the 04:00-local first-open assembly gate.
 cp "$ROOT/ios/LogicTests/SchedulePresentationTests.swift" "$OUT/main.swift"
 run schedulepresentation "$SRC/Core/Design/MWTheme.swift" "$SRC/Core/Models/ServiceHistory.swift" "$SRC/Core/Models/Visit.swift" \
-  "$SRC/Core/Models/Stop.swift" "$SRC/Core/Design/Ittai/ItTokens.swift" \
+  "$SRC/Core/Models/Stop.swift" "$SRC/Features/Schedule/ScheduleTimelineRules.swift" "$SRC/Core/Design/Ittai/ItTokens.swift" \
   "$SRC/Core/Design/Ittai/ItTheme.swift" "$SRC/Core/Design/Ittai/ItSymbol.swift" \
   "$SRC/Core/Design/Ittai/ItSymbolAssembly.swift" "$OUT/main.swift"
 

@@ -222,6 +222,7 @@
 		05FBBBE119DD1520F414451D /* QuizDemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = E465AAA0176426DA253EC733 /* QuizDemo.swift */; };
 		1FBB69D7B1C62988C150F79E /* OttoBorderSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F4B182F4C19470BE5219F62 /* OttoBorderSheet.swift */; };
 		C02D363686183527B6CE64A5 /* AddressSuggest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AD54FB9AE90263A3C366ACC /* AddressSuggest.swift */; };
+		6B99066548EF04674910DFB0 /* ScheduleCacheOwner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08BC1067BD7E73A6D65780BE /* ScheduleCacheOwner.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -442,6 +443,7 @@
 		E465AAA0176426DA253EC733 /* QuizDemo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuizDemo.swift; sourceTree = "<group>"; };
 		5F4B182F4C19470BE5219F62 /* OttoBorderSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OttoBorderSheet.swift; sourceTree = "<group>"; };
 		7AD54FB9AE90263A3C366ACC /* AddressSuggest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddressSuggest.swift; sourceTree = "<group>"; };
+		08BC1067BD7E73A6D65780BE /* ScheduleCacheOwner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduleCacheOwner.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -465,6 +467,7 @@
 				75EED827CE0FAB32D41D7584 /* CreateOutboxLogic.swift */,
 				AAFBF79F68E73643CD620F5B /* OfflineDirectory.swift */,
 				5D5BF0728D4806D5A42F6E1C /* VendorItemCache.swift */,
+				08BC1067BD7E73A6D65780BE /* ScheduleCacheOwner.swift */,
 			);
 			path = Offline;
 			sourceTree = "<group>";
@@ -1156,6 +1159,7 @@
 				05FBBBE119DD1520F414451D /* QuizDemo.swift in Sources */,
 				1FBB69D7B1C62988C150F79E /* OttoBorderSheet.swift in Sources */,
 				C02D363686183527B6CE64A5 /* AddressSuggest.swift in Sources */,
+				6B99066548EF04674910DFB0 /* ScheduleCacheOwner.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
