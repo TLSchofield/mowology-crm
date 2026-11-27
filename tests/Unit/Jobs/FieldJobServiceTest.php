@@ -148,4 +148,36 @@ final class FieldJobServiceTest extends TestCase
         $this->assertSame('phone', FieldJobService::preferredMethod(['phone' => '778', 'email' => 'a@b.ca']));
         $this->assertSame('phone', FieldJobService::preferredMethod([]));
     }
+
+    public function testTextLongerThanItsColumnIsRefusedBeforeAnythingIsSaved(): void
+    {
+        $this->assertNull(FieldJobService::tooLong(['first_name' => 'Ann', 'property_postal_code' => 'V6B 1A1']));
+        $this->assertSame('Postal code can be 10 characters at most.',
+            FieldJobService::tooLong(['property_postal_code' => 'V6B 1A1V6B 1A1V6B']));
+        $this->assertSame('First name can be 100 characters at most.',
+            FieldJobService::tooLong(['first_name' => str_repeat('a', 101)]));
+        $this->assertSame('Street address can be 255 characters at most.',
+            FieldJobService::tooLong(['property_address' => str_repeat('x', 256)]));
+        $this->assertSame('Service can be 100 characters at most.',
+            FieldJobService::tooLong(['service_type' => str_repeat('s', 101)]));
+        // Two names that each fit still overflow the 200-character property name together.
+        $this->assertSame('First and last name together can be 200 characters at most.',
+            FieldJobService::tooLong(['first_name' => str_repeat('a', 100), 'last_name' => str_repeat('b', 100)]));
+        // Spaces around the text are trimmed first, so they do not count.
+        $this->assertNull(FieldJobService::tooLong(['property_postal_code' => '  V6B 1A1  ']));
+        // Multi-byte letters count as characters, not bytes.
+        $this->assertNull(FieldJobService::tooLong(['first_name' => str_repeat('é', 100)]));
+    }
+
+    public function testHandleAnswers422ForTooLongTextWithoutTouchingTheDatabase(): void
+    {
+        $service = (new ReflectionClass(FieldJobService::class))->newInstanceWithoutConstructor();
+        foreach (['create_job', 'create_client_job', 'create_client'] as $action) {
+            $r = $service->handle($action, ['first_name' => 'Ann', 'property_address' => '1 Main',
+                'service_type' => 'Lawn', 'property_postal_code' => str_repeat('9', 20)], 1, 'Test');
+            $this->assertFalse($r['success']);
+            $this->assertSame(422, $r['status']);
+            $this->assertSame('Postal code can be 10 characters at most.', $r['error']);
+        }
+    }
 }
