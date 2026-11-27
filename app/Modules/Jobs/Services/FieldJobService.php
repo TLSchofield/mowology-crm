@@ -402,8 +402,40 @@ class FieldJobService
         return ['success' => true, 'contact_id' => $contactId, 'property_id' => $propertyId];
     }
 
+    /**
+     * Text longer than its database column used to reach the insert and come back as a 500, which phones
+     * treat as "try again later" and retry forever (2026-11-26). Say which field is too long instead, as a
+     * 422 the phone shows as a refusal. Limits match the live columns (contacts, properties, job_plans).
+     */
+    public static function tooLong(array $input): ?string
+    {
+        $limits = [
+            'first_name' => ['First name', 100], 'last_name' => ['Last name', 100],
+            'phone' => ['Phone number', 50], 'email' => ['Email', 255],
+            'property_address' => ['Street address', 255], 'property_city' => ['City', 100],
+            'property_postal_code' => ['Postal code', 10],
+            'service_type' => ['Service', 100], 'title' => ['Job title', 255],
+        ];
+        foreach ($limits as $key => [$label, $max]) {
+            $value = trim((string)($input[$key] ?? ''));
+            if (mb_strlen($value) > $max) {
+                return "$label can be $max characters at most.";
+            }
+        }
+        // The property is named "first last" in a 200-character column.
+        $name = trim(trim((string)($input['first_name'] ?? '')) . ' ' . trim((string)($input['last_name'] ?? '')));
+        if (mb_strlen($name) > 200) {
+            return 'First and last name together can be 200 characters at most.';
+        }
+        return null;
+    }
+
     public function handle(string $action, array $input, int $userId, string $createdBy): array
     {
+        if (in_array($action, ['create_job', 'create_client_job', 'create_client'], true)
+            && ($tooLong = self::tooLong($input)) !== null) {
+            return ['success' => false, 'status' => 422, 'error' => $tooLong];
+        }
         switch ($action) {
             case 'add_visit':
                 return $this->addVisit((int)($input['plan_id'] ?? 0), $input['date'] ?? '', $userId);
