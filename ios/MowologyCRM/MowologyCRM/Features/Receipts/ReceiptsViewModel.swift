@@ -132,7 +132,7 @@ final class ReceiptsViewModel: ObservableObject {
             pst:           pst,
             total:         total,
             category:      s?.accountingCategory ?? "",
-            paymentMethod: intake.card?.paymentMethod ?? p?.paymentMethod ?? "credit_card",
+            paymentMethod: ReceiptPaymentMethod.suggested(card: intake.card?.paymentMethod, parsed: p?.paymentMethod),
             rawOcrText:    intake.ocrText,
             ocrParsed:     p,
             jobId:         pick?.id,
