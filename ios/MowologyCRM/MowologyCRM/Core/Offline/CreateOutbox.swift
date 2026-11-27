@@ -39,6 +39,9 @@ final class CreateOutbox: ObservableObject {
         let bodyJSON: Data
         let queuedAt: Date
         var refused: String?
+        /// Server faults (5xx) on this entry so far; lost-signal tries are not counted. Nil in older saved files.
+        var failures: Int?
+        var firstFailureAt: Date?
     }
 
     @Published private(set) var entries: [Entry] = []
@@ -64,7 +67,7 @@ final class CreateOutbox: ObservableObject {
               let json = try? JSONSerialization.data(withJSONObject: body) else { return false }
         if entries.contains(where: { $0.id == id }) { return true }   // the same tap queued twice
         var list = entries
-        list.append(Entry(id: id, kind: kind, userId: userId, title: title, bodyJSON: json, queuedAt: Date(), refused: nil))
+        list.append(Entry(id: id, kind: kind, userId: userId, title: title, bodyJSON: json, queuedAt: Date(), refused: nil, failures: nil, firstFailureAt: nil))
         return save(list)
     }
 
@@ -72,6 +75,8 @@ final class CreateOutbox: ObservableObject {
         guard let i = entries.firstIndex(where: { $0.id == id }) else { return }
         var list = entries
         list[i].refused = nil
+        list[i].failures = nil
+        list[i].firstFailureAt = nil
         save(list)
         await drain(using: apiClient)
     }
@@ -149,6 +154,11 @@ final class CreateOutbox: ObservableObject {
                 }
             } catch APIError.serverError(let message) {
                 mark(entry.id, refused: message)
+            } catch APIError.networkError(let inner) where (inner as? UploadFault).map({ $0.status >= 500 }) == true {
+                // The office system itself failed on this entry. Count it and carry on with the entries behind it;
+                // after enough failures over enough time it is shown as "couldn't be saved" with the real error.
+                recordServerFault(entry.id, detail: ErrorDetails.describe(inner))
+                AppDiagnostics.shared.record(category: "CreateOutbox", message: "\(entry.kind.rawValue) server fault: \(ErrorDetails.describe(inner))")
             } catch {
                 // No signal, a busy server, or the login expired: keep it, and keep the order.
                 AppDiagnostics.shared.record(category: "CreateOutbox", message: "\(entry.kind.rawValue) waits: \(ErrorDetails.describe(error))")
@@ -185,6 +195,16 @@ final class CreateOutbox: ObservableObject {
         guard let i = entries.firstIndex(where: { $0.id == id }) else { return }
         var list = entries
         list[i].refused = refused
+        save(list)
+    }
+
+    private func recordServerFault(_ id: String, detail: String) {
+        guard let i = entries.firstIndex(where: { $0.id == id }) else { return }
+        var list = entries
+        let next = CreateOutboxLogic.afterServerFault(failures: list[i].failures, firstFailureAt: list[i].firstFailureAt, now: Date())
+        list[i].failures = next.failures
+        list[i].firstFailureAt = next.firstFailureAt
+        if next.giveUp { list[i].refused = detail }
         save(list)
     }
 

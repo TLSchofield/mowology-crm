@@ -37,4 +37,18 @@ enum CreateOutboxLogic {
         if refused > 0 { parts.append("\(refused) couldn't be saved") }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
+
+    /// A save the office system keeps failing on (a server fault, 5xx, not a lost signal) is shown to the person after
+    /// this many failures over this long, instead of being retried silently forever.
+    static let giveUpFailures = 5
+    static let giveUpAfter: TimeInterval = 60 * 60
+
+    /// Counts one more server fault for an entry; says whether it now goes to "needs attention".
+    /// `failures` and `firstFailureAt` are what the entry held before this fault.
+    static func afterServerFault(failures: Int?, firstFailureAt: Date?, now: Date)
+        -> (failures: Int, firstFailureAt: Date, giveUp: Bool) {
+        let first = (failures ?? 0) == 0 ? now : (firstFailureAt ?? now)
+        let count = (failures ?? 0) + 1
+        return (count, first, count >= giveUpFailures && now.timeIntervalSince(first) >= giveUpAfter)
+    }
 }
