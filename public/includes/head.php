@@ -116,6 +116,7 @@ $canonicalUrl = SITE_URL . $canonicalPath;
 
   <!-- Styles -->
   <link rel="stylesheet" href="<?= h(asset('/assets/css/master.css')) ?>">
+  <link rel="stylesheet" href="<?= h(asset('/assets/css/layout/header-phone.css')) ?>">
 
   <?= $extraHead ?>
 

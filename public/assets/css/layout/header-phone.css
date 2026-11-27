@@ -1,0 +1,75 @@
+/* Header on a phone: logo, menu button and "Get a Quote" all fit inside the screen.
+   Linked after master.css in includes/head.php. Production serves a flattened master.css bundle (not the
+   modular files), so this is a small separate file added on top of it. Fixes the "Get a Quote" button
+   (added 2026-11-24 with no styles) running off the right edge. */
+
+.header-quote-btn {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    margin-left: 12px;
+}
+
+@media (max-width: 768px) {
+    .nav-wrapper {
+        gap: 8px;
+    }
+
+    .logo {
+        min-width: 0;
+        flex: 1 1 auto;
+    }
+
+    .logo-text-group {
+        min-width: 0;
+    }
+
+    .header .header-quote-btn {
+        margin-left: 0;
+        padding: 8px 12px;
+        min-height: 44px;
+        font-size: 14px;
+        line-height: 1.2;
+        display: inline-flex;
+        align-items: center;
+    }
+}
+
+@media (max-width: 576px) {
+    .logo {
+        gap: 8px;
+    }
+
+    .logo-icon {
+        height: 38px;
+    }
+
+    .logo-text {
+        font-size: 18px;
+        letter-spacing: 1.5px;
+    }
+}
+
+/* No room for the tagline beside the button. */
+@media (max-width: 400px) {
+    .logo-tagline {
+        display: none;
+    }
+}
+
+@media (max-width: 380px) {
+    .logo-text {
+        font-size: 16px;
+        letter-spacing: 1px;
+    }
+
+    .logo-icon {
+        height: 34px;
+    }
+}
+
+/* Very narrow phones (320px): the logo icon alone keeps the menu and button on screen. */
+@media (max-width: 340px) {
+    .logo-text-group {
+        display: none;
+    }
+}
