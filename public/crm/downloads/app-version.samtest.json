@@ -29,6 +29,7 @@
     "native_plants": false,
     "native_signup": true,
     "native_crew_schedule": false,
-    "native_quiet_choice": true
+    "native_quiet_choice": true,
+    "native_time_carousel": true
   }
 }
