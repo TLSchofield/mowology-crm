@@ -277,12 +277,14 @@ $taxRate = floatval($quote['tax_rate'] ?? 0.05);
     .status-sent { background: #dbeafe; color: #1d4ed8; }
     .status-accepted { background: #dcfce7; color: #166534; }
     .status-declined { background: #fee2e2; color: #991b1b; }
+<?php echo TenantBrand::css($brand, 'quote'); ?>
 </style>
 
 <!-- Header: Business info left, Quote info right -->
 <table class="header-table" cellpadding="0" cellspacing="0">
     <tr>
         <td style="width: 52%; vertical-align: top;">
+            <?php if (!empty($brand['useDefaultLogo'])): ?>
             <?php
                 // Build correct logo path for mPDF (requires absolute filesystem paths)
                 $logoPath = $projectRoot ?? dirname(__DIR__, 3);
@@ -304,6 +306,9 @@ $taxRate = floatval($quote['tax_rate'] ?? 0.05);
             ?>
             <?php if ($logoPath && file_exists($logoPath)): ?>
                 <img src="<?php echo htmlspecialchars($logoPath); ?>" alt="<?php echo htmlspecialchars(_idFromName()); ?>" style="max-height: 50px; margin-bottom: 8px;">
+            <?php endif; ?>
+            <?php elseif (!empty($brand['logoFile'])): ?>
+                <img src="<?php echo htmlspecialchars($brand['logoFile']); ?>" alt="<?php echo htmlspecialchars($brand['logoAlt'] !== '' ? $brand['logoAlt'] : _idFromName()); ?>" style="max-height: 50px; margin-bottom: 8px;">
             <?php endif; ?>
             <div class="brand-name"><?php echo htmlspecialchars(strtoupper(_idFromName())); ?></div>
             <div class="brand-info">

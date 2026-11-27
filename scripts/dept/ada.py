@@ -567,6 +567,12 @@ def cycle(db, today=None):
     except Exception as e:  # noqa: BLE001
         sweep_note = "forge sweep failed: %s" % e
     results = tick(db, max_runs=2, only=("guardian",)) + tick(db, max_runs=RUNS_PER_DEPARTMENT, department="ada", exclude=("guardian",)) + tick(db, max_runs=RUNS_PER_DEPARTMENT, department="apollo", exclude=("guardian",))
+    try:                                                 # Codex nightly findings that need Tim; a failure is noted, never fatal
+        import codex_import
+        cx = codex_import.import_codex(db, now)
+        set_ctl(db, "codex_note", None if cx is not None else "Codex findings file unreadable: nothing imported")
+    except Exception as e:  # noqa: BLE001
+        set_ctl(db, "codex_note", "codex import failed: %s" % str(e)[:160])
     imported = import_sentinel(db)
     moved = prioritise(db)
     path = write_briefing(db, today, results, imported, moved)

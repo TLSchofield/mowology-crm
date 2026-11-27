@@ -318,7 +318,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($quote) && $quote['status'] 
                 }
 
                 $quote['status'] = 'accepted';
-                $success = 'Thank you! Your quote has been accepted. We will be in touch shortly to schedule your service.';
+                $success = 'Thank you. Your quote is accepted. Next, we will be in touch to book your first visit.';
 
                 // A signed snow/salt contract sets itself up: per-visit contract carrying this
                 // signature + a daily route plan (SnowContractService). Runs after the commit and
@@ -426,7 +426,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($quote) && $quote['status'] 
             }
 
             $quote['status'] = 'declined';
-            $success = 'Thank you for letting us know. If you change your mind or have questions, please contact us.';
+            $success = 'Thank you for letting us know. If you change your mind or have questions, ' . PortalBrand::callPhrase() . '.';
         }
     }
 }
@@ -497,8 +497,8 @@ if (!empty($quote)) {
     <?php elseif (!empty($quote)): ?>
 
         <?php if ($success): ?>
-            <div class="portal-message <?php echo $quote['status'] === 'accepted' ? 'success' : 'error'; ?>">
-                <h2><?php echo $quote['status'] === 'accepted' ? 'Quote Accepted!' : 'Quote Declined'; ?></h2>
+            <div class="portal-message <?php echo $quote['status'] === 'accepted' ? 'success' : 'neutral'; ?>">
+                <h2><?php echo $quote['status'] === 'accepted' ? 'Your quote is accepted' : 'Quote declined'; ?></h2>
                 <p style="margin-top:6px;"><?php echo htmlspecialchars($success); ?></p>
             </div>
         <?php endif; ?>
@@ -529,19 +529,26 @@ if (!empty($quote)) {
                     <?php endif; ?>
                 </div>
                 <span class="portal-status status-<?php echo htmlspecialchars($quote['_real_status'] ?? $quote['status']); ?>">
-                    <?php echo ucfirst($quote['_real_status'] ?? $quote['status']); ?>
+                    <?php
+                    // Customers see plain words, not our internal status names.
+                    $__statusKey = (string)($quote['_real_status'] ?? $quote['status']);
+                    $__statusWords = ['sent' => 'Awaiting your approval', 'accepted' => 'Accepted', 'declined' => 'Declined', 'draft' => 'Draft'];
+                    echo htmlspecialchars($__statusWords[$__statusKey] ?? ucfirst($__statusKey));
+                    ?>
                 </span>
             </div>
 
             <div class="portal-quote-detail-grid">
                 <div>
-                    <div class="portal-quote-detail-label">Quote Date</div>
+                    <div class="portal-quote-detail-label">Quote date</div>
                     <div class="portal-quote-detail-value"><?php echo date('F j, Y', strtotime($quote['created_at'])); ?></div>
                 </div>
+                <?php if (!empty($quote['valid_until'])): ?>
                 <div>
-                    <div class="portal-quote-detail-label">Valid Until</div>
-                    <div class="portal-quote-detail-value"><?php echo $quote['valid_until'] ? date('F j, Y', strtotime($quote['valid_until'])) : 'N/A'; ?></div>
+                    <div class="portal-quote-detail-label">Valid until</div>
+                    <div class="portal-quote-detail-value"><?php echo date('F j, Y', strtotime($quote['valid_until'])); ?></div>
                 </div>
+                <?php endif; ?>
             </div>
 
             <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--p-border);">
@@ -549,7 +556,7 @@ if (!empty($quote)) {
                         ? '../crm/documents/generate_pdf.php?type=quote&id=' . (int)$quote['id'] . '&action=download'
                         : 'api/quote-pdf.php?token=' . urlencode((string)($quote['access_token'] ?? '')); ?>"
                    class="portal-btn-outline">
-                    📄 Download PDF
+                    Download PDF
                 </a>
             </div>
         </div>
@@ -706,15 +713,12 @@ if (!empty($quote)) {
         <?php if (in_array($quote['status'], ['sent', 'accepted'])): ?>
             <div class="portal-info-card" id="upsellSection" style="display:none;">
                 <div class="portal-info-card-header" id="upsellHeader">
-                    <?php echo $quote['status'] === 'sent' ? 'Enhance Your Service — Save by Bundling' : 'Add-On Services'; ?>
+                    <?php echo $quote['status'] === 'sent' ? 'Optional extras' : 'Add-on services'; ?>
                 </div>
                 <div class="portal-info-card-body">
-                    <div class="portal-savings-banner" id="savingsBanner">
-                        💰 You're saving <strong id="savingsAmount">$0</strong> with bundle pricing!
-                    </div>
                     <p style="font-size:0.85rem;color:var(--p-text-mid);margin-bottom:14px;" id="upsellIntro">
                         <?php if ($quote['status'] === 'sent'): ?>
-                            Add recommended services now and get bundle pricing. Prices go up if booked after.
+                            Add any of these now at the bundled price. You can remove them before you accept.
                         <?php else: ?>
                             Want to add more? Regular pricing applies after acceptance.
                         <?php endif; ?>
@@ -725,7 +729,7 @@ if (!empty($quote)) {
         <?php endif; ?>
 
         <!-- Undo toast (for post-accept adds) -->
-        <div class="portal-undo-toast" id="undoToast">
+        <div class="portal-undo-toast" id="undoToast" role="status" aria-live="polite">
             <span id="undoToastMsg">Added to your order</span>
             <button type="button" data-mw-call="mwUndoLastAdd">Undo</button>
         </div>
@@ -733,9 +737,13 @@ if (!empty($quote)) {
         <!-- Terms & Conditions -->
         <?php if (!empty($quote['terms'])): ?>
             <div class="portal-info-card">
-                <div class="portal-info-card-header">Terms &amp; Conditions</div>
+                <div class="portal-info-card-header">Terms and conditions</div>
                 <div class="portal-info-card-body">
-                    <div class="portal-terms-box"><?php echo htmlspecialchars($quote['terms']); ?></div>
+                    <?php /* Open by default: the customer agrees to these in the form below. They can fold it away. */ ?>
+                    <details open>
+                        <summary style="cursor:pointer;color:var(--p-text-mid);font-size:.9rem;margin-bottom:10px;">Show or hide the terms</summary>
+                        <div class="portal-terms-box"><?php echo htmlspecialchars($quote['terms']); ?></div>
+                    </details>
                 </div>
             </div>
         <?php endif; ?>
@@ -759,7 +767,7 @@ if (!empty($quote)) {
         <?php elseif ($quote['status'] === 'sent'): ?>
             <div class="portal-info-card">
                 <?php $__sigAddr = trim((string)($quote['property_address'] ?? '')); ?>
-                <div class="portal-info-card-header">Accept This Quote<?php echo $__sigAddr !== '' ? ' &mdash; ' . htmlspecialchars($__sigAddr) : ''; ?></div>
+                <div class="portal-info-card-header">Accept this quote<?php echo $__sigAddr !== '' ? ' &mdash; ' . htmlspecialchars($__sigAddr) : ''; ?></div>
                 <div class="portal-info-card-body">
                     <?php if ($isAdminPreview): ?>
                         <div style="text-align:center;padding:24px;color:var(--p-text-mid);font-style:italic;">
@@ -777,7 +785,7 @@ if (!empty($quote)) {
                             <div style="margin-bottom:10px;">You don't need a digital signature, a certificate or any special program. Signing here is just drawing your name in the box.</div>
                             <ol style="margin:0 0 10px 20px;padding:0;">
                                 <li style="margin-bottom:6px;"><strong>Check your name</strong> below. It is filled in for you.</li>
-                                <li style="margin-bottom:6px;"><strong>Draw your signature in the white box.</strong> On a computer, hold the mouse button down and move the mouse. On a phone or tablet, use your finger. Any mark is fine; it doesn't need to be neat. To try again, press <em>Clear Signature</em>.</li>
+                                <li style="margin-bottom:6px;"><strong>Draw your signature in the white box.</strong> On a computer, hold the mouse button down and move the mouse. On a phone or tablet, use your finger. Any mark is fine; it doesn't need to be neat. To try again, press <em>Clear signature</em>.</li>
                                 <li style="margin-bottom:6px;"><strong>Tick the box</strong> that says you agree to the terms.</li>
                                 <li style="margin-bottom:6px;"><strong>Press the green button</strong> at the bottom.</li>
                             </ol>
@@ -791,26 +799,26 @@ if (!empty($quote)) {
                             <input type="hidden" name="signature_data" id="signatureData">
 
                             <div class="portal-form-group">
-                                <label class="portal-form-label">Your Full Name *</label>
+                                <label class="portal-form-label">Your full name *</label>
                                 <input type="text" name="signature_name" class="portal-form-input" required
                                        placeholder="Enter your full name"
                                        value="<?php echo htmlspecialchars(trim(($quote['contact_first'] ?? '') . ' ' . ($quote['contact_last'] ?? ''))); ?>">
                             </div>
 
                             <div class="portal-form-group">
-                                <label class="portal-form-label">Your Email</label>
+                                <label class="portal-form-label">Your email</label>
                                 <input type="email" name="signature_email" class="portal-form-input"
                                        placeholder="Enter your email"
                                        value="<?php echo htmlspecialchars($quote['contact_email'] ?? ''); ?>">
                             </div>
 
                             <div class="portal-form-group">
-                                <label class="portal-form-label">Your Signature *</label>
+                                <label class="portal-form-label">Your signature *</label>
                                 <div class="portal-sig-wrap">
                                     <canvas id="signaturePad" class="portal-sig-canvas"></canvas>
                                     <div class="portal-sig-placeholder" id="sigPlaceholder" style="font-size:1.05rem;">Draw your signature here: hold the mouse button down and move, or use your finger</div>
                                     <div class="portal-sig-actions">
-                                        <button type="button" class="portal-sig-clear" id="clearSignature">Clear Signature</button>
+                                        <button type="button" class="portal-sig-clear" id="clearSignature">Clear signature</button>
                                     </div>
                                 </div>
                             </div>
@@ -822,14 +830,20 @@ if (!empty($quote)) {
                                 </label>
                             </div>
 
+                            <?php /* The total sits next to the button so nobody has to scroll back to remember the price. */ ?>
+                            <div style="display:flex;justify-content:space-between;align-items:baseline;padding:10px 12px;background:var(--p-bg-subtle);border:1px solid var(--p-border);border-radius:8px;margin:0 0 12px;">
+                                <span style="font-size:.9rem;color:var(--p-text-mid);">Total including tax</span>
+                                <strong id="q-accept-total" style="font-size:1.15rem;color:var(--p-text);"><?php echo formatCurrency($quote['amount']); ?></strong>
+                            </div>
                             <button type="submit" class="portal-btn wide">
-                                ✓ Accept Quote &amp; Schedule Service
+                                Accept this quote
                             </button>
+                            <p style="font-size:.82rem;color:var(--p-text-mid);text-align:center;margin:10px 0 0;">Next, we will be in touch to book your first visit.</p>
                         </form>
 
                         <div class="portal-decline-section">
                             <button class="portal-decline-toggle" data-mw-toggle="declineForm">
-                                Not interested? Let us know
+                                Not for us? Tell us why (optional)
                             </button>
 
                             <form method="POST" class="portal-decline-form" id="declineForm">
@@ -841,7 +855,7 @@ if (!empty($quote)) {
                                               placeholder="Let us know why you're declining…"></textarea>
                                 </div>
                                 <button type="submit" class="portal-btn-outline" style="width:100%;padding:11px 18px;">
-                                    Decline Quote
+                                    Decline this quote
                                 </button>
                             </form>
                         </div>
@@ -853,13 +867,13 @@ if (!empty($quote)) {
             <div class="portal-info-card">
                 <div class="portal-accepted-state">
                     <div class="portal-accepted-icon">✓</div>
-                    <h3 style="color:var(--p-green);font-size:1.1rem;margin-bottom:8px;">Quote Accepted</h3>
+                    <h3 style="color:var(--p-green);font-size:1.1rem;margin-bottom:8px;">Quote accepted</h3>
                     <?php if (!empty($quote['accepted_at'])): ?>
                         <p style="color:var(--p-text-mid);">This quote was accepted on <?php echo date('F j, Y', strtotime($quote['accepted_at'])); ?>.</p>
                     <?php else: ?>
                         <p style="color:var(--p-text-mid);">This quote has been accepted.</p>
                     <?php endif; ?>
-                    <p style="color:var(--p-text-mid);margin-top:6px;">We will be in touch shortly to schedule your service.</p>
+                    <p style="color:var(--p-text-mid);margin-top:6px;">Next, we will be in touch to book your first visit.</p>
                 </div>
             </div>
         <?php endif; ?>
@@ -925,33 +939,48 @@ if (!empty($quote)) {
         penColor: 'rgb(13, 59, 46)'
     });
 
+    // hasInk is tracked here (not signaturePad.isEmpty()) because strokes redrawn
+    // by fromData() after a resize do not flip the pad's own empty flag.
+    var hasInk = false;
+    var lastCanvasWidth = 0;
+
+    // Phones fire `resize` when the address bar collapses or the keyboard opens
+    // (height only). Only rebuild when the width really changed, and keep the
+    // strokes when we do, so a signature is never wiped while scrolling.
     function resizeCanvas() {
-        var ratio = Math.max(window.devicePixelRatio || 1, 1);
         var container = canvas.parentElement;
-        canvas.width = container.offsetWidth * ratio;
+        var width = container.offsetWidth;
+        if (width === lastCanvasWidth) return;
+        lastCanvasWidth = width;
+        var ratio = Math.max(window.devicePixelRatio || 1, 1);
+        var strokes = signaturePad.toData();
+        canvas.width = width * ratio;
         canvas.height = 180 * ratio;
         canvas.getContext('2d').scale(ratio, ratio);
-        canvas.style.width = container.offsetWidth + 'px';
+        canvas.style.width = width + 'px';
         canvas.style.height = '180px';
         signaturePad.clear();
+        if (strokes.length) signaturePad.fromData(strokes);
     }
 
     window.addEventListener('resize', resizeCanvas);
     resizeCanvas();
 
     signaturePad.addEventListener('beginStroke', function() {
+        hasInk = true;
         placeholder.style.display = 'none';
     });
 
     document.getElementById('clearSignature').addEventListener('click', function() {
         signaturePad.clear();
+        hasInk = false;
         placeholder.style.display = 'block';
     });
 
     var acceptForm = document.getElementById('acceptForm');
     if (acceptForm) {
         acceptForm.addEventListener('submit', function(e) {
-            if (signaturePad.isEmpty()) {
+            if (!hasInk) {
                 e.preventDefault();
                 alert('Please sign the quote before submitting.');
                 return;
@@ -982,6 +1011,7 @@ if (!empty($quote)) {
 
         function updateSavingsBanner() {
             if (window._mwIsPostAccept) return; // no banner in post-accept mode
+            if (!savingsBanner || !savingsAmount) return; // the banner was removed from the page (calm copy, no pressure)
             var total = 0;
             document.querySelectorAll('.portal-upsell-card input[type=checkbox]:checked').forEach(function(cb) {
                 var card = cb.closest('.portal-upsell-card');
@@ -1012,24 +1042,29 @@ if (!empty($quote)) {
             // Cache for savings calc
             window._mwUpsells[domId] = {
                 regular: regular, bundled: bundled, savings: savings,
+                name: String(text), desc: String(desc),
                 is_bundle: !!up.is_bundle,
                 product_id: up.upsell_product_id || null,
                 bundle_id: up.upsell_bundle_id || null
             };
 
-            var escText = String(text).replace(/</g, '&lt;');
-            var escDesc = String(desc).replace(/</g, '&lt;');
+            // Escape every character that matters in HTML text, not only "<" (an entity such as &lt; must show as text).
+            function escHtml(v) {
+                return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+            }
+            var escText = escHtml(text);
+            var escDesc = escHtml(desc);
 
             // In post-accept mode, render as action-card (Add button instead of checkbox)
             if (isPostAccept) {
                 // Skip showing already-added upsells in the post-accept sheet
                 if (checked) return '';
                 return '<div class="portal-post-accept-card" data-product-id="' + domId + '">' +
-                    (popular ? '<span class="portal-upsell-badge">⭐ Popular</span>' : '') +
+                    (popular ? '<span class="portal-upsell-badge">Popular</span>' : '') +
                     '<div style="flex:1;">' +
                         '<strong>' + escText + (up.is_bundle ? ' <small style="color:#64748b;">(bundle)</small>' : '') + '</strong>' +
                         (desc ? '<span class="portal-post-accept-missed">' + escDesc + '</span>' : '') +
-                        (savings > 0 ? '<span class="portal-post-accept-missed">You missed ' + fmtMoney(savings) + ' in bundle savings.</span>' : '') +
                     '</div>' +
                     '<div style="text-align:right;">' +
                         '<div style="font-weight:700;color:var(--p-text-dark, #1a202c);">' + fmtMoney(regular) + '</div>' +
@@ -1040,7 +1075,7 @@ if (!empty($quote)) {
 
             // Pre-accept: rich FOMO card with both prices
             return '<div class="portal-upsell-card' + (checked ? ' is-added' : '') + (popular ? ' is-popular' : '') + '" data-product-id="' + domId + '">' +
-                (popular ? '<span class="portal-upsell-badge">⭐ Most popular</span>' : '') +
+                (popular ? '<span class="portal-upsell-badge">Most popular</span>' : '') +
                 '<label class="portal-upsell-toggle">' +
                     '<input type="checkbox" ' + (checked ? 'checked' : '') +
                     ' data-mw-call="mwToggleUpsell" data-mw-on="change" data-mw-args="' + mwArgsAttr([domId, '$checked']) + '">' +
@@ -1063,19 +1098,65 @@ if (!empty($quote)) {
                 if (!data.success || !data.upsells || data.upsells.length === 0) return;
 
                 window._mwIsPostAccept = !!data.is_post_accept;
-                upsellSection.style.display = '';
 
                 var html = data.upsells.map(function(up) { return renderCard(up, window._mwIsPostAccept); }).join('');
                 if (!html.trim()) {
-                    // Post-accept and all already added — hide section
-                    upsellSection.style.display = 'none';
+                    // Post-accept and all already added — leave section hidden
                     return;
                 }
+                // Reveal the section. If the customer has already scrolled past its
+                // position, push the page down by the same amount so what they are
+                // reading (terms / accept form) does not jump (Safari has no scroll anchoring).
+                var heightBefore = document.documentElement.scrollHeight;
+                upsellSection.style.display = '';
                 upsellContainer.innerHTML = html;
                 updateSavingsBanner();
+                // The box starts above the top of the screen: the reader's place moved down, so move the page with it.
+                if (upsellSection.getBoundingClientRect().top < 0) {
+                    window.scrollBy(0, document.documentElement.scrollHeight - heightBefore);
+                }
             })
             .catch(function() { /* silently fail */ });
     })();
+
+    // Mirror the grand total next to the Accept button whenever the totals change.
+    (function () {
+        var src = document.getElementById('q-total-val');
+        var dst = document.getElementById('q-accept-total');
+        if (!src || !dst || !window.MutationObserver) return;
+        new MutationObserver(function () { dst.textContent = src.textContent; })
+            .observe(src, { childList: true, characterData: true, subtree: true });
+    })();
+
+    // Keep the Services table in step with the totals: add a row when an upsell is
+    // added, drop it when removed. Built with textContent (no HTML injection).
+    function mwSyncUpsellRow(domId, add, amount) {
+        var tbody = document.querySelector('.portal-table tbody');
+        if (!tbody) return;
+        var existing = tbody.querySelector('tr[data-upsell-row="' + domId + '"]');
+        if (!add) { if (existing) existing.remove(); return; }
+        if (existing) return;
+        var meta = window._mwUpsells[domId] || {};
+        var tr = document.createElement('tr');
+        tr.setAttribute('data-upsell-row', domId);
+        var tdName = document.createElement('td');
+        var strong = document.createElement('strong');
+        strong.textContent = meta.name || 'Add-on';
+        tdName.appendChild(strong);
+        var tdDesc = document.createElement('td');
+        tdDesc.textContent = meta.desc || '—';
+        var tdAmt = document.createElement('td');
+        tdAmt.className = 'right portal-table-num';
+        tdAmt.textContent = '$' + (parseFloat(amount) || 0).toFixed(2);
+        // When customers can tick lines, the table has a leading pick column; keep the new row aligned.
+        if (document.querySelector('.portal-table th.portal-line-pick')) {
+            var tdPick = document.createElement('td');
+            tdPick.className = 'portal-line-pick';
+            tr.appendChild(tdPick);
+        }
+        tr.appendChild(tdName); tr.appendChild(tdDesc); tr.appendChild(tdAmt);
+        tbody.appendChild(tr);
+    }
 
     // Pre-accept: toggle via checkbox
     function mwToggleUpsell(domId, add) {
@@ -1100,6 +1181,7 @@ if (!empty($quote)) {
                     if (tax) tax.textContent = '$' + parseFloat(data.totals.tax_amount).toFixed(2);
                     if (tot) tot.textContent = '$' + parseFloat(data.totals.total).toFixed(2);
                     if (card) card.classList.toggle('is-added', add);
+                    mwSyncUpsellRow(domId, add, data.line_total);
                     // Update savings banner
                     if (typeof updateSavingsBanner === 'undefined') {
                         // rebuild banner inline
@@ -1152,6 +1234,7 @@ if (!empty($quote)) {
                     if (tax && data.totals) tax.textContent = '$' + parseFloat(data.totals.tax_amount).toFixed(2);
                     if (tot && data.totals) tot.textContent = '$' + parseFloat(data.totals.total).toFixed(2);
 
+                    mwSyncUpsellRow(domId, true, data.line_total);
                     // Remove the card from the post-accept sheet
                     var card = document.querySelector('.portal-post-accept-card[data-product-id="' + domId + '"]');
                     window._mwLastAdd = domId;

@@ -135,7 +135,7 @@ function wrapInBrandedEmail(string $bodyHtml, string $unsubscribeUrl = '', bool 
         ? '<p style="margin:0 0 4px;font-size:11px;color:#6f8a7e;">This email contains open and click tracking so we can improve our communications.</p>'
         : '';
 
-    return '<!DOCTYPE html>
+    $__html = '<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;padding:0;background:#f4f4f4;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif;">
@@ -173,6 +173,8 @@ function wrapInBrandedEmail(string $bodyHtml, string $unsubscribeUrl = '', bool 
 </table>
 </body>
 </html>';
+    require_once dirname(__DIR__, 2) . '/Modules/Settings/Services/TenantBrand.php';
+    return TenantBrand::recolor($__html, TenantBrand::current(), ['#1A5F4A' => 'primary', '#0D3B2E' => 'primary', '#7FD858' => 'tint']);
 }
 
 /**

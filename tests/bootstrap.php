@@ -480,6 +480,7 @@ require_once __DIR__ . '/../app/Modules/Contacts/Services/ContactTimelineService
 require_once __DIR__ . '/../app/Modules/Contacts/Services/CompanyDeleteGuard.php';
 require_once __DIR__ . '/../app/Modules/Contacts/Services/ContactDuplicateFinder.php';
 require_once __DIR__ . '/../app/Modules/Settings/Services/FirstWeekService.php';
+require_once __DIR__ . '/../app/Modules/Settings/Services/TenantBrand.php';
 require_once __DIR__ . '/../app/Modules/Settings/Services/FirstWeekMenu.php';
 require_once __DIR__ . '/../app/Modules/Settings/Services/FirstWeekFocus.php';
 require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceInsightsService.php';
@@ -528,6 +529,7 @@ require_once __DIR__ . '/../app/Modules/Agents/Services/AgentEvals.php';
 require_once __DIR__ . '/../app/Services/Copy/DraftSafety.php';
 require_once __DIR__ . '/../app/Modules/Agents/Services/TaskService.php';
 require_once __DIR__ . '/../app/Modules/Tasks/Services/TaskCreateService.php';
+require_once __DIR__ . '/../app/Modules/Tasks/Services/TaskScheduleService.php';
 require_once __DIR__ . '/../app/Modules/Invoices/Services/UnbilledVisitService.php';
 require_once __DIR__ . '/../app/Modules/Quotes/Services/QuoteFromPhoneService.php';
 require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceFromPhoneService.php';
