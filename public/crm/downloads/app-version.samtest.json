@@ -30,6 +30,8 @@
     "native_signup": true,
     "native_crew_schedule": false,
     "native_quiet_choice": true,
-    "native_time_carousel": true
+    "native_time_carousel": true,
+    "welcome_headline": "Hello {first}. You leave every yard spotless.",
+    "welcome_body": "Ittai leaves your books the same.\n\nYour first step: photograph a receipt. Tap Receipts."
   }
 }

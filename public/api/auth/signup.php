@@ -39,7 +39,7 @@ $code = (string)$result['code'];
 $local = defined('LOCAL_TEST_SITE') && LOCAL_TEST_SITE === true;
 $mail = SignUpCodeEmail::build($code, 15);   // white digits on indigo blocks; sender is Ittai, not the new business's placeholder name
 $emailSent = false;
-try { $emailSent = sendCrmEmail($email, $mail['subject'], $mail['html'], null, 'Ittai'); } catch (Throwable $e) { error_log('[signup] Email failed: ' . get_class($e)); }
+try { $emailSent = sendEmail($email, $mail['subject'], $mail['html'], null, 'Ittai', [], [], 'help@ittai.ca')['success']; } catch (Throwable $e) { error_log('[signup] Email failed: ' . get_class($e)); }
 if (!$emailSent && !$local) { $service->clearCode(); http_response_code(502); echo json_encode(['ok' => false, 'error' => 'send_failed']); exit; }
 // Email only: the claim proves the owner holds the email on file. The code used to be texted to the mobile in this
 // request too — a number the caller chooses — so anyone knowing an unclaimed owner's email could claim the business
