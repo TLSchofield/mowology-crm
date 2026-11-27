@@ -22,7 +22,10 @@ $shaOk = (bool)preg_match('/^[0-9a-f]{64}$/', $sha);
 $help = trim((string)($cfg['help_phone'] ?? ''));
 $preview = isset($_SERVER['ITTAI_GET_PREVIEW']);   // set only by the local preview script: shows the draft box
 $ua = (string)($_SERVER['HTTP_USER_AGENT'] ?? '');
-$samsung = (bool)preg_match('/samsung|\bSM-[A-Z0-9]{3,}/i', $ua);   // Samsung phones add one more check (Auto Blocker), so their box goes first
+// Samsung phones add one more check (Auto Blocker), so their box goes first. Signals, strongest first: the link we send
+// (?for=samsung), the browser's user-agent string (Samsung Internet sends the model; Chrome hides it), then the script
+// at the bottom, which asks the browser for the model (userAgentData) and reorders the page if it starts with SM-.
+$samsung = (($_GET['for'] ?? '') === 'samsung') || (bool)preg_match('/samsung|\bSM-[A-Z0-9]{3,}/i', $ua);
 $css = $preview ? '' : '/get/get.css';
 ?>
 <!doctype html>
@@ -70,7 +73,7 @@ $css = $preview ? '' : '/get/get.css';
 
   <h2>Your phone stopped you?</h2>
 <?php
-$boxSamsung = '<div class="case' . ($samsung ? ' case-yours' : '') . '">'
+$boxSamsung = '<div id="case-samsung" class="case' . ($samsung ? ' case-yours' : '') . '">'
   . '<p class="when">' . ($samsung ? '<b>You have a Samsung phone.</b> ' : '<b>Samsung phone?</b> ') . 'If the message mentions <b>Auto Blocker</b>:</p>'
   . '<ol><li>Open <b>Settings</b>, then <b>Security and privacy</b>, then <b>Auto Blocker</b>.</li>'
   . '<li>Turn off <b>Block app installs from unauthorized sources</b>.</li>'
@@ -82,11 +85,13 @@ $boxUnknown = '<div class="case"><p class="when">It says <b>"not allowed to inst
 $boxPlay = '<div class="case"><p class="when">It says <b>"Blocked by Play Protect"</b></p>'
   . '<ol><li>Tap <b>More details</b>.</li><li>Tap <b>Install anyway</b>.</li></ol>'
   . '<p class="why">Play Protect is Google\'s safety check. It does not know our app yet. If it says <b>App scan recommended</b>, tap <b>Scan app</b>, wait, then tap <b>Install</b>.</p></div>';
+echo '  <div id="cases">' . "\n";
 if ($samsung) {
     echo '  <p class="sub">On a Samsung phone you may see these in this order.</p>' . "\n  " . $boxSamsung . "\n  " . $boxUnknown . "\n  " . $boxPlay . "\n";
 } else {
-    echo '  <p class="sub">Find the words on your screen.</p>' . "\n  " . $boxUnknown . "\n  " . $boxPlay . "\n  " . $boxSamsung . "\n";
+    echo '  <p id="cases-sub" class="sub">Find the words on your screen.</p>' . "\n  " . $boxUnknown . "\n  " . $boxPlay . "\n  " . $boxSamsung . "\n";
 }
+echo '  </div>' . "\n";
 ?>
 
   <h2>If something goes wrong</h2>
@@ -139,5 +144,22 @@ if ($samsung) {
   </div>
 </main>
 <footer class="it-foot">&copy; <?= date('Y') ?> Ittai</footer>
+<script>
+// If the phone is a Samsung but the server could not tell (Chrome hides the model), ask the browser and move the Samsung box up.
+(function () {
+  var box = document.getElementById('case-samsung'), wrap = document.getElementById('cases');
+  if (!box || !wrap || box.classList.contains('case-yours')) return;
+  var ud = navigator.userAgentData;
+  if (!ud || !ud.getHighEntropyValues) return;
+  ud.getHighEntropyValues(['model']).then(function (v) {
+    if (!v || !/^SM-/i.test(v.model || '')) return;
+    var sub = document.getElementById('cases-sub');
+    box.classList.add('case-yours');
+    box.firstElementChild.innerHTML = '<b>You have a Samsung phone.</b> If the message mentions <b>Auto Blocker</b>:';
+    wrap.insertBefore(box, sub ? sub.nextSibling : wrap.firstChild);
+    if (sub) sub.textContent = 'On a Samsung phone you may see these in this order.';
+  }).catch(function () {});
+})();
+</script>
 </body>
 </html>
