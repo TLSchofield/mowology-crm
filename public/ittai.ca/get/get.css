@@ -1,0 +1,35 @@
+/* ittai.ca/get: the page behind the download link. Builds on /legal.css tokens (light and dark); no hex outside :root. */
+.get { max-width: 640px; margin: 0 auto; padding: 32px 16px 48px; }
+.get h1 { margin: 0 0 8px; font-size: 32px; line-height: 40px; font-weight: 600; letter-spacing: -0.01em; }
+.get h2 { margin: 32px 0 12px; font-size: 20px; line-height: 28px; font-weight: 600; }
+.get p { margin: 0 0 12px; font-size: 18px; line-height: 28px; }
+.get .lede { color: var(--meta); font-size: 20px; line-height: 28px; margin-bottom: 24px; }
+.get-btn { display: flex; align-items: center; justify-content: center; min-height: 64px; padding: 0 24px; border-radius: 14px;
+  background: var(--brand); color: var(--page); font-size: 20px; font-weight: 600; text-decoration: none; }
+.get-btn:focus-visible, .get a:focus-visible, .get summary:focus-visible { outline: 3px solid var(--brand); outline-offset: 3px; }
+.get-btn[aria-disabled="true"] { background: var(--line); color: var(--text); }
+.get .meta { margin: 12px 0 0; color: var(--meta); font-size: 16px; line-height: 24px; text-align: center; }
+.get .note { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px 20px; margin: 24px 0; }
+.get .note p { margin: 0; }
+.steps { list-style: none; counter-reset: step; margin: 0; padding: 0; }
+.steps li { counter-increment: step; display: grid; grid-template-columns: 40px 1fr; gap: 12px; padding: 16px 0; border-top: 1px solid var(--line); font-size: 18px; line-height: 28px; }
+.steps li::before { content: counter(step); display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%;
+  background: var(--brand); color: var(--page); font-weight: 600; font-size: 18px; }
+.steps li small { display: block; margin-top: 4px; color: var(--meta); font-size: 16px; line-height: 24px; }
+.steps b { font-weight: 600; }
+.get details { border-top: 1px solid var(--line); padding: 12px 0; }
+.get details:last-of-type { border-bottom: 1px solid var(--line); }
+.get summary { cursor: pointer; font-size: 18px; line-height: 28px; font-weight: 600; min-height: 44px; display: flex; align-items: center; }
+.get details p, .get details li { font-size: 17px; line-height: 26px; }
+.get details ul { margin: 0 0 12px; padding-left: 20px; }
+.get .help { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 20px; margin-top: 32px; }
+.get .help p { margin: 0 0 8px; }
+.get .help p:last-child { margin: 0; }
+.get .draft { background: var(--surface); border: 2px dashed var(--meta); border-radius: 10px; padding: 12px 16px; margin-bottom: 24px; font-size: 15px; line-height: 22px; color: var(--meta); }
+
+.get .sub { color: var(--meta); font-size: 18px; margin: -4px 0 16px; }
+.case { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px 20px; margin: 0 0 16px; }
+.case .when { margin: 0 0 8px; font-size: 18px; line-height: 28px; }
+.case ol { margin: 0 0 8px; padding-left: 24px; }
+.case li { margin: 0 0 6px; font-size: 18px; line-height: 28px; }
+.case .why { margin: 0; color: var(--meta); font-size: 16px; line-height: 24px; }

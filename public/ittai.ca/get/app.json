@@ -1,0 +1,1 @@
+{"_comment": "The one place the download page reads from. Fill apk_url, sha256 and help_phone when the app file is uploaded; leave apk_url empty and the page says the download is not ready yet.", "version": "2.2.21", "size_mb": 60, "min_android": "6", "apk_url": "", "sha256": "", "help_phone": ""}
