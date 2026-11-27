@@ -706,6 +706,7 @@ require_once __DIR__ . '/../app/Modules/Onboarding/Services/OnboardingApiPresent
 require_once __DIR__ . '/../app/Modules/Onboarding/Services/OnboardingStepService.php';
 require_once __DIR__ . '/../app/Modules/Contacts/Services/ContactImportService.php';
 require_once __DIR__ . '/../app/Modules/Onboarding/Services/SignUpService.php';
+require_once __DIR__ . '/../app/Modules/Onboarding/Services/SignUpCodeEmail.php';
 require_once __DIR__ . '/../app/Modules/Onboarding/Services/SignUpRequestThrottle.php';
 require_once __DIR__ . '/../app/Modules/QuickBooks/Services/QboOnboardingService.php';
 // Penny Payroll (2026-10-21): CRA / BC rules by pay date
