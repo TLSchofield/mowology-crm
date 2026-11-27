@@ -14,7 +14,10 @@
 
 class ReceiptImageLinks
 {
-    public const APP_IMAGE_URL = 'https://mowology.ca/api/expenses/receipt-image';
+    /** The original business's address — the default tenant keeps it, byte for byte. */
+    public const DEFAULT_ORIGIN = 'https://mowology.ca';
+    public const IMAGE_PATH = '/api/expenses/receipt-image';
+    public const APP_IMAGE_URL = self::DEFAULT_ORIGIN . self::IMAGE_PATH;
 
     /** Links are bearer URLs: 15 minutes, not 6 hours (Fable audit 2026-10-12). */
     public const TTL = 900;
@@ -36,11 +39,34 @@ class ReceiptImageLinks
         return hash_equals(hash_hmac('sha256', $mediaId . '.' . $expiry, $key), $sig);
     }
 
-    /** The app's signed photo URL — the same format expense-list.php has always produced. */
-    public static function appUrl(int $mediaId, int $expiry, string $secret): string
+    /**
+     * Pure: which origin a link is built on. A business other than the original one gets its OWN registered
+     * address (the Android/iOS apps only load photos from the business's own host); the original business keeps
+     * mowology.ca. Never the request's Host header, which a caller controls. Anything that is not a plain
+     * https origin falls back to the original address.
+     */
+    public static function originFor(bool $isDefaultTenant, string $appUrl, string $ownAddress): string
+    {
+        if ($isDefaultTenant) return self::DEFAULT_ORIGIN;
+        foreach ([$appUrl, $ownAddress] as $u) {
+            $u = rtrim($u, '/');
+            if (preg_match('#^https://[a-z0-9.-]+$#i', $u)) return strtolower($u);
+        }
+        return self::DEFAULT_ORIGIN;
+    }
+
+    /** The origin for the current request/cron's business (Tenant is booted from the host, or the cron's tenant). */
+    public static function origin(): string
+    {
+        if (!class_exists('Tenant')) return self::DEFAULT_ORIGIN;
+        return self::originFor(Tenant::isDefault(), Tenant::appUrl(), Tenant::ownAddress());
+    }
+
+    /** The app's signed photo URL — the same format expense-list.php has always produced. $origin: null = this business's. */
+    public static function appUrl(int $mediaId, int $expiry, string $secret, ?string $origin = null): string
     {
         $sig = hash_hmac('sha256', $mediaId . '.' . $expiry, $secret);
-        return self::APP_IMAGE_URL . '?m=' . $mediaId . '&e=' . $expiry . '&s=' . $sig;
+        return ($origin ?? self::origin()) . self::IMAGE_PATH . '?m=' . $mediaId . '&e=' . $expiry . '&s=' . $sig;
     }
 
     /** The media id in a /crm/api/serve-receipt.php?id=N… link (signed or not); null if none. */
@@ -55,10 +81,10 @@ class ReceiptImageLinks
     }
 
     /** A web receipt link → the app's signed link; null stays null, an unreadable link becomes null. */
-    public static function resign(?string $webUrl, int $expiry, string $secret): ?string
+    public static function resign(?string $webUrl, int $expiry, string $secret, ?string $origin = null): ?string
     {
         $id = self::mediaIdFrom($webUrl);
-        return $id === null ? null : self::appUrl($id, $expiry, $secret);
+        return $id === null ? null : self::appUrl($id, $expiry, $secret, $origin);
     }
 
     /**
@@ -66,16 +92,16 @@ class ReceiptImageLinks
      * photo link swapped for the app's signed link. Nothing else changes.
      * @return array{0: array, 1: array} [queue, dupes]
      */
-    public static function resignDesk(array $queue, array $dupes, int $expiry, string $secret): array
+    public static function resignDesk(array $queue, array $dupes, int $expiry, string $secret, ?string $origin = null): array
     {
         foreach ($queue as &$item) {
-            $item['image_url'] = self::resign($item['image_url'] ?? null, $expiry, $secret);
+            $item['image_url'] = self::resign($item['image_url'] ?? null, $expiry, $secret, $origin);
         }
         unset($item);
         foreach ($dupes as &$group) {
             foreach ($group['members'] ?? [] as $i => $m) {
                 $mediaId = !empty($m['receipt_media_id']) ? (int)$m['receipt_media_id'] : self::mediaIdFrom($m['receipt_path'] ?? null);
-                $group['members'][$i]['receipt_path'] = $mediaId ? self::appUrl($mediaId, $expiry, $secret) : null;
+                $group['members'][$i]['receipt_path'] = $mediaId ? self::appUrl($mediaId, $expiry, $secret, $origin) : null;
             }
         }
         unset($group);
