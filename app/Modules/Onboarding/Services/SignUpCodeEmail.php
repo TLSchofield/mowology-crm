@@ -51,7 +51,8 @@ final class SignUpCodeEmail
             . '<p style="margin:0 0 14px 0;' . $font . 'font-size:18px;line-height:26px;color:#131D17;">It expires in ' . $minutes . ' ' . $unit . '.</p>'
             . '<p style="margin:0 0 14px 0;' . $font . 'font-size:16px;line-height:24px;color:#131D17;"><strong>Keep it to yourself.</strong> It works once, and we will never ask you for it by phone, text or email.</p>'
             . '<p style="margin:0 0 14px 0;' . $font . 'font-size:16px;line-height:24px;color:#48534C;">Ittai keeps every business in its own private database. Your password is stored scrambled, so nobody at Ittai can read it.</p>'
-            . '<p style="margin:0 0 22px 0;' . $font . 'font-size:16px;line-height:24px;color:#48534C;">If you did not ask for this, ignore this email. The code stops working on its own.</p>'
+            . '<p style="margin:0 0 14px 0;' . $font . 'font-size:16px;line-height:24px;color:#48534C;">If you did not ask for this, ignore this email. The code stops working on its own.</p>'
+            . '<p style="margin:0 0 22px 0;' . $font . 'font-size:16px;line-height:24px;color:#48534C;">Stuck? Reply to this email. A human reads every reply.</p>'
             . '<p style="margin:0;' . $font . 'font-size:15px;line-height:22px;color:#48534C;">Every i dotted. Every t crossed.</p>'
             . '</td></tr></table></td></tr></table></body></html>';
 

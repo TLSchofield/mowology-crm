@@ -25,6 +25,7 @@ final class SignUpCodeEmailTest extends TestCase
         $this->assertStringNotContainsString('!', str_replace('<!doctype', '', $html));
         $this->assertStringContainsString('It expires in 15 minutes.', $html);
         $this->assertStringContainsString('If you did not ask for this, ignore this email.', $html);
+        $this->assertStringContainsString('Stuck? Reply to this email. A human reads every reply.', $html);
         $this->assertStringContainsString('we will never ask you for it by phone, text or email', $html);
         $this->assertStringContainsString('its own private database', $html);
         $this->assertStringContainsString('stored scrambled', $html);
