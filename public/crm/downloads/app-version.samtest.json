@@ -28,6 +28,7 @@
     "native_trip_report": false,
     "native_plants": false,
     "native_signup": true,
-    "native_crew_schedule": false
+    "native_crew_schedule": false,
+    "native_quiet_choice": true
   }
 }
