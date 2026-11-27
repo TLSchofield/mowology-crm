@@ -564,7 +564,7 @@ struct ReceiptDetailView: View {
             .id("categoryRow")
     }
 
-    private static let paymentOptions = ["credit_card", "debit", "cash", "etransfer", "company_card", "owner_paid"]
+    private static let paymentOptions = ReceiptPaymentMethod.known
 
     private static func paymentTitle(_ v: String) -> String {
         switch v {
@@ -586,6 +586,11 @@ struct ReceiptDetailView: View {
             Text("Paid with").font(appStyle.font(.subheadline)).foregroundStyle(appStyle.meta)
             Spacer(minLength: ItSpace.s2)
             Menu {
+                Button {
+                    binding(\.paymentMethod, field: "payment_method").wrappedValue = ""
+                } label: {
+                    if current.isEmpty { Label("Choose how you paid", systemImage: "checkmark") } else { Text("Choose how you paid") }
+                }
                 ForEach(options, id: \.self) { option in
                     Button {
                         binding(\.paymentMethod, field: "payment_method").wrappedValue = option
@@ -595,7 +600,7 @@ struct ReceiptDetailView: View {
                 }
             } label: {
                 HStack(spacing: ItSpace.s2) {
-                    Text(current.isEmpty ? "Choose" : Self.paymentTitle(current))
+                    Text(current.isEmpty ? "Choose how you paid" : Self.paymentTitle(current))
                         .font(appStyle.font(.body, weight: .semibold))
                     Image(systemName: "chevron.up.chevron.down").font(.system(size: 12, weight: .semibold))
                 }
@@ -605,7 +610,7 @@ struct ReceiptDetailView: View {
                 .overlay(RoundedRectangle(cornerRadius: radius).stroke(pennyBrand.opacity(0.5), lineWidth: 1))
             }
             .disabled(!canEditGrid)
-            .accessibilityLabel("Paid with \(current.isEmpty ? "not chosen" : Self.paymentTitle(current)). Double tap to change.")
+            .accessibilityLabel(current.isEmpty ? "Choose how you paid" : "Paid with \(Self.paymentTitle(current)). Double tap to change.")
         }
         .frame(maxWidth: .infinity, minHeight: ItSize.targetPhone)
     }
@@ -675,7 +680,8 @@ struct ReceiptDetailView: View {
                     .background(pennyBrand, in: RoundedRectangle(cornerRadius: radius))
             }
             .buttonStyle(.plain)
-            .disabled(!canActOn(expense) || viewModel.isPerformingAction)
+            .disabled(!canActOn(expense) || viewModel.isPerformingAction || draft?.paymentMethod.isEmpty != false)
+            .accessibilityHint(draft?.paymentMethod.isEmpty != false ? "Choose how you paid first" : "")
         }
         .padding(.horizontal, ItSpace.s4)
         .padding(.vertical, ItSpace.s2)
@@ -726,7 +732,7 @@ struct ReceiptDetailView: View {
             gst: expense.gstAmount ?? 0,
             pst: expense.pstAmount ?? 0,
             total: expense.total,
-            paymentMethod: expense.paymentMethod ?? "credit_card",
+            paymentMethod: ReceiptPaymentMethod.recognized(expense.paymentMethod),
             description: expense.description ?? ""
         )
         let proposed = (read?.fields ?? []).reduce(into: [String: String]()) { values, field in
@@ -809,7 +815,7 @@ struct ReceiptDetailView: View {
         let record = ReceiptSaveRecord(vendor: expense.displayVendor, date: expense.expenseDate,
                                        category: expense.accountingCategory ?? "", subtotal: expense.amount ?? 0,
                                        gst: expense.gstAmount ?? 0, pst: expense.pstAmount ?? 0, total: expense.total,
-                                       paymentMethod: expense.paymentMethod ?? "credit_card", description: expense.description ?? "")
+                                       paymentMethod: ReceiptPaymentMethod.recognized(expense.paymentMethod), description: expense.description ?? "")
         return record[keyPath: keyPath]
     }
 
@@ -1816,7 +1822,7 @@ private struct EditExpenseView: View {
         "Materials", "Fuel", "Equipment", "Subcontractor", "Disposal",
         "Safety", "Tools", "Office", "Meals", "Other",
     ]
-    private let paymentMethods = ["credit_card", "debit", "cash", "etransfer", "company_card", "owner_paid"]
+    private let paymentMethods = ReceiptPaymentMethod.known
 
     init(viewModel: ReceiptsViewModel, expense: Expense, isPresented: Binding<Bool>, onSaved: @escaping () -> Void) {
         self.viewModel    = viewModel
@@ -1830,7 +1836,7 @@ private struct EditExpenseView: View {
         _pst             = State(initialValue: expense.pstAmount.map { String(format: "%.2f", $0) } ?? "")
         _total           = State(initialValue: String(format: "%.2f", expense.total))
         _category        = State(initialValue: expense.accountingCategory ?? "")
-        _paymentMethod   = State(initialValue: expense.paymentMethod ?? "credit_card")
+        _paymentMethod   = State(initialValue: ReceiptPaymentMethod.recognized(expense.paymentMethod))
         _descriptionText = State(initialValue: expense.description ?? "")
     }
 
@@ -1859,6 +1865,7 @@ private struct EditExpenseView: View {
                         }
                     }
                     Picker("Payment", selection: $paymentMethod) {
+                        Text("Choose how you paid").tag("")
                         ForEach(paymentMethods, id: \.self) { Text(paymentLabel($0)).tag($0) }
                     }
                 }
@@ -1874,6 +1881,9 @@ private struct EditExpenseView: View {
                 }
                 if FormReasonRules.receiptTotal(total) != nil {
                     Section { ItDisabledReason(FormReasonRules.receiptTotal(total)) }
+                }
+                if paymentMethod.isEmpty {
+                    Section { ItDisabledReason("Choose how you paid") }
                 }
             }
             .navigationTitle("Edit Receipt")
@@ -1896,7 +1906,8 @@ private struct EditExpenseView: View {
                                 .foregroundStyle(appStyle.tenant)
                         }
                     }
-                    .disabled(viewModel.isSaving || FormReasonRules.receiptTotal(total) != nil)
+                    .disabled(viewModel.isSaving || FormReasonRules.receiptTotal(total) != nil || paymentMethod.isEmpty)
+                    .accessibilityHint(paymentMethod.isEmpty ? "Choose how you paid first" : "")
                 }
             }
         }

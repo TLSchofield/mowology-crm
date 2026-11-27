@@ -393,7 +393,7 @@ async function submitReceiptExport() {
                             <span class="mw-confidence-dot" id="confPayment" title=""></span>
                         </label>
                         <select class="form-select form-select-sm" id="rvPayment">
-                            <option value="">Select...</option>
+                            <option value="">Choose how you paid</option>
                             <option value="company_card">Company Card</option>
                             <option value="credit_card">Credit Card</option>
                             <option value="debit">Debit</option>
@@ -1055,7 +1055,7 @@ async function submitReceiptExport() {
                     <div class="mw-mc-expense-field">
                         <label>Payment</label>
                         <select id="mobileRvPayment">
-                            <option value="">Select...</option>
+                            <option value="">Choose how you paid</option>
                             <option value="company_card">Company Card</option>
                             <option value="credit_card">Credit Card</option>
                             <option value="debit">Debit</option>
@@ -1250,7 +1250,7 @@ async function submitReceiptExport() {
                                 <div class="col-md-4">
                                     <label class="form-label">Payment Method</label>
                                     <select class="form-select" id="expPayment">
-                                        <option value="">Select...</option>
+                                        <option value="">Choose how you paid</option>
                                         <option value="company_card">Company Card</option>
                                         <option value="credit_card">Credit Card</option>
                                         <option value="debit">Debit</option>

@@ -105,6 +105,62 @@ class ExpenseGateTest extends TestCase
         $this->assertSame('draft', $this->row($res['expense_id'])['status'], 'only the audited approve may set approved');
     }
 
+    // ── Payment method (receipt-flow review 2026-11-26) ──────────────────
+
+    public function test_approving_without_a_payment_method_is_refused_and_the_receipt_stays_waiting(): void
+    {
+        $this->db->exec("UPDATE expenses SET payment_method = NULL WHERE id = 412");
+        try {
+            $this->gate->apply(412, ['status' => 'approved'], self::TIM, 'desktop_approve', ['transition' => 'approve']);
+            $this->fail('a blank payment method must not be approved');
+        } catch (InvalidArgumentException $e) {
+            $this->assertStringContainsString('how this was paid', $e->getMessage());
+        }
+        $this->assertSame('pending_approval', $this->row(412)['status']);
+    }
+
+    public function test_approving_with_an_unknown_payment_word_is_refused(): void
+    {
+        $this->db->exec("UPDATE expenses SET payment_method = 'banana' WHERE id = 412");
+        $this->expectException(InvalidArgumentException::class);
+        $this->gate->apply(412, ['status' => 'approved'], self::TIM, 'desktop_approve', ['transition' => 'approve']);
+    }
+
+    public function test_approving_with_every_known_method_is_allowed(): void
+    {
+        foreach (['credit_card', 'debit', 'cash', 'etransfer', 'company_card', 'cheque', 'owner_paid', 'Debit Card'] as $m) {
+            $this->assertNull(ExpenseGate::paymentMethodProblem($m), $m);
+        }
+        $this->assertNotNull(ExpenseGate::paymentMethodProblem(''));
+        $this->assertNotNull(ExpenseGate::paymentMethodProblem('  '));
+        $this->assertNotNull(ExpenseGate::paymentMethodProblem(null));
+    }
+
+    public function test_a_draft_may_have_no_payment_method_and_the_method_can_be_chosen_then_approved(): void
+    {
+        $this->db->exec("UPDATE expenses SET payment_method = NULL WHERE id = 412");
+        // an ordinary edit of a waiting receipt with no method is fine
+        $this->gate->apply(412, ['description' => 'note'], self::TIM, 'desktop_edit');
+        $this->gate->apply(412, ['payment_method' => 'debit'], self::TIM, 'desktop_edit');
+        $this->gate->apply(412, ['status' => 'approved'], self::TIM, 'desktop_approve', ['transition' => 'approve']);
+        $this->assertSame('approved', $this->row(412)['status']);
+    }
+
+    public function test_an_approved_receipt_cannot_have_its_payment_method_blanked(): void
+    {
+        $this->gate->apply(412, ['status' => 'approved'], self::TIM, 'desktop_approve', ['transition' => 'approve']);
+        $this->expectException(InvalidArgumentException::class);
+        $this->gate->apply(412, ['payment_method' => ''], self::TIM, 'desktop_edit');
+    }
+
+    public function test_other_edits_to_an_old_approved_blank_row_are_not_blocked(): void
+    {
+        $this->db->exec("UPDATE expenses SET status = 'approved', payment_method = NULL WHERE id = 412");
+        $res = $this->gate->apply(412, ['description' => 'tidy'], self::TIM, 'desktop_edit');
+        $this->assertNotSame('', (string)($res['expense_id'] ?? 412));
+        $this->assertSame('approved', $this->row(412)['status']);
+    }
+
     // ── Update ──────────────────────────────────────────────────────────
 
     public function test_only_what_changed_is_written_and_audited_with_before_and_after(): void

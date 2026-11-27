@@ -84,7 +84,7 @@ struct ReceiptReviewView: View {
         "Disposal/Dump", "Subcontractors", "Marketing", "Office/Admin",
         "Overhead", "Licenses/Permits", "Meals", "Vehicle", "Other",
     ]
-    private static let fallbackPayments = ["cash", "credit_card", "debit", "company_card", "etransfer", "cheque", "owner_paid"]
+    private static let fallbackPayments = ReceiptPaymentMethod.known
 
     init(viewModel: ReceiptsViewModel,
          intake: ReceiptIntakeResponse,
@@ -122,7 +122,7 @@ struct ReceiptReviewView: View {
         _total         = State(initialValue: totalD > 0 ? Self.money(totalD) : "")
         _category      = State(initialValue: s?.accountingCategory ?? "")
         // The card on the receipt (when the server matched one) decides the payment method.
-        _paymentMethod = State(initialValue: intake.card?.paymentMethod ?? p?.paymentMethod ?? "credit_card")
+        _paymentMethod = State(initialValue: ReceiptPaymentMethod.suggested(card: intake.card?.paymentMethod, parsed: p?.paymentMethod))
         // One decisive schedule match starts selected; "No Job" or another pill undoes it.
         _selectedJob   = State(initialValue: intake.jobSuggestions?.first(where: { $0.autoSelect == true }).map { JobPick(suggestion: $0) })
         _items         = State(initialValue: p?.lineItems ?? [])
@@ -135,13 +135,14 @@ struct ReceiptReviewView: View {
     }
 
     private var paymentMethods: [String] {
-        viewModel.paymentMethods.isEmpty ? Self.fallbackPayments : viewModel.paymentMethods
+        let serverMethods = viewModel.paymentMethods.filter { ReceiptPaymentMethod.known.contains($0) }
+        return serverMethods.isEmpty ? Self.fallbackPayments : serverMethods
     }
 
     private var totalValue: Double { ReceiptNumber.parse(total) ?? 0 }
     // Submit stays tappable; with no total it says why and goes to the field (Tim, 2026-11-06: "it wouldn't let me but
     // didn't tell me why"). The total stays required: drafts with no total would all pair up as duplicates (same $0.00).
-    private var canSave: Bool { !viewModel.isSaving }
+    private var canSave: Bool { !viewModel.isSaving && !paymentMethod.isEmpty }
     @State private var totalMissing = false
 
     var body: some View {
@@ -193,6 +194,7 @@ struct ReceiptReviewView: View {
                         }
                     }
                     .disabled(!canSave)
+                    .accessibilityHint(paymentMethod.isEmpty ? "Choose how you paid first" : "")
                 }
             }
         }
@@ -608,7 +610,13 @@ struct ReceiptReviewView: View {
                 ForEach(categories, id: \.self) { Text($0).tag($0) }
             }
             Picker("Payment", selection: $paymentMethod) {
+                Text("Choose how you paid").tag("")
                 ForEach(paymentMethods, id: \.self) { Text(paymentLabel($0)).tag($0) }
+            }
+            if paymentMethod.isEmpty {
+                Text("Choose how you paid")
+                    .foregroundStyle(appStyle.blocked)
+                    .accessibilityLabel("Choose how you paid")
             }
             if let card = intake.card {
                 Label("\(card.display) — from the receipt", systemImage: "creditcard.fill")
@@ -832,6 +840,7 @@ struct ReceiptReviewView: View {
     // MARK: - Save
 
     private func attemptSave(andSend: Bool) async {
+        guard !paymentMethod.isEmpty else { return }
         guard totalValue > 0 else {
             withAnimation { totalMissing = true }
             focus = .total

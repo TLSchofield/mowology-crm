@@ -16,6 +16,10 @@ run() {
 
 python3 -B "$ROOT/ios/LogicTests/test_swift_bridge.py"
 
+# Receipt payment suggestions: only server-supported values may be preselected; unknown stays blank.
+cp "$ROOT/ios/LogicTests/ReceiptPaymentMethodTests.swift" "$OUT/main.swift"
+run receiptpayment "$SRC/Core/Models/ReceiptIntakeResponse.swift" "$OUT/main.swift"
+
 # iPhone form disabled reasons and validation order (2026-11-26).
 cp "$ROOT/ios/LogicTests/FormReasonTests.swift" "$OUT/main.swift"
 run formreasons "$SRC/Core/Design/Ittai/FormReasonRules.swift" "$OUT/main.swift"
