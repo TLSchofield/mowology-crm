@@ -46,6 +46,8 @@ if (!function_exists('saveLineItems')) {
     require_once APP_ROOT . '/Services/Receipts/ExpenseLineItems.php';
 }
 
+require_once dirname(__DIR__) . '/ExpenseConstants.php';
+
 class ExpenseGate
 {
     public const DELETE = '__delete';
@@ -155,6 +157,23 @@ class ExpenseGate
      *               duplicates: array, reposted: bool, line_item_id?: int, allocations?: array, message?: string}
      * @throws InvalidArgumentException on a bad value, Exception when the expense is missing or locked
      */
+    /**
+     * A refusal message when this payment method cannot fund a posted receipt, else null. Known: the app's list
+     * (EXPENSE_PAYMENT_METHODS) plus the spellings LedgerSyncService::fundingCodeFor already understands.
+     */
+    public static function paymentMethodProblem($method): ?string
+    {
+        $pm = trim((string)preg_replace('/[\s\-]+/', '_', strtolower(trim((string)$method))), '_');
+        if ($pm === '') {
+            return 'Choose how this was paid before it is approved.';
+        }
+        $known = array_merge(EXPENSE_PAYMENT_METHODS, ['credit', 'visa', 'mastercard', 'amex', 'card', 'paid_personally', 'personal_card', 'debit_card']);
+        if (in_array($pm, $known, true) || strpos($pm, 'debit') !== false || strpos($pm, 'credit') !== false) {
+            return null;
+        }
+        return 'That payment method is not one this system knows. Choose how this was paid.';
+    }
+
     public function apply(?int $expenseId, array $changes, array $actor, string $source, array $opts = []): array
     {
         $create = !$expenseId;
@@ -241,6 +260,18 @@ class ExpenseGate
             }
         }
 
+        // How it was paid decides which ledger account funds the receipt (LedgerSyncService::fundingCodeFor): blank posts to
+        // chequing, an unknown word posts to chequing, and an app's silent default posted as a fact (2026-11-26 receipt-flow
+        // review). So a receipt cannot become approved / sent, and a posted one cannot lose its method, without a known one.
+        // Drafts, pending and rejected rows may be blank (the owner has not said yet). Other edits to an old blank approved
+        // row are not blocked: only the approve / send transition and a change to the method itself are checked.
+        if (!$delete && empty($opts['allow_blank_payment']) && ($create || array_intersect(array_keys($set), ['payment_method', 'status']))) {
+            $after1 = array_merge($before ?? [], $cols);
+            if (in_array((string)($after1['status'] ?? ''), self::POSTED, true)
+                && ($why = self::paymentMethodProblem($after1['payment_method'] ?? null))) {
+                throw new InvalidArgumentException($why);
+            }
+        }
         // ── 2. Write ─────────────────────────────────────────────────────────
         $own = !$this->db->inTransaction();
         if ($own) $this->db->beginTransaction();

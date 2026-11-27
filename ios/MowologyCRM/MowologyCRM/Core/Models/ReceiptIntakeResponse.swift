@@ -10,6 +10,22 @@
 
 import Foundation
 
+/// Payment values the expense API accepts. OCR/card data is only a suggestion: an
+/// unrecognised value must remain unselected rather than becoming accounting data.
+enum ReceiptPaymentMethod {
+    static let known = ["credit_card", "debit", "cash", "etransfer", "company_card", "cheque", "owner_paid"]
+
+    static func recognized(_ value: String?) -> String {
+        guard let value, known.contains(value) else { return "" }
+        return value
+    }
+
+    static func suggested(card: String?, parsed: String?) -> String {
+        let cardMethod = recognized(card)
+        return cardMethod.isEmpty ? recognized(parsed) : cardMethod
+    }
+}
+
 struct ReceiptIntakeResponse: Decodable {
     let success: Bool
     let mediaId: Int
