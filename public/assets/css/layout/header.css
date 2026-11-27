@@ -167,6 +167,13 @@
     transform: translateY(-8px) rotate(-45deg);
 }
 
+/* Header "Get a Quote" button (added 2026-11-24 with no styles: on a phone it ran off the right edge). */
+.header-quote-btn {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    margin-left: 12px;
+}
+
 /* ── Mobile Breakpoint ── */
 @media (max-width: 768px) {
     .mobile-menu-toggle {
@@ -262,5 +269,48 @@
     .logo-tagline {
         font-size: 7px;
         letter-spacing: 1.5px;
+    }
+}
+
+/* Phone: the logo gives way so the button, menu and logo all fit inside the screen. */
+@media (max-width: 768px) {
+    .nav-wrapper {
+        gap: 8px;
+    }
+
+    .logo {
+        min-width: 0;
+        flex: 1 1 auto;
+    }
+
+    .logo-text-group {
+        min-width: 0;
+    }
+
+    .header .header-quote-btn {
+        margin-left: 0;
+        padding: 8px 12px;
+        min-height: 44px;
+        font-size: 14px;
+        line-height: 1.2;
+        display: inline-flex;
+        align-items: center;
+    }
+}
+
+@media (max-width: 400px) {
+    .logo-tagline {
+        display: none;
+    }
+}
+
+@media (max-width: 380px) {
+    .logo-text {
+        font-size: 16px;
+        letter-spacing: 1px;
+    }
+
+    .logo-icon {
+        height: 34px;
     }
 }
