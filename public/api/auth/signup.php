@@ -10,6 +10,7 @@ require_once APP_ROOT . '/Core/config.php';
 require_once APP_ROOT . '/Core/Auth/auth.php';
 require_once APP_ROOT . '/Services/Messaging/MessagingService.php';
 require_once APP_ROOT . '/Modules/Onboarding/Services/SignUpService.php';
+require_once APP_ROOT . '/Modules/Onboarding/Services/SignUpCodeEmail.php';
 require_once APP_ROOT . '/Modules/Onboarding/Services/SignUpRequestThrottle.php';
 
 header('Content-Type: application/json; charset=utf-8');
@@ -36,9 +37,9 @@ if (!$result['ok']) {
 
 $code = (string)$result['code'];
 $local = defined('LOCAL_TEST_SITE') && LOCAL_TEST_SITE === true;
-$html = '<p>Your Ittai code is <strong>' . h($code) . '</strong>.</p><p>It expires in 15 minutes.</p>';
+$mail = SignUpCodeEmail::build($code, 15);   // white digits on indigo blocks; sender is Ittai, not the new business's placeholder name
 $emailSent = false;
-try { $emailSent = sendCrmEmail($email, 'Your Ittai code', $html); } catch (Throwable $e) { error_log('[signup] Email failed: ' . get_class($e)); }
+try { $emailSent = sendCrmEmail($email, $mail['subject'], $mail['html'], null, 'Ittai'); } catch (Throwable $e) { error_log('[signup] Email failed: ' . get_class($e)); }
 if (!$emailSent && !$local) { $service->clearCode(); http_response_code(502); echo json_encode(['ok' => false, 'error' => 'send_failed']); exit; }
 // Email only: the claim proves the owner holds the email on file. The code used to be texted to the mobile in this
 // request too — a number the caller chooses — so anyone knowing an unclaimed owner's email could claim the business
