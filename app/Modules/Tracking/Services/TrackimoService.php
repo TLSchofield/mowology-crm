@@ -140,6 +140,18 @@ class TrackimoService
      *   'heading' => ?int, 'battery_pct' => ?int, 'recorded_at' => 'Y-m-d H:i:s'
      * ]
      */
+    /**
+     * Trackimo answers either a bare list of fixes or {"locations":[...]}.
+     * (Codex 2026-11-27: the old is_array() test was always true, so the wrapped shape read as empty.)
+     */
+    public static function locationList(array $resp): array
+    {
+        if (isset($resp['locations']) && is_array($resp['locations'])) {
+            return $resp['locations'];
+        }
+        return $resp;
+    }
+
     public function getLastLocation(string $deviceId): ?array
     {
         $accountId = $this->getAccountId();
@@ -149,7 +161,7 @@ class TrackimoService
             ['device_ids' => [(int)$deviceId]]
         );
 
-        $list = is_array($resp) ? $resp : ($resp['locations'] ?? []);
+        $list = self::locationList($resp);
         if (!$list) return null;
 
         $row = is_array($list[0] ?? null) ? $list[0] : null;

@@ -69,7 +69,7 @@ class TruckLocationService
             $id = (int)$this->db->lastInsertId();
         } catch (PDOException $e) {
             // 23000 = integrity constraint violation (our uq_device_recorded)
-            if ($e->getCode() === '23000') {
+            if (self::isDuplicatePing($e)) {
                 $id = 0;
             } else {
                 throw $e;
@@ -114,6 +114,23 @@ class TruckLocationService
      * Return all pings for a device on a given date, ordered chronologically.
      * Date format: 'Y-m-d'. Used by the trail toggle on the map.
      */
+    /** True only for the (device_id, recorded_at) duplicate, not any other integrity error. */
+    public static function isDuplicatePing(PDOException $e): bool
+    {
+        if ((string)$e->getCode() !== '23000') return false;
+        $info = $e->errorInfo ?? [];
+        if (isset($info[1])) {
+            return (int)$info[1] === 1062 && stripos((string)($info[2] ?? ''), 'uq_device_recorded') !== false;
+        }
+        return stripos($e->getMessage(), 'uq_device_recorded') !== false;
+    }
+
+    /** Exclusive upper bound for a day's trail: midnight at the start of the next day. */
+    public static function nextDayStart(string $date): string
+    {
+        return date('Y-m-d', strtotime($date . ' +1 day')) . ' 00:00:00';
+    }
+
     public function getTrailForDate(string $deviceId, string $date): array
     {
         $stmt = $this->db->prepare(
@@ -124,7 +141,7 @@ class TruckLocationService
                AND recorded_at <  ?
              ORDER BY recorded_at ASC"
         );
-        $stmt->execute([$deviceId, $date . ' 00:00:00', $date . ' 23:59:59']);
+        $stmt->execute([$deviceId, $date . ' 00:00:00', self::nextDayStart($date)]);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         // Normalize numeric types for clean JSON output.

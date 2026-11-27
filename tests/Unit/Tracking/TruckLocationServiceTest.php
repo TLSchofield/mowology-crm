@@ -165,7 +165,7 @@ class TruckLocationServiceTest extends TestCase
 
         $stmt = $this->createMock(PDOStatement::class);
         $stmt->expects($this->once())->method('execute')->with([
-            'dev-1', '2026-06-06 00:00:00', '2026-06-06 23:59:59',
+            'dev-1', '2026-06-06 00:00:00', '2026-06-07 00:00:00',
         ]);
         $stmt->method('fetchAll')->willReturn($rows);
 

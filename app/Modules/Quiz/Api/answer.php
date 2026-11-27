@@ -152,12 +152,21 @@ try {
     // quiz_answers is an audit log — rows are never deleted in normal flow.
     // updateMastery() in QuizHelpers.php uses an atomic upsert; do not inline
     // the mastery write here or you re-introduce the SELECT+INSERT race.
-    $db->prepare(
-        "INSERT INTO quiz_answers (session_id, question_id, selected_option_id, is_correct, time_taken_seconds)
-         VALUES (?,?,?,?,?)"
-    )->execute([$sessionId, $questionId, $selectedOptionId, $isCorrect ? 1 : 0, $timeTaken]);
+    // One transaction: if the mastery write fails the answer row rolls back too, so a retry
+    // is not refused as "Already answered" with mastery permanently missing (Codex 2026-11-27).
+    $db->beginTransaction();
+    try {
+        $db->prepare(
+            "INSERT INTO quiz_answers (session_id, question_id, selected_option_id, is_correct, time_taken_seconds)
+             VALUES (?,?,?,?,?)"
+        )->execute([$sessionId, $questionId, $selectedOptionId, $isCorrect ? 1 : 0, $timeTaken]);
 
-    $masteryUpdate = updateMastery($db, $userId, $questionId, $isCorrect, $timeTaken);
+        $masteryUpdate = updateMastery($db, $userId, $questionId, $isCorrect, $timeTaken);
+        $db->commit();
+    } catch (Throwable $txe) {
+        if ($db->inTransaction()) $db->rollBack();
+        throw $txe;
+    }
 
     // selected_option_id is returned so iOS can highlight the user's wrong
     // choice in red — without it the UI can only show green on the correct answer.
