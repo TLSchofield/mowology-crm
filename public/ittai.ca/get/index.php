@@ -21,6 +21,8 @@ $sha = strtolower(trim((string)($cfg['sha256'] ?? '')));
 $shaOk = (bool)preg_match('/^[0-9a-f]{64}$/', $sha);
 $help = trim((string)($cfg['help_phone'] ?? ''));
 $preview = isset($_SERVER['ITTAI_GET_PREVIEW']);   // set only by the local preview script: shows the draft box
+$ua = (string)($_SERVER['HTTP_USER_AGENT'] ?? '');
+$samsung = (bool)preg_match('/samsung|\bSM-[A-Z0-9]{3,}/i', $ua);   // Samsung phones add one more check (Auto Blocker), so their box goes first
 $css = $preview ? '' : '/get/get.css';
 ?>
 <!doctype html>
@@ -67,32 +69,25 @@ $css = $preview ? '' : '/get/get.css';
   </ol>
 
   <h2>Your phone stopped you?</h2>
-  <p class="sub">Find the words on your screen.</p>
-  <div class="case">
-    <p class="when">It says <b>"not allowed to install unknown apps"</b></p>
-    <ol>
-      <li>Tap <b>Settings</b>.</li>
-      <li>Switch on <b>Allow from this source</b>.</li>
-      <li>Press the back arrow until you see <b>Install</b>, then tap it.</li>
-    </ol>
-  </div>
-  <div class="case">
-    <p class="when">It says <b>"Blocked by Play Protect"</b></p>
-    <ol>
-      <li>Tap <b>More details</b>.</li>
-      <li>Tap <b>Install anyway</b>.</li>
-    </ol>
-    <p class="why">Play Protect is Google's safety check. It does not know our app yet. If it says <b>App scan recommended</b>, tap <b>Scan app</b>, wait, then tap <b>Install</b>.</p>
-  </div>
-  <div class="case">
-    <p class="when"><b>Samsung phone</b> and it mentions <b>Auto Blocker</b></p>
-    <ol>
-      <li>Open <b>Settings</b>, then <b>Security and privacy</b>, then <b>Auto Blocker</b>.</li>
-      <li>Turn off <b>Block app installs from unauthorized sources</b>.</li>
-      <li>Go back and tap <b>Install</b> again.</li>
-    </ol>
-    <p class="why">You can turn it back on once the app is installed.</p>
-  </div>
+<?php
+$boxSamsung = '<div class="case' . ($samsung ? ' case-yours' : '') . '">'
+  . '<p class="when">' . ($samsung ? '<b>You have a Samsung phone.</b> ' : '<b>Samsung phone?</b> ') . 'If the message mentions <b>Auto Blocker</b>:</p>'
+  . '<ol><li>Open <b>Settings</b>, then <b>Security and privacy</b>, then <b>Auto Blocker</b>.</li>'
+  . '<li>Turn off <b>Block app installs from unauthorized sources</b>.</li>'
+  . '<li>Go back and tap <b>Install</b> again.</li></ol>'
+  . '<p class="why">Auto Blocker is Samsung\'s own safety setting. You can turn it back on once the app is installed.</p></div>';
+$boxUnknown = '<div class="case"><p class="when">It says <b>"not allowed to install unknown apps"</b></p>'
+  . '<ol><li>Tap <b>Settings</b>.</li><li>Switch on <b>Allow from this source</b>.</li>'
+  . '<li>Press the back arrow until you see <b>Install</b>, then tap it.</li></ol></div>';
+$boxPlay = '<div class="case"><p class="when">It says <b>"Blocked by Play Protect"</b></p>'
+  . '<ol><li>Tap <b>More details</b>.</li><li>Tap <b>Install anyway</b>.</li></ol>'
+  . '<p class="why">Play Protect is Google\'s safety check. It does not know our app yet. If it says <b>App scan recommended</b>, tap <b>Scan app</b>, wait, then tap <b>Install</b>.</p></div>';
+if ($samsung) {
+    echo '  <p class="sub">On a Samsung phone you may see these in this order.</p>' . "\n  " . $boxSamsung . "\n  " . $boxUnknown . "\n  " . $boxPlay . "\n";
+} else {
+    echo '  <p class="sub">Find the words on your screen.</p>' . "\n  " . $boxUnknown . "\n  " . $boxPlay . "\n  " . $boxSamsung . "\n";
+}
+?>
 
   <h2>If something goes wrong</h2>
   <details>
