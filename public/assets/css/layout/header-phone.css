@@ -73,3 +73,11 @@
         display: none;
     }
 }
+
+/* Home hero headline: a real space already separates the words, so the extra
+   margin doubled every gap; on a phone the headline is also a little smaller so it
+   runs in fewer lines and leaves the photo visible. */
+.mw-hero__word{margin-right:0}
+@media (max-width:576px){
+  .mw-hero__headline{font-size:clamp(1.9rem,8.2vw,2.4rem);line-height:1.12}
+}
