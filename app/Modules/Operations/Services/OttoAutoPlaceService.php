@@ -419,6 +419,20 @@ class OttoAutoPlaceService
         return $ids;
     }
 
+    /**
+     * The one plain line the apps show after "Let Otto draw it" (a new client's area): trade-neutral, no tool names.
+     * Pure. @param array $r borderOne()'s answer
+     */
+    public static function locationNote(array $r): string
+    {
+        if (!empty($r['ok'])) return 'The area for this address is set on the map.';
+        $m = (string)($r['message'] ?? '');
+        if (stripos($m, 'answering') !== false) return 'The map is not answering right now. Try again in a few minutes.';
+        if (stripos($m, 'map pin first') !== false) return 'This address needs a map pin first.';
+        if (stripos($m, 'already has a border') !== false) return 'This address already has its area set.';
+        return "We couldn't match this address to a lot on the map yet. You can set the area later.";
+    }
+
     public static function reasonText(string $reason): string
     {
         if (strpos($reason, 'no_source:') === 0) {

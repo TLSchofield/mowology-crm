@@ -213,7 +213,19 @@ class OttoRules
         if ($d > 0) $parts[] = self::plural($d, 'thing') . ' to check on bylaws and equipment.';
         $t = (int)($s['training'] ?? 0);
         if ($t > 0) $parts[] = self::plural($t, 'training note') . ' for the crew.';
-        if ($w === 0 && $g === 0 && $d === 0 && $t === 0 && !$silent && $stops > 0) $parts[] = 'Nothing needs you right now.';
+        $none = $w === 0 && $g === 0 && $d === 0 && $t === 0 && !$silent;
+        // The line and the list below it come from one state: when the caller passes 'open' (the items it will list),
+        // "Nothing needs you" is only said when that list is empty (2026-11-28: it sat above "Needs you now: 1 item").
+        if (array_key_exists('open', $s)) {
+            $open = (int)$s['open'];
+            // Items the specific sentences above do not cover (pins, borders, documents, deliveries…) are counted too.
+            $extra = $open - ($w + $g + $d + $t + count($silent));
+            if ($open > 0 && $none) $parts[] = $open === 1 ? '1 thing needs you.' : $open . ' things need you.';
+            elseif ($extra > 0) $parts[] = $extra === 1 ? '1 more thing needs you.' : $extra . ' more things need you.';
+            elseif ($open === 0 && $none && $stops > 0) $parts[] = 'Nothing needs you right now.';
+        } elseif ($none && $stops > 0) {
+            $parts[] = 'Nothing needs you right now.';
+        }
         return $hi . implode(' ', $parts);
     }
 

@@ -67,7 +67,12 @@ try {
         $done = $svc->approveLotBorder($propertyId);
         echo json_encode(['ok' => $done, 'message' => $done ? 'Kept.' : 'There is no Otto border here to approve.']);
     } else {
-        echo json_encode($svc->borderOne($propertyId));
+        // The client is already saved by now: the apps show "saved" first and this note under it. `message` is kept
+        // as it was for the web; `location_note` (plain, no tool names) and `border_ready` are for the apps.
+        $r = $svc->borderOne($propertyId);
+        $r['border_ready'] = !empty($r['ok']);
+        $r['location_note'] = OttoAutoPlaceService::locationNote($r);
+        echo json_encode($r);
     }
 } catch (Throwable $e) {
     error_log('otto-lot-border: ' . get_class($e));

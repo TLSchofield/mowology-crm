@@ -37,6 +37,7 @@ try {
     $__oSay = OttoRules::headline([
         'stops' => $__os['today']['stops'], 'done' => $__os['today']['done'], 'crews' => count($__os['today']['crews']),
         'silent' => $__os['silent'], 'weather' => $__os['weather'], 'gaps' => $__os['gaps'], 'dispatch' => $__os['dispatch'] ?? 0, 'training' => $__os['training'] ?? 0,
+        'open' => count(array_filter($__oItems, static fn($__i) => ($__i['kind'] ?? '') !== 'default_border')) + count($__oSnow) + count($__oDeliv),
     ], $__oName);
     $__oBadges = ['earned' => [], 'next' => null];
     try {

@@ -18,12 +18,12 @@ declare(strict_types=1);
  */
 class FieldJobService
 {
-    /** Offered in the field. Kept here so the web overlay and the iOS app cannot drift apart. */
-    public const SERVICE_TYPES = [
-        'Lawn Maintenance', 'Lawn Cut', 'Garden Care', 'Cleanup',
-        'Hedge Trimming', 'Fertilizing', 'Power Raking', 'Aeration',
-        'Snow Removal', 'Salt Application', 'Other',
-    ];
+    /**
+     * What the field list offers when nothing else is known. Not a trade's list: a business with no services yet gets
+     * just this (the apps show "Other" and an empty state). The real list is serviceTypes().
+     */
+    public const SERVICE_TYPES = ['Other'];
+    public const SERVICE_SETTING = 'field_service_types';   // ops_settings: one service per line, set by the owner
 
     public const FREQUENCIES   = ['weekly', 'biweekly', 'monthly'];
     public const DEFAULT_RADIUS_M = 250;
@@ -34,6 +34,43 @@ class FieldJobService
     public function __construct(PDO $db)
     {
         $this->db = $db;
+    }
+
+    /**
+     * The services offered when adding a job in the field, read as data (2026-11-28; it was one landscaping list for
+     * every business): the owner's own list (ops_settings field_service_types, one per line), else the services this
+     * business has already put on jobs, most used first, then "Other". A new business with none gets just "Other".
+     * @return list<string>
+     */
+    public function serviceTypes(): array
+    {
+        $own = [];
+        $used = [];
+        try {
+            $st = $this->db->prepare('SELECT setting_value FROM ops_settings WHERE setting_key = ?');
+            $st->execute([self::SERVICE_SETTING]);
+            $own = preg_split('/\R+/', (string)$st->fetchColumn()) ?: [];
+        } catch (Throwable $e) { /* no settings table: fall through */ }
+        if (!array_filter(array_map('trim', $own))) {
+            try {
+                $used = $this->db->query("SELECT service_type FROM job_plans WHERE service_type IS NOT NULL AND service_type <> '' AND service_type <> 'Other'
+                                          GROUP BY service_type ORDER BY COUNT(*) DESC, service_type LIMIT 12")->fetchAll(PDO::FETCH_COLUMN);
+            } catch (Throwable $e) { /* no job_plans yet */ }
+        }
+        return self::mergeServiceTypes($own, $used);
+    }
+
+    /** Pure: the owner's list if any, else the used ones; trimmed, no repeats, 'Other' last. */
+    public static function mergeServiceTypes(array $own, array $used): array
+    {
+        $out = [];
+        foreach (array_merge(array_filter(array_map('trim', $own)) ?: $used) as $name) {
+            $name = trim((string)$name);
+            if ($name === '' || strcasecmp($name, 'Other') === 0 || in_array($name, $out, true) || mb_strlen($name) > 100) continue;
+            $out[] = $name;
+        }
+        $out[] = 'Other';
+        return $out;
     }
 
     // ── Pure rules ───────────────────────────────────────────────────────────

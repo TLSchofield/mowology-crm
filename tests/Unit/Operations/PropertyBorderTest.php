@@ -256,7 +256,7 @@ class PropertyBorderTest extends TestCase
         $svc->apply(1);
         $by = [];
         foreach ($svc->items() as $it) $by[$it['kind'] . ':' . $it['subject_id']] = $it;
-        $this->assertSame("2505 W 8th Ave has no pin — crews can't be seen there (next visit Wed Oct 14).", $by['no_pin:843']['text']);
+        $this->assertSame("2505 W 8th Ave has no pin yet, so we can't show this address on the map (next visit Wed Oct 14).", $by['no_pin:843']['text']);
         $this->assertSame('/crm/map_appstack.php?geocode=843', $by['no_pin:843']['url']);
         $this->assertMatchesRegularExpression('/^Pin for 2448 Larch St is (7[89]|8[0-2]) m from where crews work → move it\.$/', $by['pin_off:12']['text']);
         $this->assertArrayHasKey('lat', $by['pin_off:12']['propose']);

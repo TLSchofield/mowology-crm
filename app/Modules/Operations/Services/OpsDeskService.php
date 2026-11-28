@@ -187,10 +187,6 @@ class OpsDeskService
         }
         $items = $this->current(false);
         $s = $this->stats($items);
-        $headline = OttoRules::headline([
-            'stops' => $s['today']['stops'], 'done' => $s['today']['done'], 'crews' => count($s['today']['crews']),
-            'silent' => $s['silent'], 'weather' => $s['weather'], 'gaps' => $s['gaps'], 'dispatch' => $s['dispatch'] ?? 0, 'training' => $s['training'] ?? 0,
-        ], $ownerFirstName);
         $out = [];
         foreach ($items as $it) {
             if ($it['kind'] === 'default_border') continue;   // one per property — the card and review page carry them, not the brief
@@ -260,6 +256,12 @@ class OpsDeskService
             foreach ((new SubcontractService($this->db))->briefItems() as $it) $out[] = $it;
         } catch (Throwable $e) { /* additive only (migration 1448) */ }
         $out = OttoRules::sortItems($out);
+        // The headline is said from the same list the owner sees below it.
+        $headline = OttoRules::headline([
+            'stops' => $s['today']['stops'], 'done' => $s['today']['done'], 'crews' => count($s['today']['crews']),
+            'silent' => $s['silent'], 'weather' => $s['weather'], 'gaps' => $s['gaps'], 'dispatch' => $s['dispatch'] ?? 0, 'training' => $s['training'] ?? 0,
+            'open' => count($out),
+        ], $ownerFirstName);
         return ['head' => 'otto', 'headline' => $headline, 'items' => $out, 'count' => count($out)];
     }
 

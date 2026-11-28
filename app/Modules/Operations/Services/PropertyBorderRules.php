@@ -390,7 +390,7 @@ class PropertyBorderRules
         $st = self::street($address);
         switch ($kind) {
             case 'no_pin':
-                return $st . ' has no pin — crews can\'t be seen there' . (!empty($x['next']) ? ' (next visit ' . date('D M j', strtotime($x['next'])) . ')' : '') . '.';
+                return $st . ' has no pin yet, so we can\'t show this address on the map' . (!empty($x['next']) ? ' (next visit ' . date('D M j', strtotime($x['next'])) . ')' : '') . '.';
             case 'pin_off':
                 return 'Pin for ' . $st . ' is ' . (int)$x['distance_m'] . ' m from where crews work → move it.';
             case 'default_border':

@@ -77,7 +77,7 @@ try {
             'results'       => ($lat === null || $lng === null)
                 ? []
                 : $service->nearby($lat, $lng, FieldJobService::resolveRadius($_GET['radius'] ?? 0)),
-            'service_types' => FieldJobService::SERVICE_TYPES,
+            'service_types' => $service->serviceTypes(),
             'staff'         => $service->staff(),
             'frequencies'   => FieldJobService::FREQUENCIES,
         ]);
