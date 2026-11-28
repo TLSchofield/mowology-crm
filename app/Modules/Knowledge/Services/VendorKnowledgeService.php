@@ -35,6 +35,8 @@ final class VendorKnowledgeService
     private ?VendorKnowledgeStore $store = null;
     private CategoryTaxonomy $taxonomy;
     private string $mode;
+    /** @var array<string,bool> */
+    private array $columnCache = [];
 
     public function __construct(PDO $db)
     {
@@ -172,6 +174,7 @@ final class VendorKnowledgeService
             $lock = 'adopt_kb_' . $kbVendorId;
             $mysql = $this->db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql';
             $got = $mysql ? (int)$this->db->query("SELECT GET_LOCK(" . $this->db->quote($lock) . ", 5)")->fetchColumn() : 0;
+            if ($mysql && $got !== 1) return null;   // could not get the lock: refuse rather than risk a twin; the client may retry
             try {
                 if ($again = $this->localVendorFor($kbVendorId)) return ['vendor_id' => $again, 'created' => false];
                 return $this->insertAdopted($row, $kbVendorId, $identity);
@@ -213,6 +216,10 @@ final class VendorKnowledgeService
             ->execute([$row['name'], $row['aliases'], $row['category_local'], $row['phone'], $row['website'], $row['gst_exempt']]);
         $id = (int)$this->db->lastInsertId();
         $this->linkLocalVendor($id, $kbVendorId, $identity);
+        if ($this->localVendorFor($kbVendorId) !== $id) {   // linkLocalVendor swallows its own failures: never leave an unlinked twin behind
+            $this->db->prepare("DELETE FROM vendors WHERE id = ?")->execute([$id]);
+            throw new RuntimeException('commons link did not stick');
+        }
         return ['vendor_id' => $id, 'created' => true];
     }
 
@@ -434,8 +441,8 @@ final class VendorKnowledgeService
 
     private function hasColumn(string $table, string $col): bool
     {
-        static $cache = [];
-        $k = spl_object_id($this->db) . '.' . $table . '.' . $col;
+        $cache = &$this->columnCache;   // per instance: a static keyed by connection id could outlive a closed connection
+        $k = $table . '.' . $col;
         if (isset($cache[$k])) return $cache[$k];
         try {
             // No placeholder: MySQL rejects parameter markers in SHOW with native prepares, so this used to answer
