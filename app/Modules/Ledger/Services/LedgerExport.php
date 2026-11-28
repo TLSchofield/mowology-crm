@@ -12,6 +12,9 @@ declare(strict_types=1);
  */
 final class LedgerExport
 {
+    /** The signed-in user when there is no session (the app's token endpoints set this so the export is still logged). */
+    public static ?int $actingUser = null;
+
     /** Header rows for a file. Pure. */
     public static function headerRows(string $entity, string $title, string $period, string $lockStatus, string $runAt): array
     {
@@ -41,7 +44,7 @@ final class LedgerExport
     public static function logExport(string $what, array $params = []): void
     {
         if (!function_exists('logActivity')) return;
-        $uid = (int)($_SESSION['user_id'] ?? 0);
+        $uid = (int)(self::$actingUser ?? ($_SESSION['user_id'] ?? 0));
         if ($uid <= 0) return;
         try {
             logActivity($uid, null, 'ledger.export', json_encode(['export' => $what, 'params' => $params],

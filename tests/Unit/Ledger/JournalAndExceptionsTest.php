@@ -165,6 +165,8 @@ class JournalAndExceptionsTest extends TestCase
     {
         $db = $this->db();
         $db->exec("ALTER TABLE chart_of_accounts ADD COLUMN gifi_code TEXT");
+        $db->exec("CREATE TABLE expenses (id INTEGER PRIMARY KEY, vendor_id INTEGER, vendor_name_raw TEXT)");
+        $db->exec("CREATE TABLE vendors (id INTEGER PRIMARY KEY, name TEXT)");
         // well past the old 20,000-entry cap would be slow here; what matters is one query, every line, entry then line order
         $seen = [];
         $n = (new JournalBrowserService($db))->streamLines(JournalBrowserService::normalizeFilters([]), function (array $l) use (&$seen) {

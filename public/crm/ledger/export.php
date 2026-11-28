@@ -7,6 +7,7 @@
  *   ?report=journal  every journal line from..to                   xlsx | csv | pdf (PDF only up to PDF_MAX_LINES)
  *   ?report=aging    A/R and A/P control balances at as_of (aging by invoice comes in step 4)
  *   ?report=bs / is  balance sheet at as_of / income statement from..to
+ *   ?report=accountant&period=this_month|last_month|this_year|last_year   the journal as .xlsx for the accountant (GST, PST, vendor, receipt ref added)
  *   ?report=qbo      QuickBooks Online journal import CSV, &mode=detailed|summary, &datefmt=dmy|mdy|ymd
  *
  * Every file: header rows (entity, report, period, run time, lock status), no merged cells, numbers as
@@ -19,6 +20,7 @@ require_once APP_ROOT . '/Modules/Accounting/Services/ReportingService.php';
 require_once APP_ROOT . '/Modules/Ledger/Services/ComparativeTrialBalanceService.php';
 require_once APP_ROOT . '/Modules/Ledger/Services/GeneralLedgerService.php';
 require_once APP_ROOT . '/Modules/Ledger/Services/QboJournalExport.php';
+require_once APP_ROOT . '/Modules/Ledger/Services/AccountantExport.php';
 
 const PDF_MAX_LINES = 4000;
 
@@ -80,27 +82,28 @@ try {
                 $t = ['title' => 'Journal', 'period' => "$from to $to", 'from' => $from, 'to' => $to];
                 $fh = LedgerExport::csvStream("$entity-journal-$from-$to.csv", 'journal.csv', array_filter($f, fn($v) => $v !== null));
                 foreach (LedgerExport::headerFor($db, $t) as $h) LedgerExport::csvLine($fh, $h);
-                LedgerExport::csvLine($fh, ['Entry', 'Date', 'Kind', 'Source type', 'Source id', 'Memo', 'Account', 'Account name', 'GIFI', 'Debit', 'Credit', 'Line description', 'By']);
+                LedgerExport::csvLine($fh, ['Entry', 'Date', 'Kind', 'Source type', 'Source id', 'Memo', 'Account', 'Account name', 'GIFI', 'Debit', 'Credit', 'Line description', 'By', 'GST', 'PST', 'Vendor', 'Receipt ref']);
                 $svc->streamLines($f, static function (array $l) use ($fh): void {
-                    LedgerExport::csvLine($fh, [(int)$l['id'], $l['entry_date'], $l['display_kind'], $l['source_type'], $l['source_id'] !== null ? (int)$l['source_id'] : null,
-                        $l['memo'], $l['code'], $l['account_name'], $l['gifi_code'], (float)$l['debit'], (float)$l['credit'], $l['description'],
-                        $l['created_by_name'] ?: ($l['proposed_by'] ?: 'system')]);
+                    $r = AccountantExport::lineRow($l);
+                    LedgerExport::csvLine($fh, array_merge([$r[0], $r[1], $r[2], $l['source_type'], $l['source_id'] !== null ? (int)$l['source_id'] : null],
+                        [$r[4], $r[5], $r[6], $r[7], (float)$l['debit'], (float)$l['credit'], $r[10], $r[11], $r[12], $r[13], $r[14], $r[15]]));
                 });
                 fclose($fh);
                 exit;
             }
-            $rows = [];
-            $svc->streamLines($f, static function (array $l) use (&$rows): void {
-                $rows[] = [(int)$l['id'], $l['entry_date'], $l['display_kind'], str_replace('_', ' ', (string)$l['source_type']) . ($l['source_id'] ? ' ' . (int)$l['source_id'] : ''),
-                           $l['memo'], $l['code'], $l['account_name'], $l['gifi_code'], (float)$l['debit'] ?: null, (float)$l['credit'] ?: null, $l['description'],
-                           $l['created_by_name'] ?: ($l['proposed_by'] ?: 'system')];
-            });
-            if ($format === 'pdf' && count($rows) > PDF_MAX_LINES) $refuse(413, 'Too many lines for a PDF (' . count($rows) . ') — shorten the period or take the XLSX / CSV.');
-            $t = ['title' => 'Journal', 'period' => "$from to $to", 'from' => $from, 'to' => $to, 'landscape' => true, 'rows' => $rows,
-                  'columns' => [['Entry', 'int', 8], ['Date', 'date', 11], ['Kind', 'text', 9], ['Source', 'text', 16], ['Memo', 'text', 40],
-                                ['Account', 'text', 8], ['Account name', 'text', 24], ['GIFI', 'text', 6], ['Debit', 'money', 13], ['Credit', 'money', 13],
-                                ['Line description', 'text', 30], ['By', 'text', 14]]];
+            $t = AccountantExport::table($svc, $f, $from, $to);
+            if ($format === 'pdf' && count($t['rows']) > PDF_MAX_LINES) $refuse(413, 'Too many lines for a PDF (' . count($t['rows']) . ') — shorten the period or take the XLSX / CSV.');
             LedgerExport::sendTable($db, $t, $format, "$entity-journal-$from-$to", 'journal', array_filter($f, fn($v) => $v !== null));
+            break;
+
+        case 'accountant':
+            // "Prepare for my accountant": the journal for a preset period as an .xlsx (period=this_month|last_month|this_year|last_year).
+            $p = AccountantExport::period((string)($_GET['period'] ?? 'last_year'), date('Y-m-d'), $fye);
+            if ($p === null) $refuse(400, 'Unknown period.');
+            [$pFrom, $pTo] = $p;
+            $svc = new JournalBrowserService($db);
+            $t = AccountantExport::table($svc, JournalBrowserService::normalizeFilters(['from' => $pFrom, 'to' => $pTo]), $pFrom, $pTo);
+            LedgerExport::sendTable($db, $t, 'xlsx', "$entity-for-accountant-$pFrom-$pTo", 'accountant', ['from' => $pFrom, 'to' => $pTo]);
             break;
 
         case 'aging':

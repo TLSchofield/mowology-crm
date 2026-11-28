@@ -107,6 +107,20 @@ $pageTitle = 'Ledger';
   <p class="mw-ledger-explain mw-ledger-small">Questions Penny could not settle from the books. Nothing is sent to the accountant until you say so.</p>
   <?php endif; ?>
 
+  <h2 class="mw-ledger-h2">Prepare for my accountant</h2>
+  <form method="get" action="/crm/ledger/export.php" class="mw-ledger-filters">
+    <input type="hidden" name="report" value="accountant">
+    <label for="mwAcctPeriod" class="mw-ledger-small">Period</label>
+    <select id="mwAcctPeriod" name="period" class="form-select form-select-sm">
+      <option value="last_year">Last year</option>
+      <option value="this_year">This year so far</option>
+      <option value="last_month">Last month</option>
+      <option value="this_month">This month</option>
+    </select>
+    <button type="submit" class="btn btn-sm btn-primary">Download spreadsheet</button>
+  </form>
+  <p class="mw-ledger-explain mw-ledger-small">A spreadsheet of your books for the period: one line for each debit or credit, with the account, the tax and the vendor shown. Download it and send it to your accountant by email. Receipts are not included.</p>
+
   <h2 class="mw-ledger-h2">Exports — FY<?= (int)$year ?> to date</h2>
   <div class="mw-ledger-tablewrap mw-ledger-tablewrap--auto">
     <table class="mw-ledger-table mw-ledger-table--exports">

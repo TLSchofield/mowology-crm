@@ -141,11 +141,14 @@ class JournalBrowserService
         $gifiCol = $this->hasGifiColumn() ? 'a.gifi_code' : 'NULL';
         $sql = "SELECT je.id, je.entry_date, $kindCol AS entry_kind, je.source_type, je.source_id, je.memo, je.created_by, je.proposed_by,
                        je.created_at, je.reversed_by_entry_id, u.full_name AS created_by_name,
-                       a.code, a.name AS account_name, $gifiCol AS gifi_code, jl.debit, jl.credit, jl.description
+                       a.code, a.name AS account_name, $gifiCol AS gifi_code, jl.debit, jl.credit, jl.description,
+                       jl.gst_amount, jl.pst_amount, COALESCE(NULLIF(v.name, ''), ex.vendor_name_raw) AS vendor_name
                 FROM journal_entries je
                 JOIN journal_lines jl ON jl.entry_id = je.id
                 JOIN chart_of_accounts a ON a.id = jl.account_id
                 LEFT JOIN users u ON u.id = je.created_by
+                LEFT JOIN expenses ex ON je.source_type = 'expense' AND ex.id = je.source_id
+                LEFT JOIN vendors v ON v.id = ex.vendor_id
                 WHERE $where
                 ORDER BY je.id, jl.id";
         $mysql = $this->db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql';
