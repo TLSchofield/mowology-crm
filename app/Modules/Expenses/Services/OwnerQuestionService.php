@@ -170,11 +170,11 @@ class OwnerQuestionService
         return ReceiptPaymentHabits::load($this->db);
     }
 
-    /** "Filed" = approved or forwarded (ExpenseGate::POSTED). */
+    /** "Filed" = handed in by the owner: waiting for approval, approved or forwarded. */
     private function hasFiledReceipt(): bool
     {
         try {
-            return $this->db->query("SELECT 1 FROM expenses WHERE status IN ('approved', 'forwarded') LIMIT 1")->fetchColumn() !== false;
+            return $this->db->query("SELECT 1 FROM expenses WHERE status IN ('pending_approval', 'approved', 'forwarded') LIMIT 1")->fetchColumn() !== false;
         } catch (Throwable $e) {
             return false;
         }

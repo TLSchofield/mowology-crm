@@ -24,6 +24,12 @@ class OwnerQuestionPaymentTest extends TestCase
         }
     }
 
+    public function test_a_receipt_waiting_for_approval_counts_as_filed(): void
+    {
+        $q = (new OwnerQuestionService($this->db('pending_approval')))->open();
+        $this->assertSame(['payment_methods'], array_column($q, 'key'));
+    }
+
     public function test_asked_after_the_first_filed_receipt_as_a_multi_select_with_owner_paid(): void
     {
         $q = (new OwnerQuestionService($this->db('forwarded')))->open();

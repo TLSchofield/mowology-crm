@@ -119,6 +119,13 @@ class CompanyDetailsServiceTest extends TestCase
         $this->assertSame(0, (new CompanyDetailsService($db))->filedReceipts());
     }
 
+    public function test_receipts_waiting_for_approval_count_as_filed(): void
+    {
+        $db = $this->db(0);
+        foreach (['pending_approval', 'pending_approval', 'pending_approval'] as $i => $st) $db->exec("INSERT INTO expenses (id, status) VALUES (" . ($i + 1) . ", '$st')");
+        $this->assertSame(3, (new CompanyDetailsService($db))->filedReceipts());
+    }
+
     public function test_the_open_shape_is_the_form_shape(): void
     {
         $q = array_column((new OwnerQuestionService($this->db()))->open(), null, 'key')['company_details'];

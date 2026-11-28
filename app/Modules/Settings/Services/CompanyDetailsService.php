@@ -77,11 +77,11 @@ class CompanyDetailsService
         return [$v, null];
     }
 
-    /** Filed receipts (approved or forwarded: ExpenseGate::POSTED). */
+    /** Filed receipts (waiting for approval, approved or forwarded). */
     public function filedReceipts(): int
     {
         try {
-            return (int)$this->db->query("SELECT COUNT(*) FROM expenses WHERE status IN ('approved', 'forwarded')")->fetchColumn();
+            return (int)$this->db->query("SELECT COUNT(*) FROM expenses WHERE status IN ('pending_approval', 'approved', 'forwarded')")->fetchColumn();
         } catch (Throwable $e) {
             return 0;
         }
