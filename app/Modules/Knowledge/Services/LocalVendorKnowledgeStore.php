@@ -108,8 +108,15 @@ final class LocalVendorKnowledgeStore implements VendorKnowledgeStore
     public function vendor(int $id): ?array
     {
         if ($id <= 0 || !$this->ready()) return null;
-        $v = $this->load($id);
-        return ($v && in_array($v['status'], ['shared', 'curated'], true)) ? $v : null;
+        try {
+            $st = $this->db->prepare("SELECT status FROM kb_vendors WHERE id = ?");
+            $st->execute([$id]);
+            if (!in_array($st->fetchColumn(), ['shared', 'curated'], true)) return null;   // candidate, blocked or unknown
+            return $this->load($id);
+        } catch (Throwable $e) {
+            error_log('kb vendor: ' . $e->getMessage());
+            return null;
+        }
     }
 
     public function load(int $id): ?array

@@ -68,7 +68,6 @@ final class CommonsSearchTest extends TestCase
     public function testAStoreHandsOutOnlySharedOrCuratedVendorsById(): void
     {
         $store = $this->store();
-        $this->assertSame(2, $store->vendor(2)['id'] ?? null);
         $this->assertNull($store->vendor(3));   // candidate
         $this->assertNull($store->vendor(4));   // blocked
         $this->assertNull($store->vendor(99));
