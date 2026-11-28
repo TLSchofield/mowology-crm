@@ -245,14 +245,12 @@ function handleAdoptCommons(PDO $db, ?array $input): void
         throw new Exception('Invalid security token');
     }
     require_once APP_ROOT . '/Modules/Knowledge/Services/VendorKnowledgeService.php';
-    $r = (new VendorKnowledgeService($db))->adoptCommonsVendor((int)($input['kb_vendor_id'] ?? 0));
+    $r = (new VendorKnowledgeService($db))->adoptCommonsVendorForClient((int)($input['kb_vendor_id'] ?? 0));
     if ($r === null) {
         echo json_encode(['success' => false, 'error' => 'That vendor is not available right now']);
         return;
     }
-    $s = $db->prepare("SELECT id, name, aliases, default_accounting_category, default_gbp_category FROM vendors WHERE id = ?");
-    $s->execute([$r['vendor_id']]);
-    echo json_encode(['success' => true, 'vendor_id' => $r['vendor_id'], 'created' => $r['created'], 'vendor' => $s->fetch(PDO::FETCH_ASSOC)]);
+    echo json_encode(['success' => true] + $r);
 }
 
 function handleVendorCreate(PDO $db, ?array $input): void

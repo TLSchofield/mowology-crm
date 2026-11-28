@@ -170,7 +170,8 @@ final class VendorKnowledgeService
             }
             // One adoption at a time per commons vendor: a double tap must not make two vendors.
             $lock = 'adopt_kb_' . $kbVendorId;
-            $got = (int)$this->db->query("SELECT GET_LOCK(" . $this->db->quote($lock) . ", 5)")->fetchColumn();
+            $mysql = $this->db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql';
+            $got = $mysql ? (int)$this->db->query("SELECT GET_LOCK(" . $this->db->quote($lock) . ", 5)")->fetchColumn() : 0;
             try {
                 if ($again = $this->localVendorFor($kbVendorId)) return ['vendor_id' => $again, 'created' => false];
                 return $this->insertAdopted($row, $kbVendorId, $identity);
@@ -181,6 +182,20 @@ final class VendorKnowledgeService
             error_log('kb adopt: ' . $e->getMessage());
             return null;
         }
+    }
+
+    /**
+     * adoptCommonsVendor() plus the local vendor row the clients need, in the shape both endpoints (session web and JWT app)
+     * return. Idempotent: a second call for the same commons vendor returns the same vendor, created = false.
+     * @return array{vendor_id:int, created:bool, vendor:?array}|null
+     */
+    public function adoptCommonsVendorForClient(int $kbVendorId): ?array
+    {
+        $r = $this->adoptCommonsVendor($kbVendorId);
+        if ($r === null) return null;
+        $s = $this->db->prepare("SELECT id, name, aliases, default_accounting_category, default_gbp_category FROM vendors WHERE id = ?");
+        $s->execute([$r['vendor_id']]);
+        return ['vendor_id' => $r['vendor_id'], 'created' => $r['created'], 'vendor' => $s->fetch(PDO::FETCH_ASSOC) ?: null];
     }
 
     private function gstConflicts(int $vendorId, string $kbGst): bool
@@ -420,11 +435,15 @@ final class VendorKnowledgeService
     private function hasColumn(string $table, string $col): bool
     {
         static $cache = [];
-        $k = $table . '.' . $col;
+        $k = spl_object_id($this->db) . '.' . $table . '.' . $col;
         if (isset($cache[$k])) return $cache[$k];
         try {
             // No placeholder: MySQL rejects parameter markers in SHOW with native prepares, so this used to answer
             // "missing" for every column and the commons link (kb_vendor_id) never ran (found 2026-11-04).
+            if ($this->db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite') {   // the unit tests' database
+                foreach ($this->db->query("PRAGMA table_info(`{$table}`)")->fetchAll(PDO::FETCH_ASSOC) as $c) if ($c['name'] === $col) return $cache[$k] = true;
+                return $cache[$k] = false;
+            }
             return $cache[$k] = (bool)$this->db->query("SHOW COLUMNS FROM `{$table}` LIKE " . $this->db->quote($col))->fetch();
         } catch (Throwable $e) { return $cache[$k] = false; }
     }

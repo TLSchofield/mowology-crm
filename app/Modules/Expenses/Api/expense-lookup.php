@@ -11,6 +11,9 @@
  * GET /api/expenses/expense-lookup?type=duplicates&total=12.34&expense_date=YYYY-MM-DD[&vendor_name=&vendor_id=&exclude_id=]
  *     → { success, has_duplicates, duplicates: [...] }
  *
+ * POST {action:'adopt_commons', kb_vendor_id} (expenses.edit) → { success, vendor_id, created, vendor }: makes a commons
+ *      type-ahead row (GET type=vendors&commons=1, id null, source 'commons') a local vendor, linked, once.
+ *
  * Uses `type=` rather than `action=` on purpose — the /api/ router's QSA rewrite
  * appends its own `action` param and PHP keeps the last one, so `?action=` 404s.
  *
@@ -44,9 +47,32 @@ try {
 
     $jwtUser = requireJwt();
 
+    // The one write in this family: the owner picked a commons vendor in the type-ahead (row with id null, source
+    // 'commons'). POST {action:'adopt_commons', kb_vendor_id} creates + links the local vendor once (idempotent).
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        $in = json_decode(file_get_contents('php://input'), true);
+        if (!is_array($in) || ($in['action'] ?? '') !== 'adopt_commons') {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Unknown action']);
+            exit;
+        }
+        if (!jwtUserHasPermission($jwtUser, 'expenses.edit')) {
+            http_response_code(403);
+            echo json_encode(['success' => false, 'error' => 'Permission denied: expenses.edit required']);
+            exit;
+        }
+        require_once APP_ROOT . '/Modules/Knowledge/Services/VendorKnowledgeService.php';
+        $r = (new VendorKnowledgeService(getDB()))->adoptCommonsVendorForClient((int)($in['kb_vendor_id'] ?? 0));
+        if ($r === null) {
+            echo json_encode(['success' => false, 'error' => 'That vendor is not available right now']);
+            exit;
+        }
+        echo json_encode(['success' => true] + $r);
+        exit;
+    }
     if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
         http_response_code(405);
-        echo json_encode(['success' => false, 'error' => 'GET required']);
+        echo json_encode(['success' => false, 'error' => 'GET or POST required']);
         exit;
     }
 
