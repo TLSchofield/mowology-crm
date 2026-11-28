@@ -51,7 +51,8 @@ final class RemoteVendorKnowledgeStore implements VendorKnowledgeStore
 
         $res = $this->http('GET', $this->url . '?mode=resolve&' . http_build_query($q));
         $vendor = ($res && !empty($res['ok']) && !empty($res['vendor'])) ? $res['vendor'] : null;
-        $this->cachePut($cacheKey, $vendor ?: []);   // cache misses too (as [])
+        // A real answer (found or "not known") is cached; a failed call (timeout, 5xx) is not, so an outage heals itself.
+        if ($res !== null && !empty($res['ok'])) $this->cachePut($cacheKey, $vendor ?: []);
         return $vendor;
     }
 
@@ -59,9 +60,10 @@ final class RemoteVendorKnowledgeStore implements VendorKnowledgeStore
     {
         $q = trim($q);
         if (mb_strlen($q) < 3 || !$this->ready()) return [];
-        $cacheKey = 'search:' . sha1(mb_strtolower($q));
+        $limit = max(1, min(20, $limit));
+        $cacheKey = 'search:' . $limit . ':' . sha1(mb_strtolower($q));
         $cached = $this->cacheGet($cacheKey);
-        if ($cached !== null) return $cached['rows'] ?? [];
+        if ($cached !== null) return array_slice($cached['rows'] ?? [], 0, $limit);
         $res = $this->http('GET', $this->url . '?mode=search&' . http_build_query(['q' => $q]));
         if (!$res || empty($res['ok'])) return [];   // a failed call is not cached: the next keystroke tries again
         $rows = [];
@@ -69,7 +71,7 @@ final class RemoteVendorKnowledgeStore implements VendorKnowledgeStore
             if (!is_array($r) || empty($r['id']) || empty($r['display_name'])) continue;
             $rows[] = ['id' => (int)$r['id'], 'display_name' => (string)$r['display_name'], 'kind' => $r['kind'] ?? null, 'status' => (string)($r['status'] ?? 'shared')];
         }
-        $rows = array_slice($rows, 0, max(1, min(20, $limit)));
+        $rows = array_slice($rows, 0, $limit);
         $this->cachePut($cacheKey, ['rows' => $rows]);
         return $rows;
     }

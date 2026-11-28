@@ -139,7 +139,7 @@ class ExpenseLookupService
             ORDER BY name
             LIMIT 20
         ");
-        $like = '%' . $q . '%';
+        $like = '%' . addcslashes($q, '%_\\') . '%';
         $stmt->execute([$like, $like]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
     }

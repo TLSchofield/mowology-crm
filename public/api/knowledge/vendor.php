@@ -70,6 +70,8 @@ if ($mode === 'resolve' && $_SERVER['REQUEST_METHOD'] === 'GET') {
         'name_key'     => VendorIdentity::nameKey($_GET['name_key'] ?? null),
     ];
     $v = $store->resolve($identity);
+    // A remote business is told only about shared or curated vendors; a candidate is one business's unconfirmed word.
+    if ($v && !in_array($v['status'] ?? '', ['shared', 'curated'], true)) $v = null;
     if ($v) unset($v['tenant_count']);   // how many tenants know a vendor is the hub's business
     kb_out(200, ['ok' => true, 'vendor' => $v]);
 }
