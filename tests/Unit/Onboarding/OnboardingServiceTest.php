@@ -30,6 +30,14 @@ class OnboardingServiceTest extends TestCase
         return new OnboardingService(new OnboardingContext($db, 1), null, []);
     }
 
+    /** The default path with the QuickBooks module put back: for the module's own tests (it is no longer a setup step). */
+    private function qbSvc(PDO $db): OnboardingService
+    {
+        $m = OnboardingService::defaultModules();
+        array_splice($m, 3, 0, [new OnboardingQuickBooksModule()]);
+        return new OnboardingService(new OnboardingContext($db, 1), $m, []);
+    }
+
     /** The web page: every step. */
     private function webSvc(PDO $db): OnboardingService
     {
@@ -38,8 +46,8 @@ class OnboardingServiceTest extends TestCase
 
     public function test_the_default_path(): void
     {
-        $this->assertSame(['name', 'terms', 'company', 'quickbooks', 'contacts', 'books', 'gst', 'yearend', 'payroll', 'accountant', 'done'], $this->webSvc($this->db())->order());
-        $this->assertSame(['name', 'company', 'quickbooks', 'books', 'accountant', 'done'], $this->svc($this->db())->order(), 'an old app never sees the new steps');
+        $this->assertSame(['name', 'terms', 'company', 'contacts', 'books', 'gst', 'yearend', 'payroll', 'accountant', 'done'], $this->webSvc($this->db())->order(), 'QuickBooks is no longer a setup step');
+        $this->assertSame(['name', 'company', 'books', 'accountant', 'done'], $this->svc($this->db())->order(), 'an old app never sees the new steps');
     }
 
     public function test_a_saved_old_order_gets_terms_right_after_name(): void
@@ -63,14 +71,14 @@ class OnboardingServiceTest extends TestCase
         $this->assertNull($old->module('contacts'));
         $this->assertSame('name', $old->next());
         $some = new OnboardingService($ctx, null, ['terms']);
-        $this->assertSame(['name', 'terms', 'company', 'quickbooks', 'books', 'accountant', 'done'], $some->order());
+        $this->assertSame(['name', 'terms', 'company', 'books', 'accountant', 'done'], $some->order());
         $all = new OnboardingService($ctx, null, OnboardingService::knowsFrom('terms,contacts,gst,yearend,payroll'));
         $this->assertSame($this->webSvc($db)->order(), $all->order());
         // readyToFinish ignores the steps the app cannot show, and counts the ones it can.
         $name = $old->module('name');
         $name->save($ctx, 'Tim', 'S', 'Tim'); $name->saveReach($ctx, 'app', ''); $name->saveQuiet($ctx, '21:00', '06:30', true);
         $db->exec("INSERT INTO business_identity VALUES (1, 'X Ltd', 'X', NULL)");
-        foreach (['quickbooks', 'books', 'accountant'] as $k) $old->skip($k, true);
+        foreach (['books', 'accountant'] as $k) $old->skip($k, true);
         $this->assertTrue((new OnboardingService($ctx, null, []))->readyToFinish());
         $this->assertFalse($this->webSvc($db)->readyToFinish(), 'the web page still needs terms, GST, year-end and payroll');
         $this->assertFalse((new OnboardingService($ctx, null, ['terms']))->readyToFinish());
@@ -157,17 +165,15 @@ class OnboardingServiceTest extends TestCase
         $db = $this->db();
         $s = $this->svc($db);
         $this->assertTrue($s->move('company', -1)['ok']);
-        $this->assertSame(['company', 'name', 'quickbooks', 'books', 'accountant', 'done'], $s->order());
-        $this->assertTrue($s->move('quickbooks', -1)['ok'], 'QuickBooks moves as one module');
-        $this->assertSame(['company', 'quickbooks', 'name', 'books', 'accountant', 'done'], $this->svc($db)->order(), 'kept in settings');
+        $this->assertSame(['company', 'name', 'books', 'accountant', 'done'], $s->order());
+        $this->assertTrue($s->move('books', -1)['ok'], 'Your books moves as one module');
+        $this->assertSame(['company', 'books', 'name', 'accountant', 'done'], $this->svc($db)->order(), 'kept in settings');
     }
 
     public function test_a_step_never_comes_before_what_it_needs_and_done_stays_last(): void
     {
         $s = $this->svc($this->db());
-        $r = $s->move('books', -1);
-        $this->assertFalse($r['ok']);
-        $this->assertSame('"Your books" needs "QuickBooks" first.', $r['message']);
+        $this->assertSame([], $s->module('books')->needs(), 'Your books needs nothing: QuickBooks is no longer a setup step');
         $this->assertFalse($s->move('done', -1)['ok']);
         $this->assertFalse($s->move('accountant', 1)['ok'], 'nothing goes after Done');
         $this->assertFalse($s->move('name', -1)['ok'], 'already first');
@@ -193,47 +199,47 @@ class OnboardingServiceTest extends TestCase
         $this->assertSame('done', $map['name']['state']);
         $this->assertSame('Penny calls you Tim · by email · quiet 8 pm–7 am.', $map['name']['summary']);
         $this->assertSame('Mowology · BC1234567', $map['company']['summary']);
-        $this->assertSame('quickbooks', $s->next());
+        $this->assertSame('books', $s->next());
     }
 
     public function test_no_quickbooks_brings_in_your_books_and_yes_hides_it(): void
     {
         $db = $this->db();
-        $s = $this->svc($db);
+        $s = $this->qbSvc($db);
         $qb = $s->module('quickbooks');
         $qb->setAnswer($s->context(), false);
-        $map = array_column($this->svc($db)->map(), 'state', 'key');
+        $map = array_column($this->qbSvc($db)->map(), 'state', 'key');
         $this->assertSame('not_needed', $map['quickbooks']);
         $this->assertContains($map['books'], ['next', 'todo']);
 
         $qb->setAnswer($s->context(), true);
-        $map = array_column($this->svc($db)->map(), 'state', 'key');
+        $map = array_column($this->qbSvc($db)->map(), 'state', 'key');
         $this->assertSame('not_needed', $map['books']);
-        $this->assertSame('Uses QuickBooks — not connected yet.', array_column($this->svc($db)->map(), 'summary', 'key')['quickbooks']);
+        $this->assertSame('Uses QuickBooks — not connected yet.', array_column($this->qbSvc($db)->map(), 'summary', 'key')['quickbooks']);
     }
 
     /** Claudia walk 1 (2026-11-03): "all five accepted" made Continue loop. Connected + read = done. */
     public function test_quickbooks_is_done_once_connected_and_read_without_accepting_parts(): void
     {
         $db = $this->db();
-        $s = $this->svc($db);
+        $s = $this->qbSvc($db);
         $s->module('quickbooks')->setAnswer($s->context(), true);
         $db->exec("INSERT INTO qbo_connections VALUES (1, 'connected', 'enc')");
-        $this->assertNotSame('done', array_column($this->svc($db)->map(), 'state', 'key')['quickbooks'], 'connected but not read yet');
+        $this->assertNotSame('done', array_column($this->qbSvc($db)->map(), 'state', 'key')['quickbooks'], 'connected but not read yet');
         $db->exec("INSERT INTO qbo_onboarding_snapshot VALUES (1, 'customer', '1', '{}')");
-        $map = array_column($this->svc($db)->map(), 'state', 'key');
+        $map = array_column($this->qbSvc($db)->map(), 'state', 'key');
         $this->assertSame('done', $map['quickbooks']);
-        $this->assertNotSame('quickbooks', $this->svc($db)->next(), 'Continue moves on');
+        $this->assertNotSame('quickbooks', $this->qbSvc($db)->next(), 'Continue moves on');
     }
 
     public function test_skipping_quickbooks_unanswered_does_not_trap_your_books(): void
     {
         $db = $this->db();
-        $s = $this->svc($db);
+        $s = $this->qbSvc($db);
         $s->skip('quickbooks', true);
         $books = $s->module('books');
         $books->acknowledge($s->context());
-        $this->assertSame('done', array_column($this->svc($db)->map(), 'state', 'key')['books'], 'Got it finishes it — it used to loop');
+        $this->assertSame('done', array_column($this->qbSvc($db)->map(), 'state', 'key')['books'], 'Got it finishes it — it used to loop');
     }
 
     public function test_finish_waits_for_the_steps_before_it(): void

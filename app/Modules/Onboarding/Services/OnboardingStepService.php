@@ -37,7 +37,8 @@ final class OnboardingStepService
         $onboarding = new OnboardingService($context, null, array_key_exists('knows', $in) ? OnboardingService::knowsFrom($in['knows']) : null);
         $key = trim((string)($in['key'] ?? ''));
         $do = trim((string)($in['do'] ?? ''));
-        if ($onboarding->module($key) === null) return ['ok' => false, 'error' => 'validation', 'message' => 'No such step.'];
+        // 'quickbooks' is no longer a setup step but its connect/read/accept/send actions stay (the connector flow).
+        if ($onboarding->module($key) === null && $key !== 'quickbooks') return ['ok' => false, 'error' => 'validation', 'message' => 'No such step.'];
         if ($do === 'skip' && $key !== 'contacts') {
             $r = $onboarding->skip($key, true);
             return !empty($r['ok']) ? ['ok' => true, 'next' => $onboarding->next(), 'message' => $r['message'] ?? null]

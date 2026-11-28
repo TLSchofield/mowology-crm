@@ -544,7 +544,7 @@ class OnboardingBooksModule extends OnboardingModule
     public function key(): string { return 'books'; }
     public function title(): string { return 'Your books'; }
     public function owner(): string { return 'penny'; }
-    public function needs(): array { return ['quickbooks']; }
+    public function needs(): array { return []; }
     public function question(OnboardingContext $c): string
     {
         return "No problem — I'll keep your books here: every invoice, payment and receipt, ready for your accountant whenever they want them.";

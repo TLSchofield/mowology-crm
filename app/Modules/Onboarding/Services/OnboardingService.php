@@ -58,8 +58,9 @@ class OnboardingService
     /** The default path. A new module: one line here (its place is the default order). */
     public static function defaultModules(): array
     {
-        // GST after QuickBooks (Tim, 2026-11-06): the book questions follow the books themselves.
-        return [new OnboardingNameModule(), new OnboardingTermsModule(), new OnboardingCompanyModule(), new OnboardingQuickBooksModule(), new OnboardingContactsModule(),
+        // The QuickBooks question is no longer a setup step (Tim, 2026-11-28): Penny asks it later as an owner question
+        // (OwnerQuestionService, 'accounting_software') once there is a first invoice. GST follows the books.
+        return [new OnboardingNameModule(), new OnboardingTermsModule(), new OnboardingCompanyModule(), new OnboardingContactsModule(),
                 new OnboardingBooksModule(), new OnboardingGstModule(), new OnboardingYearEndModule(), new OnboardingPayrollModule(),
                 new OnboardingAccountantModule(), new OnboardingDoneModule()];
     }
