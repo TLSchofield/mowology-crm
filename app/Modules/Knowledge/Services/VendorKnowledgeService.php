@@ -107,6 +107,13 @@ final class VendorKnowledgeService
         catch (Throwable $e) { error_log('kb resolve: ' . $e->getMessage()); return null; }
     }
 
+    /** Type-ahead over the commons (shared/curated, identity only); [] when unavailable. */
+    public function search(string $q, int $limit = 8): array
+    {
+        try { return ($s = $this->store()) ? $s->search($q, $limit) : []; }
+        catch (Throwable $e) { error_log('kb search: ' . $e->getMessage()); return []; }
+    }
+
     /** The local vendors.id linked to a commons vendor, if any. */
     public function localVendorFor(int $kbVendorId): ?int
     {

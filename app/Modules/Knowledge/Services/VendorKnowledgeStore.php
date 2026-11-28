@@ -25,6 +25,13 @@ interface VendorKnowledgeStore
      */
     public function contribute(array $lesson, string $tenantKey);
 
+    /**
+     * Type-ahead over the commons: shared or curated vendors whose name contains $q, identity only
+     * (id, display_name, kind, status). Never facts, never tenant data. Fails soft to [].
+     * @return array<int, array{id:int, display_name:string, kind:?string, status:string}>
+     */
+    public function search(string $q, int $limit = 8): array;
+
     /** Is the commons reachable/usable right now? (tables exist / key configured) */
     public function ready(): bool;
 }

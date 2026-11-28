@@ -55,7 +55,7 @@ try {
 
     switch ($type) {
         case 'vendors':
-            echo json_encode(['success' => true, 'vendors' => $svc->searchVendors($_GET['q'] ?? '')]);
+            echo json_encode(['success' => true, 'vendors' => $svc->searchVendors($_GET['q'] ?? '', ($_GET['commons'] ?? '') === '1')]);
             break;
 
         case 'jobs':

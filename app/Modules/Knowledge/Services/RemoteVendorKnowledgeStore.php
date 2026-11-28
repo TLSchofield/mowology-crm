@@ -55,6 +55,25 @@ final class RemoteVendorKnowledgeStore implements VendorKnowledgeStore
         return $vendor;
     }
 
+    public function search(string $q, int $limit = 8): array
+    {
+        $q = trim($q);
+        if (mb_strlen($q) < 3 || !$this->ready()) return [];
+        $cacheKey = 'search:' . sha1(mb_strtolower($q));
+        $cached = $this->cacheGet($cacheKey);
+        if ($cached !== null) return $cached['rows'] ?? [];
+        $res = $this->http('GET', $this->url . '?mode=search&' . http_build_query(['q' => $q]));
+        if (!$res || empty($res['ok'])) return [];   // a failed call is not cached: the next keystroke tries again
+        $rows = [];
+        foreach ((array)($res['vendors'] ?? []) as $r) {
+            if (!is_array($r) || empty($r['id']) || empty($r['display_name'])) continue;
+            $rows[] = ['id' => (int)$r['id'], 'display_name' => (string)$r['display_name'], 'kind' => $r['kind'] ?? null, 'status' => (string)($r['status'] ?? 'shared')];
+        }
+        $rows = array_slice($rows, 0, max(1, min(20, $limit)));
+        $this->cachePut($cacheKey, ['rows' => $rows]);
+        return $rows;
+    }
+
     public function contribute(array $lesson, string $tenantKey)
     {
         if (!$this->ready()) return false;

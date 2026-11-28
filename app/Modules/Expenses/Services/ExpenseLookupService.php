@@ -68,7 +68,64 @@ class ExpenseLookupService
     // ── Lookups ────────────────────────────────────────────────────────
 
     /** Vendor autocomplete: active vendors whose name or aliases contain $q. */
-    public function searchVendors(?string $q): array
+    /**
+     * Pure: append commons vendors (id null, source 'commons') the business does not already have — by link or by
+     * name — after its own matches, to a total of $max. A business's own vendor always outranks a commons one.
+     * @param array[] $local  rows from the vendors table (id, name, kb_vendor_id?)
+     * @param array[] $commons rows from VendorKnowledgeService::search()
+     */
+    public static function mergeCommonsVendors(array $local, array $commons, int $max = 20): array
+    {
+        $linked = [];
+        $names  = [];
+        foreach ($local as $v) {
+            if (!empty($v['kb_vendor_id'])) $linked[(int)$v['kb_vendor_id']] = true;
+            $names[mb_strtolower(trim((string)($v['name'] ?? '')))] = true;
+        }
+        foreach ($commons as $c) {
+            if (count($local) >= $max) break;
+            $kbId = (int)($c['id'] ?? 0);
+            $name = trim((string)($c['display_name'] ?? ''));
+            if ($kbId <= 0 || $name === '' || isset($linked[$kbId]) || isset($names[mb_strtolower($name)])) continue;
+            $local[] = ['id' => null, 'name' => $name, 'aliases' => null, 'default_accounting_category' => null,
+                        'default_gbp_category' => null, 'source' => 'commons', 'kb_vendor_id' => $kbId];
+        }
+        return $local;
+    }
+
+    /**
+     * Vendor type-ahead. With $withCommons (the client opted in with commons=1) a business that has not met a vendor
+     * yet still finds it: shared/curated commons vendors follow its own matches. Commons rows have id null.
+     */
+    public function searchVendors(?string $q, bool $withCommons = false): array
+    {
+        $rows = $this->searchLocalVendors($q);
+        if (!$withCommons || self::normalizeQuery($q) === null || count($rows) >= 20) return $rows;
+        try {
+            if (!class_exists('VendorKnowledgeService')) require_once dirname(__DIR__, 2) . '/Modules/Knowledge/Services/VendorKnowledgeService.php';
+            $found = (new VendorKnowledgeService($this->db))->search((string)$q, 8);
+            if (!$found) return $rows;
+            return self::mergeCommonsVendors($this->withKbLinks($rows), $found);
+        } catch (Throwable $e) {
+            return $rows;   // the commons is a bonus; the typeahead must never fail because of it
+        }
+    }
+
+    /** Local rows carrying their kb_vendor_id (when the column exists), for the merge's dedupe. */
+    private function withKbLinks(array $rows): array
+    {
+        if (!$rows) return $rows;
+        try {
+            $ids = array_map('intval', array_column($rows, 'id'));
+            $s = $this->db->query("SELECT id, kb_vendor_id FROM vendors WHERE id IN (" . implode(',', $ids) . ")");
+            $map = $s->fetchAll(PDO::FETCH_KEY_PAIR);
+            foreach ($rows as &$r) $r['kb_vendor_id'] = $map[$r['id']] ?? null;
+            unset($r);
+        } catch (Throwable $e) { /* column missing: dedupe by name only */ }
+        return $rows;
+    }
+
+    private function searchLocalVendors(?string $q): array
     {
         $q = self::normalizeQuery($q);
         if ($q === null) {

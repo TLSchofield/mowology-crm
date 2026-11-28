@@ -226,7 +226,7 @@ function handleVendorSearch(PDO $db): void
 {
     // Shared with the iOS review form (expense-lookup.php?type=vendors).
     require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseLookupService.php';
-    $vendors = (new ExpenseLookupService($db))->searchVendors($_GET['q'] ?? '');
+    $vendors = (new ExpenseLookupService($db))->searchVendors($_GET['q'] ?? '', ($_GET['commons'] ?? '') === '1');
 
     echo json_encode(['success' => true, 'vendors' => $vendors]);
 }

@@ -79,6 +79,32 @@ final class LocalVendorKnowledgeStore implements VendorKnowledgeStore
         return null;
     }
 
+    /** Pure: a LIKE pattern for a typed query, wildcards escaped. */
+    public static function likePattern(string $q): string
+    {
+        return '%' . addcslashes(trim($q), '%_\\') . '%';
+    }
+
+    public function search(string $q, int $limit = 8): array
+    {
+        $q = trim($q);
+        if (mb_strlen($q) < 3 || !$this->ready()) return [];
+        try {
+            $like = self::likePattern($q);
+            // Shared or curated only, whoever asks: a candidate is one business's unconfirmed word.
+            $s = $this->db->prepare("SELECT id, display_name, kind, status FROM kb_vendors WHERE status IN ('shared','curated') AND (display_name LIKE ? OR name_key LIKE ?) ORDER BY tenant_count DESC, display_name LIMIT " . max(1, min(20, $limit)));
+            $s->execute([$like, $like]);
+            $rows = [];
+            foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                $rows[] = ['id' => (int)$r['id'], 'display_name' => (string)$r['display_name'], 'kind' => $r['kind'], 'status' => (string)$r['status']];
+            }
+            return $rows;
+        } catch (Throwable $e) {
+            error_log('kb search: ' . $e->getMessage());
+            return [];
+        }
+    }
+
     public function load(int $id): ?array
     {
         $s = $this->db->prepare("SELECT id, display_name, name_key, gst_number, phone_digits, domain, country, region, kind, status, tenant_count FROM kb_vendors WHERE id = ?");
