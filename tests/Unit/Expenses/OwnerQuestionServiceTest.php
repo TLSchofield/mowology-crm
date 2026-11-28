@@ -52,13 +52,14 @@ class OwnerQuestionServiceTest extends TestCase
         $r = $s->answer('accounting_software', ['quickbooks'], 1);
         $this->assertSame('connect_quickbooks', $r['next']);
         $this->assertSame('yes', $db->query("SELECT setting_value FROM ops_settings WHERE setting_key = 'onboarding_uses_qbo'")->fetchColumn());
-        $s->answer('accounting_software', ['ittai'], 1);
+        $this->assertFalse($s->answer('accounting_software', ['ittai'], 1)['ok'], 'once answered it is closed: no second answer overwrites it');
+        $this->assertSame('yes', $db->query("SELECT setting_value FROM ops_settings WHERE setting_key = 'onboarding_uses_qbo'")->fetchColumn());
         $this->assertSame(1, (int)$db->query("SELECT COUNT(*) FROM ops_settings")->fetchColumn(), 'updated in place, one row');
     }
 
     public function test_bad_answers_are_refused_and_save_nothing(): void
     {
-        $db = $this->db();
+        $db = $this->db(); $db->exec('INSERT INTO invoices (id) VALUES (1)');
         $s = new OwnerQuestionService($db);
         foreach ([[], ['nope'], ['ittai', 'quickbooks']] as $choices) $this->assertFalse($s->answer('accounting_software', $choices, 1)['ok']);
         $this->assertFalse($s->answer('payment_method', ['x'], 1)['ok']);

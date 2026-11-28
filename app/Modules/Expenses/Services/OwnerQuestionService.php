@@ -62,7 +62,7 @@ class OwnerQuestionService
     /** @param list<string> $choices @return array{ok:bool,message:string,next?:string,error?:string} */
     public function answer(string $key, array $choices, int $userId): array
     {
-        if (!in_array($key, self::KINDS, true)) return ['ok' => false, 'error' => 'unknown_question', 'message' => 'That question is not open.'];
+        if (!in_array($key, self::KINDS, true) || !$this->due($key)) return ['ok' => false, 'error' => 'unknown_question', 'message' => 'That question is not open.'];
         $shape = self::shape($key);
         $valid = array_column($shape['choices'], 'key');
         $picked = array_values(array_unique(array_map('strval', $choices)));
@@ -102,12 +102,14 @@ class OwnerQuestionService
 
     private function save(string $key, string $value, string $why): void
     {
-        $st = $this->db->prepare('SELECT COUNT(*) FROM ops_settings WHERE setting_key = ?');
-        $st->execute([$key]);
-        if ((int)$st->fetchColumn() > 0) {
-            $this->db->prepare('UPDATE ops_settings SET setting_value = ? WHERE setting_key = ?')->execute([$value, $key]);
-        } else {
-            $this->db->prepare('INSERT INTO ops_settings (setting_key, setting_value, description) VALUES (?, ?, ?)')->execute([$key, $value, $why]);
+        $u = $this->db->prepare('UPDATE ops_settings SET setting_value = ? WHERE setting_key = ?');
+        $u->execute([$value, $key]);
+        if ($u->rowCount() === 0) {
+            $st = $this->db->prepare('SELECT COUNT(*) FROM ops_settings WHERE setting_key = ?');
+            $st->execute([$key]);
+            if ((int)$st->fetchColumn() === 0) {
+                $this->db->prepare('INSERT INTO ops_settings (setting_key, setting_value, description) VALUES (?, ?, ?)')->execute([$key, $value, $why]);
+            }
         }
     }
 }
