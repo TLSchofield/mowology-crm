@@ -125,7 +125,7 @@ recipients are set or any send fails, **nothing is deleted**.
 - **Audit:** one row per run in `receipt_archive_batches`.
 
 ### Config (ops_settings, `receipt_*` keys)
-`receipt_archive_enabled` (default on) · `receipt_archive_after_days` (90) ·
+`receipt_archive_enabled` (default OFF: a business turns it on by setting this row to 1; there is no settings screen for it yet) · `receipt_archive_after_days` (90) ·
 `receipt_archive_keep_thumb` (1) · `receipt_archive_max_zip_mb` (25) ·
 `receipt_export_email_owner` · `receipt_export_email_accountant` ·
 `receipt_accounting_email` (existing bookkeeping/QuickBooks inbox, reused as a recipient).

@@ -148,4 +148,57 @@ class ReceiptArchiveServiceTest extends TestCase
         $this->assertSame(0, (int)$row['original_removed'], 'the original is still on disk');
         $this->assertIsArray($res);
     }
+
+    // ── receipt_archive_enabled is off until a business turns it on ──────
+
+    private function settingsDb(?string $value): PDO
+    {
+        $db = class_exists('Pdo\Sqlite') ? PDO::connect('sqlite::memory:') : new PDO('sqlite::memory:');
+        $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $db->exec("CREATE TABLE ops_settings (setting_key TEXT PRIMARY KEY, setting_value TEXT)");
+        if ($value !== null) {
+            $db->prepare("INSERT INTO ops_settings (setting_key, setting_value) VALUES ('receipt_archive_enabled', ?)")->execute([$value]);
+        }
+        return $db;
+    }
+
+    public function test_no_row_means_archive_disabled(): void
+    {
+        $this->assertFalse((new ReceiptArchiveService($this->settingsDb(null)))->loadSettings()['receipt_archive_enabled']);
+    }
+
+    public function test_row_1_enables_and_row_0_disables(): void
+    {
+        $this->assertTrue((new ReceiptArchiveService($this->settingsDb('1')))->loadSettings()['receipt_archive_enabled']);
+        $this->assertTrue((new ReceiptArchiveService($this->settingsDb('true')))->loadSettings()['receipt_archive_enabled']);
+        $this->assertFalse((new ReceiptArchiveService($this->settingsDb('0')))->loadSettings()['receipt_archive_enabled']);
+    }
+
+    public function test_run_with_no_row_returns_disabled_and_touches_nothing(): void
+    {
+        // No media_assets table exists: any select or delete would throw.
+        $res = (new ReceiptArchiveService($this->settingsDb(null)))->run(null, null, 'cron', null);
+        $this->assertSame('disabled', $res['status']);
+        $this->assertSame(0, $res['archived']);
+    }
+
+    public function test_run_with_row_0_returns_disabled(): void
+    {
+        $res = (new ReceiptArchiveService($this->settingsDb('0')))->run(null, null, 'cron', null);
+        $this->assertSame('disabled', $res['status']);
+    }
+
+    public function test_run_with_row_1_gets_past_the_disabled_gate(): void
+    {
+        $db = $this->settingsDb('1');
+        $db->exec("CREATE TABLE media_assets (id INTEGER PRIMARY KEY)");
+        // Enabled: it goes on to select receipts. The select needs tables this test DB lacks,
+        // so it throws about them; a 'disabled' result would mean the gate stopped it.
+        try {
+            $res = (new ReceiptArchiveService($db))->run(null, null, 'cron', null);
+            $this->assertNotSame('disabled', $res['status'] ?? null);
+        } catch (Throwable $e) {
+            $this->assertMatchesRegularExpression('/no such (table|column)|syntax error|SQLSTATE/i', $e->getMessage());
+        }
+    }
 }

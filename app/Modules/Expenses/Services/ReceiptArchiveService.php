@@ -119,11 +119,16 @@ class ReceiptArchiveService
     // Settings (ops_settings, receipt_* keys)
     // ──────────────────────────────────────────────────────────────────────
 
-    /** Load archival config with sane defaults. */
+    /**
+     * Load archival config with sane defaults.
+     * receipt_archive_enabled is OFF until a business turns it on (an ops_settings row
+     * with a truthy value): the purge deletes originals from the web disk, so no
+     * business, new tenants included, gets it by default.
+     */
     public function loadSettings(): array
     {
         $defaults = [
-            'receipt_archive_enabled'        => true,
+            'receipt_archive_enabled'        => false,
             'receipt_archive_after_days'     => 90,
             'receipt_archive_keep_thumb'     => true,
             'receipt_archive_max_zip_mb'     => 25,
@@ -144,7 +149,7 @@ class ReceiptArchiveService
             return !in_array($v, ['0', 'false', '', 'no', 'off'], true);
         };
         return [
-            'receipt_archive_enabled'         => $boolish($rows['receipt_archive_enabled'] ?? null, true),
+            'receipt_archive_enabled'         => $boolish($rows['receipt_archive_enabled'] ?? null, $defaults['receipt_archive_enabled']),
             'receipt_archive_after_days'      => max(0, (int) ($rows['receipt_archive_after_days'] ?? $defaults['receipt_archive_after_days'])),
             'receipt_archive_keep_thumb'      => $boolish($rows['receipt_archive_keep_thumb'] ?? null, true),
             'receipt_archive_max_zip_mb'      => max(1, (int) ($rows['receipt_archive_max_zip_mb'] ?? $defaults['receipt_archive_max_zip_mb'])),

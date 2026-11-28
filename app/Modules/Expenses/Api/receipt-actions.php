@@ -130,6 +130,11 @@ try {
 
             $svc    = new ReceiptArchiveService($db);
             $result = $svc->run($from, $to, 'manual', $currentUser['id'], 0);
+            if (($result['status'] ?? '') === 'disabled') {
+                // Off until a business turns it on: tell the app nothing was archived.
+                echo json_encode(['success' => false, 'error' => 'Receipt archive is turned off for this business, so nothing was archived or removed.', 'result' => $result]);
+                break;
+            }
             echo json_encode(['success' => true, 'result' => $result]);
             break;
 
