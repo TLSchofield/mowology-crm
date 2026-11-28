@@ -15,6 +15,12 @@ class OwnerQuestionServiceTest extends TestCase
         return $db;
     }
 
+    /** Only the accounting-software question (other kinds are due on the same invoice). */
+    private function accounting(array $qs): array
+    {
+        return array_values(array_filter($qs, static fn($q) => $q['key'] === 'accounting_software'));
+    }
+
     public function test_nothing_is_asked_before_the_first_invoice(): void
     {
         $this->assertSame([], (new OwnerQuestionService($this->db()))->open());
@@ -23,7 +29,7 @@ class OwnerQuestionServiceTest extends TestCase
     public function test_asked_after_the_first_invoice_in_the_generic_shape(): void
     {
         $db = $this->db(); $db->exec('INSERT INTO invoices (id) VALUES (1)');
-        $q = (new OwnerQuestionService($db))->open();
+        $q = $this->accounting((new OwnerQuestionService($db))->open());
         $this->assertCount(1, $q);
         $this->assertSame(['key', 'title', 'body', 'multi', 'choices', 'answer'], array_keys($q[0]));
         $this->assertSame('accounting_software', $q[0]['key']);
@@ -42,7 +48,7 @@ class OwnerQuestionServiceTest extends TestCase
         $this->assertTrue($r['ok']);
         $this->assertArrayNotHasKey('next', $r);
         $this->assertSame('no', $db->query("SELECT setting_value FROM ops_settings WHERE setting_key = 'onboarding_uses_qbo'")->fetchColumn());
-        $this->assertSame([], $s->open());
+        $this->assertSame([], $this->accounting($s->open()));
     }
 
     public function test_choosing_quickbooks_saves_yes_and_points_at_the_connect_flow(): void
@@ -70,6 +76,6 @@ class OwnerQuestionServiceTest extends TestCase
     {
         $db = $this->db(); $db->exec('INSERT INTO invoices (id) VALUES (1)');
         $db->exec("INSERT INTO ops_settings VALUES ('onboarding_uses_qbo', 'yes', '')");
-        $this->assertSame([], (new OwnerQuestionService($db))->open());
+        $this->assertSame([], $this->accounting((new OwnerQuestionService($db))->open()));
     }
 }

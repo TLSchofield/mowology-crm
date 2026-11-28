@@ -19,7 +19,8 @@ class OwnerQuestionService
     public const ACCOUNTING_SOFTWARE = 'accounting_software';
     public const PAYMENT_METHODS = 'payment_methods';
     public const PAYMENT_USUAL = 'payment_usual';
-    public const KINDS = [self::ACCOUNTING_SOFTWARE, self::PAYMENT_METHODS, self::PAYMENT_USUAL];
+    public const COMPANY_DETAILS = 'company_details';
+    public const KINDS = [self::ACCOUNTING_SOFTWARE, self::PAYMENT_METHODS, self::PAYMENT_USUAL, self::COMPANY_DETAILS];
 
     /** The choices for "how do you pay", in the order shown (codes from EXPENSE_PAYMENT_METHODS). */
     private const PAYMENT_LABELS = [
@@ -47,6 +48,20 @@ class OwnerQuestionService
     /** Pure: the question as the apps draw it. */
     public static function shape(string $key, array $ctx = []): array
     {
+        if ($key === self::COMPANY_DETAILS) {
+            // Form-style kind: no choices; the app draws form.rows (value, source, edit) and form.fields, and sends
+            // {mode:'question_answer', key, values:{fieldKey: text, …}} with only what changed. Button: confirm_label.
+            return [
+                'key' => $key,
+                'title' => 'Check your company details',
+                'body' => 'Penny uses these on your invoices and for your accountant. Change anything that is not right.',
+                'multi' => false,
+                'choices' => [],
+                'form' => $ctx['company'] ?? ['rows' => [], 'fields' => []],
+                'confirm_label' => 'Looks right',
+                'answer' => ['mode' => 'question_answer', 'key' => $key, 'values' => true],
+            ];
+        }
         if ($key === self::PAYMENT_METHODS) {
             $choices = [];
             foreach (self::PAYMENT_LABELS as $k => $label) $choices[] = ['key' => $k, 'label' => $label];
@@ -96,14 +111,24 @@ class OwnerQuestionService
             $h = $this->paymentHabits();
             return count($h['used']) > 1 && $h['usual'] === null;
         }
+        if ($key === self::COMPANY_DETAILS) {
+            // After the 3rd filed receipt; backstop: the first invoice exists. GST report and accountant export ask checked() too.
+            require_once dirname(__DIR__, 2) . '/Settings/Services/CompanyDetailsService.php';
+            $c = new CompanyDetailsService($this->db);
+            return !$c->checked() && ($c->filedReceipts() >= 3 || $this->hasInvoice());
+        }
         if ($key !== self::ACCOUNTING_SOFTWARE) return false;
         return $this->setting('onboarding_uses_qbo') === null && $this->hasInvoice();
     }
 
     /** @param list<string> $choices @return array{ok:bool,message:string,next?:string,error?:string} */
-    public function answer(string $key, array $choices, int $userId): array
+    public function answer(string $key, array $choices, int $userId, array $values = []): array
     {
         if (!in_array($key, self::KINDS, true) || !$this->due($key)) return ['ok' => false, 'error' => 'unknown_question', 'message' => 'That question is not open.'];
+        if ($key === self::COMPANY_DETAILS) {
+            require_once dirname(__DIR__, 2) . '/Settings/Services/CompanyDetailsService.php';
+            return (new CompanyDetailsService($this->db))->confirm($values, $userId);
+        }
         $shape = self::shape($key, $this->context());
         $valid = array_column($shape['choices'], 'key');
         $picked = array_values(array_unique(array_map('strval', $choices)));
@@ -131,7 +156,12 @@ class OwnerQuestionService
     /** What a question's shape may depend on. */
     private function context(): array
     {
-        return ['used' => $this->paymentHabits()['used']];
+        $ctx = ['used' => $this->paymentHabits()['used']];
+        if ($this->due(self::COMPANY_DETAILS)) {
+            require_once dirname(__DIR__, 2) . '/Settings/Services/CompanyDetailsService.php';
+            $ctx['company'] = (new CompanyDetailsService($this->db))->form();
+        }
+        return $ctx;
     }
 
     private function paymentHabits(): array
