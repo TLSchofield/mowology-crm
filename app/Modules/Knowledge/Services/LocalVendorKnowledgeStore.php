@@ -105,6 +105,13 @@ final class LocalVendorKnowledgeStore implements VendorKnowledgeStore
         }
     }
 
+    public function vendor(int $id): ?array
+    {
+        if ($id <= 0 || !$this->ready()) return null;
+        $v = $this->load($id);
+        return ($v && in_array($v['status'], ['shared', 'curated'], true)) ? $v : null;
+    }
+
     public function load(int $id): ?array
     {
         $s = $this->db->prepare("SELECT id, display_name, name_key, gst_number, phone_digits, domain, country, region, kind, status, tenant_count FROM kb_vendors WHERE id = ?");

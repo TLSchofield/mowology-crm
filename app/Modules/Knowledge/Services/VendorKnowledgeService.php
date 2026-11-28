@@ -114,6 +114,60 @@ final class VendorKnowledgeService
         catch (Throwable $e) { error_log('kb search: ' . $e->getMessage()); return []; }
     }
 
+    /**
+     * Pure: the local vendors row a commons vendor becomes. Identity and neutral defaults only: name, phone, domain, GST
+     * number, GST treatment, the bridged category. Never a fact about money, a job or another business.
+     * @return array{name:string, aliases:string, phone:?string, website:?string, gst_number:?string, gst_exempt:int, category_local:?string}
+     */
+    public static function adoptionRow(array $kb, ?string $categoryLocal): array
+    {
+        $name = trim((string)($kb['display_name'] ?? ''));
+        $d = VendorIdentity::phoneDigits($kb['phone_digits'] ?? null);
+        $tax = $kb['facts']['tax_treatment'][0]['value'] ?? null;
+        return [
+            'name'           => $name,
+            'aliases'        => mb_strtolower($name),
+            'phone'          => $d === null ? null : sprintf('(%s) %s-%s', substr($d, 0, 3), substr($d, 3, 3), substr($d, 6)),
+            'website'        => VendorIdentity::domainOf($kb['domain'] ?? null),
+            'gst_number'     => !empty($kb['gst_number']) ? (string)$kb['gst_number'] : null,
+            'gst_exempt'     => !empty($tax['gst_exempt']) ? 1 : 0,
+            'category_local' => $categoryLocal,
+        ];
+    }
+
+    /**
+     * The owner chose a commons vendor in the type-ahead: make it a local vendor linked to the commons (once).
+     * Returns the local vendor id, or null when the commons vendor is not shared/curated or not reachable.
+     * @return array{vendor_id:int, created:bool}|null
+     */
+    public function adoptCommonsVendor(int $kbVendorId): ?array
+    {
+        try {
+            if ($kbVendorId <= 0 || !$this->hasColumn('vendors', 'kb_vendor_id') || !($s = $this->store())) return null;
+            if ($existing = $this->localVendorFor($kbVendorId)) return ['vendor_id' => $existing, 'created' => false];
+            $kb = $s->vendor($kbVendorId);
+            if (!$kb || (int)$kb['id'] !== $kbVendorId) return null;
+            $row = self::adoptionRow($kb, $this->taxonomy->toLocal($kb['facts']['category_default'][0]['value']['code'] ?? null));
+            if (strlen($row['name']) < 3 || !VendorIdentity::usableAlias($row['name'])) return null;
+            $identity = ['gst_number' => $row['gst_number'], 'name_key' => $kb['name_key'] ?? VendorIdentity::nameKey($row['name']), 'domain' => $kb['domain'] ?? null];
+            // The business already typed this vendor by hand: link that one rather than make a twin.
+            $same = $this->db->prepare("SELECT id FROM vendors WHERE LOWER(name) = LOWER(?) AND is_active = 1 AND kb_vendor_id IS NULL LIMIT 1");
+            $same->execute([$row['name']]);
+            if ($id = (int)$same->fetchColumn()) {
+                $this->linkLocalVendor($id, $kbVendorId, $identity);
+                return ['vendor_id' => $id, 'created' => false];
+            }
+            $this->db->prepare("INSERT INTO vendors (name, aliases, default_accounting_category, phone, website, gst_exempt, is_active) VALUES (?,?,?,?,?,?,1)")
+                ->execute([$row['name'], $row['aliases'], $row['category_local'], $row['phone'], $row['website'], $row['gst_exempt']]);
+            $id = (int)$this->db->lastInsertId();
+            $this->linkLocalVendor($id, $kbVendorId, $identity);
+            return ['vendor_id' => $id, 'created' => true];
+        } catch (Throwable $e) {
+            error_log('kb adopt: ' . $e->getMessage());
+            return null;
+        }
+    }
+
     /** The local vendors.id linked to a commons vendor, if any. */
     public function localVendorFor(int $kbVendorId): ?int
     {

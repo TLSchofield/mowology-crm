@@ -32,6 +32,9 @@ interface VendorKnowledgeStore
      */
     public function search(string $q, int $limit = 8): array;
 
+    /** One shared/curated commons vendor by its commons id (shared facts only for a remote caller); null otherwise. */
+    public function vendor(int $id): ?array;
+
     /** Is the commons reachable/usable right now? (tables exist / key configured) */
     public function ready(): bool;
 }

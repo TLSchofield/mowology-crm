@@ -74,6 +74,14 @@ final class RemoteVendorKnowledgeStore implements VendorKnowledgeStore
         return $rows;
     }
 
+    public function vendor(int $id): ?array
+    {
+        if ($id <= 0 || !$this->ready()) return null;
+        $res = $this->http('GET', $this->url . '?mode=get&id=' . $id);
+        $v = ($res && !empty($res['ok']) && !empty($res['vendor']) && is_array($res['vendor'])) ? $res['vendor'] : null;
+        return ($v && in_array($v['status'] ?? '', ['shared', 'curated'], true)) ? $v : null;
+    }
+
     public function contribute(array $lesson, string $tenantKey)
     {
         if (!$this->ready()) return false;

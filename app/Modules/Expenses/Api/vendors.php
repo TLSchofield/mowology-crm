@@ -5,7 +5,8 @@
  * GET:  ?action=list
  * GET:  ?action=get&id=X             — full vendor detail (includes products, locations, expenses)
  * GET:  ?action=products&vendor_id=X  — vendor products grouped by category with internal product links
- * GET:  ?action=search&q=term         — autocomplete search
+ * GET:  ?action=search&q=term[&commons=1] — autocomplete search; commons=1 adds shared/curated commons vendors (id null, source 'commons')
+ * POST: {action: 'adopt_commons', kb_vendor_id, csrf_token} — make a commons row a local vendor, linked (once)
  * POST: {action: 'create', ...fields}
  * POST: {action: 'update', id, ...fields}
  * POST: {action: 'link_vendor_product', vendor_product_id, product_id}   — link vendor product → internal product
@@ -89,6 +90,11 @@ try {
         case 'unlink_vendor_product':
             if (!$canEdit) throw new Exception('Permission denied');
             handleUnlinkVendorProduct($db, $input);
+            break;
+
+        case 'adopt_commons':
+            if (!$canEdit) throw new Exception('Permission denied');
+            handleAdoptCommons($db, $input);
             break;
 
         case 'create':
@@ -231,6 +237,23 @@ function handleVendorSearch(PDO $db): void
     echo json_encode(['success' => true, 'vendors' => $vendors]);
 }
 
+
+/** The owner picked a commons vendor in the type-ahead (a row with id null, source 'commons'): create + link it once. */
+function handleAdoptCommons(PDO $db, ?array $input): void
+{
+    if (!verifyCSRFToken($input['csrf_token'] ?? '')) {
+        throw new Exception('Invalid security token');
+    }
+    require_once APP_ROOT . '/Modules/Knowledge/Services/VendorKnowledgeService.php';
+    $r = (new VendorKnowledgeService($db))->adoptCommonsVendor((int)($input['kb_vendor_id'] ?? 0));
+    if ($r === null) {
+        echo json_encode(['success' => false, 'error' => 'That vendor is not available right now']);
+        return;
+    }
+    $s = $db->prepare("SELECT id, name, aliases, default_accounting_category, default_gbp_category FROM vendors WHERE id = ?");
+    $s->execute([$r['vendor_id']]);
+    echo json_encode(['success' => true, 'vendor_id' => $r['vendor_id'], 'created' => $r['created'], 'vendor' => $s->fetch(PDO::FETCH_ASSOC)]);
+}
 
 function handleVendorCreate(PDO $db, ?array $input): void
 {

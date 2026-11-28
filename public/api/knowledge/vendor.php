@@ -79,6 +79,12 @@ if ($mode === 'search' && $_SERVER['REQUEST_METHOD'] === 'GET') {
     kb_out(200, ['ok' => true, 'vendors' => $store->search($q, 8)]);   // identity only: id, display_name, kind, status
 }
 
+if ($mode === 'get' && $_SERVER['REQUEST_METHOD'] === 'GET') {
+    $v = $store->vendor((int)($_GET['id'] ?? 0));
+    if ($v) unset($v['tenant_count']);
+    kb_out(200, ['ok' => true, 'vendor' => $v]);
+}
+
 if ($mode === 'contribute' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $raw = file_get_contents('php://input') ?: '';
     if (strlen($raw) > 64 * 1024) kb_out(413, ['ok' => false, 'error' => 'too large']);
@@ -106,4 +112,4 @@ if ($mode === 'contribute' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     kb_out(200, ['ok' => $res !== false]);
 }
 
-kb_out(400, ['ok' => false, 'error' => 'mode must be resolve or search (GET), or contribute (POST)']);
+kb_out(400, ['ok' => false, 'error' => 'mode must be resolve, search or get (GET), or contribute (POST)']);
