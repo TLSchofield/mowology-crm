@@ -76,12 +76,21 @@ final class CommonsSearchTest extends TestCase
     public function testAdoptionRowCarriesIdentityAndNeutralDefaultsOnly(): void
     {
         $kb = ['id' => 2, 'display_name' => 'City of Vancouver Vancouver Landfill', 'phone_digits' => '6048737000', 'gst_number' => null, 'domain' => null,
-               'facts' => ['tax_treatment' => [['value' => ['gst_exempt' => true]]], 'sku' => [['value' => ['sku' => '10', 'name' => '10 - Green Waste (0.34 tonne @ $124.00/tonne)']]]]];
+               'facts' => ['tax_treatment' => [['status' => 'shared', 'value' => ['gst_exempt' => true]]], 'sku' => [['value' => ['sku' => '10', 'name' => '10 - Green Waste (0.34 tonne @ $124.00/tonne)']]]]];
         $row = VendorKnowledgeService::adoptionRow($kb, 'Disposal/Dump');
         $this->assertSame(['name', 'aliases', 'phone', 'website', 'gst_number', 'gst_exempt', 'category_local'], array_keys($row));
         $this->assertSame('(604) 873-7000', $row['phone']);
         $this->assertSame(1, $row['gst_exempt']);
         $this->assertSame('Disposal/Dump', $row['category_local']);
         $this->assertSame('city of vancouver vancouver landfill', $row['aliases']);
+    }
+
+    public function testACandidateFactNeverShapesAdoptedVendor(): void
+    {
+        $kb = ['display_name' => 'Acme Supply', 'facts' => ['tax_treatment' => [['status' => 'candidate', 'value' => ['gst_exempt' => true]]]]];
+        $this->assertSame(0, VendorKnowledgeService::adoptionRow($kb, null)['gst_exempt']);
+        $this->assertNull(VendorKnowledgeService::sharedFact($kb, 'tax_treatment'));
+        $kb['facts']['tax_treatment'][] = ['status' => 'shared', 'value' => ['gst_exempt' => true]];
+        $this->assertSame(1, VendorKnowledgeService::adoptionRow($kb, null)['gst_exempt']);
     }
 }

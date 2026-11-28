@@ -119,11 +119,20 @@ final class VendorKnowledgeService
      * number, GST treatment, the bridged category. Never a fact about money, a job or another business.
      * @return array{name:string, aliases:string, phone:?string, website:?string, gst_number:?string, gst_exempt:int, category_local:?string}
      */
+    /** Pure: the first SHARED value of a fact; a candidate (one business's unconfirmed word) never names a new vendor. */
+    public static function sharedFact(array $kb, string $fact)
+    {
+        foreach ((array)($kb['facts'][$fact] ?? []) as $f) {
+            if (($f['status'] ?? '') === 'shared') return $f['value'] ?? null;
+        }
+        return null;
+    }
+
     public static function adoptionRow(array $kb, ?string $categoryLocal): array
     {
         $name = trim((string)($kb['display_name'] ?? ''));
         $d = VendorIdentity::phoneDigits($kb['phone_digits'] ?? null);
-        $tax = $kb['facts']['tax_treatment'][0]['value'] ?? null;
+        $tax = self::sharedFact($kb, 'tax_treatment');
         return [
             'name'           => $name,
             'aliases'        => mb_strtolower($name),
@@ -147,25 +156,49 @@ final class VendorKnowledgeService
             if ($existing = $this->localVendorFor($kbVendorId)) return ['vendor_id' => $existing, 'created' => false];
             $kb = $s->vendor($kbVendorId);
             if (!$kb || (int)$kb['id'] !== $kbVendorId) return null;
-            $row = self::adoptionRow($kb, $this->taxonomy->toLocal($kb['facts']['category_default'][0]['value']['code'] ?? null));
+            $row = self::adoptionRow($kb, $this->taxonomy->toLocal(self::sharedFact($kb, 'category_default')['code'] ?? null));
             if (strlen($row['name']) < 3 || !VendorIdentity::usableAlias($row['name'])) return null;
             $identity = ['gst_number' => $row['gst_number'], 'name_key' => $kb['name_key'] ?? VendorIdentity::nameKey($row['name']), 'domain' => $kb['domain'] ?? null];
             // The business already typed this vendor by hand: link that one rather than make a twin.
             $same = $this->db->prepare("SELECT id FROM vendors WHERE LOWER(name) = LOWER(?) AND is_active = 1 AND kb_vendor_id IS NULL LIMIT 1");
             $same->execute([$row['name']]);
-            if ($id = (int)$same->fetchColumn()) {
+            $id = (int)$same->fetchColumn();
+            if ($id && $this->gstConflicts($id, (string)($row['gst_number'] ?? ''))) $id = 0;   // same words, different business number: not the same vendor
+            if ($id) {
                 $this->linkLocalVendor($id, $kbVendorId, $identity);
                 return ['vendor_id' => $id, 'created' => false];
             }
-            $this->db->prepare("INSERT INTO vendors (name, aliases, default_accounting_category, phone, website, gst_exempt, is_active) VALUES (?,?,?,?,?,?,1)")
-                ->execute([$row['name'], $row['aliases'], $row['category_local'], $row['phone'], $row['website'], $row['gst_exempt']]);
-            $id = (int)$this->db->lastInsertId();
-            $this->linkLocalVendor($id, $kbVendorId, $identity);
-            return ['vendor_id' => $id, 'created' => true];
+            // One adoption at a time per commons vendor: a double tap must not make two vendors.
+            $lock = 'adopt_kb_' . $kbVendorId;
+            $got = (int)$this->db->query("SELECT GET_LOCK(" . $this->db->quote($lock) . ", 5)")->fetchColumn();
+            try {
+                if ($again = $this->localVendorFor($kbVendorId)) return ['vendor_id' => $again, 'created' => false];
+                return $this->insertAdopted($row, $kbVendorId, $identity);
+            } finally {
+                if ($got) $this->db->query("SELECT RELEASE_LOCK(" . $this->db->quote($lock) . ")");
+            }
         } catch (Throwable $e) {
             error_log('kb adopt: ' . $e->getMessage());
             return null;
         }
+    }
+
+    private function gstConflicts(int $vendorId, string $kbGst): bool
+    {
+        if ($kbGst === '') return false;
+        $s = $this->db->prepare("SELECT gst_number FROM vendors WHERE id = ?");
+        $s->execute([$vendorId]);
+        $local = (string)$s->fetchColumn();
+        return $local !== '' && substr($local, 0, 9) !== substr($kbGst, 0, 9);
+    }
+
+    private function insertAdopted(array $row, int $kbVendorId, array $identity): array
+    {
+        $this->db->prepare("INSERT INTO vendors (name, aliases, default_accounting_category, phone, website, gst_exempt, is_active) VALUES (?,?,?,?,?,?,1)")
+            ->execute([$row['name'], $row['aliases'], $row['category_local'], $row['phone'], $row['website'], $row['gst_exempt']]);
+        $id = (int)$this->db->lastInsertId();
+        $this->linkLocalVendor($id, $kbVendorId, $identity);
+        return ['vendor_id' => $id, 'created' => true];
     }
 
     /** The local vendors.id linked to a commons vendor, if any. */

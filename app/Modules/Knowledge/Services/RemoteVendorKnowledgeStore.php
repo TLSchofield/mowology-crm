@@ -72,7 +72,7 @@ final class RemoteVendorKnowledgeStore implements VendorKnowledgeStore
             $rows[] = ['id' => (int)$r['id'], 'display_name' => (string)$r['display_name'], 'kind' => $r['kind'] ?? null, 'status' => (string)($r['status'] ?? 'shared')];
         }
         $rows = array_slice($rows, 0, $limit);
-        $this->cachePut($cacheKey, ['rows' => $rows]);
+        $this->cachePut($cacheKey, ['rows' => $rows], 1);
         return $rows;
     }
 
@@ -126,11 +126,11 @@ final class RemoteVendorKnowledgeStore implements VendorKnowledgeStore
         }
     }
 
-    private function cachePut(string $key, array $payload): void
+    private function cachePut(string $key, array $payload, int $hours = 24): void
     {
         try {
-            $this->db->prepare("REPLACE INTO kb_cache (cache_key, payload_json, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 1 DAY))")
-                ->execute([$key, json_encode($payload, JSON_UNESCAPED_UNICODE)]);
+            $this->db->prepare("REPLACE INTO kb_cache (cache_key, payload_json, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL ? HOUR))")
+                ->execute([$key, json_encode($payload, JSON_UNESCAPED_UNICODE), $hours]);
         } catch (Throwable $e) { /* cache is optional */ }
     }
 }

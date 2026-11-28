@@ -55,8 +55,12 @@ if (!$tenant || !(int)$tenant['is_active']) kb_out(403, ['ok' => false, 'error' 
 // Daily quota.
 $today = date('Y-m-d');
 $calls = $tenant['calls_day'] === $today ? (int)$tenant['calls_today'] : 0;
-if ($calls >= 600) kb_out(429, ['ok' => false, 'error' => 'daily quota reached']);
-$db->prepare("UPDATE kb_tenants SET calls_today = ?, calls_day = ?, last_seen_at = NOW() WHERE id = ?")->execute([$calls + 1, $today, (int)$tenant['id']]);
+// Type-ahead searches (a call per distinct typed query, cached 1 h on the caller) are not counted: they must never
+// starve receipt resolve/contribute of the day's 600.
+if (($_GET['mode'] ?? '') !== 'search') {
+    if ($calls >= 600) kb_out(429, ['ok' => false, 'error' => 'daily quota reached']);
+    $db->prepare("UPDATE kb_tenants SET calls_today = ?, calls_day = ?, last_seen_at = NOW() WHERE id = ?")->execute([$calls + 1, $today, (int)$tenant['id']]);
+}
 
 $store = new LocalVendorKnowledgeStore($db, false);   // remote tenants see shared facts only
 if (!$store->ready()) kb_out(503, ['ok' => false, 'error' => 'commons not ready']);
