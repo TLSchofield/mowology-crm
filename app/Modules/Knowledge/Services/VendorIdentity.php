@@ -99,6 +99,21 @@ final class VendorIdentity
         return false;
     }
 
+    /**
+     * Pure: may this resolved commons vendor name a NEW local vendor for the receipt text? It must be shared or curated,
+     * carry a usable name, and be proven by the paper: the same 9-digit business number, or (a phone or web domain was
+     * the way in) the paper also prints the vendor's name. A phone or domain alone never creates a vendor.
+     */
+    public static function commonsMayNameVendor(array $kbVendor, string $ocrLower, ?string $gstOnPaper): bool
+    {
+        if (!in_array($kbVendor['status'] ?? '', ['shared', 'curated'], true)) return false;
+        $name = trim((string)($kbVendor['display_name'] ?? ''));
+        if (strlen($name) < 3 || ctype_digit($name) || !self::usableAlias($name)) return false;
+        $kbGst = (string)($kbVendor['gst_number'] ?? '');
+        if ($gstOnPaper !== null && $kbGst !== '' && substr($kbGst, 0, 9) === substr($gstOnPaper, 0, 9)) return true;
+        return self::namedOnPaper($ocrLower, $name);
+    }
+
     /** Last 10 digits of a North American number; null when there aren't 10. */
     public static function phoneDigits(?string $phone): ?string
     {

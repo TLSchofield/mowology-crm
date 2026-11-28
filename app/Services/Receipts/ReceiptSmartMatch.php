@@ -409,32 +409,48 @@ function kbResolveVendorFromOcr(string $ocrLower, array $ocrPhones, PDO $db): ?a
 
 /**
  * A trusted commons identity that may name a newly-created local vendor.
- * Creation deliberately uses GST alone: phone, domain, and OCR names are not
- * strong enough to turn a receipt header into a new local vendor.
+ * Creation is allowed on a GST number alone, or on a phone / web domain ONLY when the paper also prints the
+ * vendor's name (VendorIdentity::commonsMayNameVendor). A phone alone never creates: a phone learned from a
+ * misfiled receipt once sent every Lordco receipt to Costco (2026-11-06). Before 2026-11-27 only the GST door
+ * existed, so a vendor whose ticket prints no GST number (the City of Vancouver landfill) was never created from
+ * the commons for a new business: the tenant got the first line of the logo ("CITY OF") as a bare vendor.
  */
 function kbCommonsVendorForCreation(string $ocrText, PDO $db): ?array
 {
     try {
-        $gst = VendorIdentity::gstNumber(strtolower($ocrText));
-        if ($gst === null) return null;
+        $lower = strtolower($ocrText);
+        $gst = VendorIdentity::gstNumber($lower);
 
         $kbFile = APP_ROOT . '/Modules/Knowledge/Services/VendorKnowledgeService.php';
         if (!is_file($kbFile)) return null;
         require_once $kbFile;
 
-        // Same business number whether printed as 123456789 or 123456789RT0001: compare the 9-digit BN.
-        $bn = substr($gst, 0, 9);
         $service = new VendorKnowledgeService($db);
-        $vendor = $service->resolve(['gst_number' => $bn]) ?: ($bn !== $gst ? $service->resolve(['gst_number' => $gst]) : null);
-        if (!$vendor || substr((string)($vendor['gst_number'] ?? ''), 0, 9) !== $bn) return null;
-        if (!in_array($vendor['status'] ?? '', ['shared', 'curated'], true)) return null;
+        $vendor = null;
+        if ($gst !== null) {
+            // Same business number whether printed as 123456789 or 123456789RT0001: compare the 9-digit BN.
+            $bn = substr($gst, 0, 9);
+            $vendor = $service->resolve(['gst_number' => $bn]) ?: ($bn !== $gst ? $service->resolve(['gst_number' => $gst]) : null);
+            if ($vendor && substr((string)($vendor['gst_number'] ?? ''), 0, 9) !== $bn) $vendor = null;
+        }
+        if (!$vendor) {
+            if (!function_exists('extractPhoneNumbers')) require_once __DIR__ . '/ReceiptParser.php';
+            $phones = extractPhoneNumbers($lower);
+            $domain = preg_match('/\b(?:www\.)?([a-z0-9-]+\.(?:ca|com|net|org|co|io|shop))\b/', $lower, $m) ? VendorIdentity::domainOf($m[1]) : null;
+            // The same identity (so the same cached answer) kbResolveVendorFromOcr() asked the commons for.
+            $ident = array_filter(['phone_digits' => $phones[0] ?? null, 'domain' => $domain]);
+            if ($ident) $vendor = $service->resolve($ident);
+        }
+        if (!$vendor || !VendorIdentity::commonsMayNameVendor($vendor, $lower, $gst)) return null;
+        $bn = substr((string)($vendor['gst_number'] ?? ''), 0, 9);
 
         $name = trim((string)($vendor['display_name'] ?? ''));
-        if (strlen($name) < 3 || ctype_digit($name) || !VendorIdentity::usableAlias($name)) return null;
 
-        $s = $db->prepare("SELECT id FROM vendors WHERE gst_number LIKE ? AND is_active = 1 LIMIT 1");
-        $s->execute([$bn . '%']);
-        if ($s->fetchColumn()) return null;
+        if ($bn !== '') {
+            $s = $db->prepare("SELECT id FROM vendors WHERE gst_number LIKE ? AND is_active = 1 LIMIT 1");
+            $s->execute([$bn . '%']);
+            if ($s->fetchColumn()) return null;
+        }
 
         $hasKbVendorId = $db->query("SHOW COLUMNS FROM vendors LIKE 'kb_vendor_id'")->fetchColumn();
         if ($hasKbVendorId) {
