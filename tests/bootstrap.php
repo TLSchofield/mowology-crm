@@ -376,6 +376,7 @@ require_once __DIR__ . '/../app/Modules/Expenses/Services/LineItemBackfillServic
 require_once __DIR__ . '/../app/Modules/Expenses/Services/PennyReadService.php';   // Penny's read on the receipt screens (2026-10-13)
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptTrailService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/PennyQuestionService.php';
+require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptPaymentHabits.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/PennyBadgeService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/PennyBrainService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/PennySelfAuditService.php';

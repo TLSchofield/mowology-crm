@@ -547,6 +547,19 @@ class ReceiptIntakeService
         }
         $gstValidation = !empty($parsed) ? validateGstMath($parsed) : null;
 
+        // The owner's usual way of paying fills a method the reader did not find (never overwrites one it read).
+        $paymentHabit = null;
+        if (!empty($parsed)) {
+            try {
+                require_once __DIR__ . '/ReceiptPaymentHabits.php';
+                $applied = ReceiptPaymentHabits::apply($this->db, $parsed);
+                $parsed = $applied['parsed'];
+                $paymentHabit = $applied['habit'];
+            } catch (Throwable $e) {
+                error_log('Payment habit (non-fatal): ' . $e->getMessage());
+            }
+        }
+
         $card = $this->lookupCard($parsed['card_last4'] ?? null, $parsed['payment_method'] ?? null);
 
         // Suggest the job: the receipt's own date + printed time against that day's
@@ -588,6 +601,7 @@ class ReceiptIntakeService
             'parsed'            => withSuggestedCategory($parsed, $suggestions),
             'total_source'       => $totalSource,
             'card'               => $card,
+            'payment_habit'      => $paymentHabit,
             'suggestions'       => $suggestions,
             'job_suggestions'   => $jobSuggestions,
             'field_confidences' => $fieldConfidences,
