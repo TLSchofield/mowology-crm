@@ -8,7 +8,7 @@
  *         attachment links signed for the app; added 2026-10-08),
  *         lines {lookback {count, amount, gst, text, url}|null, payments {waiting, waiting_total, high, url, …}|null,
  *                missing {open, open_amount, no_receipt, no_receipt_amount}|null} (expenses.approve; added 2026-10-08)}
- * POST {mode: 'question_answer', key, choices: [..]}  Answer a question Penny asks the owner (admins) → {ok, message, next?}
+ * POST {mode: 'question_answer', key, choices: [..] | values: {field: text}}  Answer a question Penny asks the owner (admins) → {ok, message, next?}
  * POST {mode: 'move', key, to: penny|sam|otto|mia|yui}  "Move to…" on a message (admins)
  * POST {mode: 'message_done', key}                     "Done" on a message (admins)
  * POST {mode: 'decide', suggestion_id, overrides?: {vendor, vendor_id, expense_date,
@@ -312,7 +312,7 @@ try {
             if ($method !== 'POST') throw new RuntimeException('POST required');
             if (!jwtIsAdmin($jwtUser['role'])) { http_response_code(403); echo json_encode(['ok' => false, 'error' => 'Admins only']); break; }
             require_once APP_ROOT . '/Modules/Expenses/Services/OwnerQuestionService.php';
-            echo json_encode((new OwnerQuestionService($db))->answer(substr((string)($input['key'] ?? ''), 0, 60), array_map('strval', (array)($input['choices'] ?? [])), (int)$user['id']));
+            echo json_encode((new OwnerQuestionService($db))->answer(substr((string)($input['key'] ?? ''), 0, 60), array_map('strval', (array)($input['choices'] ?? [])), (int)$user['id'], (array)($input['values'] ?? [])));
             break;
         }
 
