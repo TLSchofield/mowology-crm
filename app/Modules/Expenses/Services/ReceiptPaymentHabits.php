@@ -78,11 +78,25 @@ class ReceiptPaymentHabits
         return ['used' => $used, 'usual' => in_array($usual, $used, true) ? $usual : null];
     }
 
+    /** The first answer: the methods named. A single one is the usual; with several the owner is asked which. */
+    public static function saveUsed(PDO $db, array $used): array
+    {
+        $list = self::parseUsed(implode(',', $used));
+        return self::save($db, $list, count($list) === 1 ? $list[0] : '');
+    }
+
+    /** The second answer: the usual one, which must be among those named. */
+    public static function saveUsual(PDO $db, string $usual): array
+    {
+        $h = self::load($db);
+        return in_array($usual, $h['used'], true) ? self::save($db, $h['used'], $usual) : $h;
+    }
+
     /** Save the owner's answer. Invalid codes are dropped; the usual one must be among those named. */
     public static function save(PDO $db, array $used, ?string $usual): array
     {
         $list = self::parseUsed(implode(',', $used));
-        $usual = ($usual !== null && in_array($usual, $list, true)) ? $usual : ($list[0] ?? null);
+        $usual = $usual === '' ? null : (($usual !== null && in_array($usual, $list, true)) ? $usual : ($list[0] ?? null));
         $put = static function (string $k, ?string $v, string $desc) use ($db): void {
             $u = $db->prepare('UPDATE ops_settings SET setting_value = ? WHERE setting_key = ?');
             $u->execute([$v, $k]);

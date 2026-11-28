@@ -17,7 +17,15 @@
 class OwnerQuestionService
 {
     public const ACCOUNTING_SOFTWARE = 'accounting_software';
-    public const KINDS = [self::ACCOUNTING_SOFTWARE];
+    public const PAYMENT_METHODS = 'payment_methods';
+    public const PAYMENT_USUAL = 'payment_usual';
+    public const KINDS = [self::ACCOUNTING_SOFTWARE, self::PAYMENT_METHODS, self::PAYMENT_USUAL];
+
+    /** The choices for "how do you pay", in the order shown (codes from EXPENSE_PAYMENT_METHODS). */
+    private const PAYMENT_LABELS = [
+        'company_card' => 'Business card', 'credit_card' => 'Credit card', 'debit' => 'Debit', 'cash' => 'Cash',
+        'etransfer' => 'e-Transfer', 'cheque' => 'Cheque', 'owner_paid' => 'I paid it myself',
+    ];
 
     private PDO $db;
 
@@ -31,14 +39,40 @@ class OwnerQuestionService
     {
         $out = [];
         foreach (self::KINDS as $key) {
-            if ($this->due($key)) $out[] = self::shape($key);
+            if ($this->due($key)) $out[] = self::shape($key, $this->context());
         }
         return $out;
     }
 
     /** Pure: the question as the apps draw it. */
-    public static function shape(string $key): array
+    public static function shape(string $key, array $ctx = []): array
     {
+        if ($key === self::PAYMENT_METHODS) {
+            $choices = [];
+            foreach (self::PAYMENT_LABELS as $k => $label) $choices[] = ['key' => $k, 'label' => $label];
+            return [
+                'key' => $key,
+                'title' => 'How do you pay for the business?',
+                'body' => 'Pick every way you pay. Penny uses this to fill in how a receipt was paid and to ask fewer questions.',
+                'multi' => true,
+                'choices' => $choices,
+                'answer' => ['mode' => 'question_answer', 'key' => $key],
+            ];
+        }
+        if ($key === self::PAYMENT_USUAL) {
+            $choices = [];
+            foreach ((array)($ctx['used'] ?? []) as $k) {
+                if (isset(self::PAYMENT_LABELS[$k])) $choices[] = ['key' => $k, 'label' => self::PAYMENT_LABELS[$k]];
+            }
+            return [
+                'key' => $key,
+                'title' => 'Which one do you use most?',
+                'body' => 'Penny fills this in when a receipt does not say how it was paid. You can always change it on a receipt.',
+                'multi' => false,
+                'choices' => $choices,
+                'answer' => ['mode' => 'question_answer', 'key' => $key],
+            ];
+        }
         if ($key === self::ACCOUNTING_SOFTWARE) {
             return [
                 'key' => $key,
@@ -55,6 +89,13 @@ class OwnerQuestionService
     /** Due when nothing is answered yet and the first invoice exists. */
     public function due(string $key): bool
     {
+        if ($key === self::PAYMENT_METHODS) {
+            return $this->paymentHabits()['used'] === [] && $this->hasFiledReceipt();
+        }
+        if ($key === self::PAYMENT_USUAL) {
+            $h = $this->paymentHabits();
+            return count($h['used']) > 1 && $h['usual'] === null;
+        }
         if ($key !== self::ACCOUNTING_SOFTWARE) return false;
         return $this->setting('onboarding_uses_qbo') === null && $this->hasInvoice();
     }
@@ -63,11 +104,19 @@ class OwnerQuestionService
     public function answer(string $key, array $choices, int $userId): array
     {
         if (!in_array($key, self::KINDS, true) || !$this->due($key)) return ['ok' => false, 'error' => 'unknown_question', 'message' => 'That question is not open.'];
-        $shape = self::shape($key);
+        $shape = self::shape($key, $this->context());
         $valid = array_column($shape['choices'], 'key');
         $picked = array_values(array_unique(array_map('strval', $choices)));
         if (!$picked || array_diff($picked, $valid) || (!$shape['multi'] && count($picked) !== 1)) {
             return ['ok' => false, 'error' => 'bad_choice', 'message' => 'Pick one of the choices.'];
+        }
+        if ($key === self::PAYMENT_METHODS) {
+            ReceiptPaymentHabits::saveUsed($this->db, $picked);
+            return ['ok' => true, 'message' => 'Thanks. Penny will use this.'];
+        }
+        if ($key === self::PAYMENT_USUAL) {
+            ReceiptPaymentHabits::saveUsual($this->db, $picked[0]);
+            return ['ok' => true, 'message' => 'Thanks. Penny will use this.'];
         }
         if ($key === self::ACCOUNTING_SOFTWARE) {
             $uses = $picked[0] === 'quickbooks';
@@ -77,6 +126,28 @@ class OwnerQuestionService
                 : ['ok' => true, 'message' => 'Penny keeps your books in Ittai.'];
         }
         return ['ok' => false, 'error' => 'unknown_question', 'message' => 'That question is not open.'];
+    }
+
+    /** What a question's shape may depend on. */
+    private function context(): array
+    {
+        return ['used' => $this->paymentHabits()['used']];
+    }
+
+    private function paymentHabits(): array
+    {
+        require_once __DIR__ . '/ReceiptPaymentHabits.php';
+        return ReceiptPaymentHabits::load($this->db);
+    }
+
+    /** "Filed" = approved or forwarded (ExpenseGate::POSTED). */
+    private function hasFiledReceipt(): bool
+    {
+        try {
+            return $this->db->query("SELECT 1 FROM expenses WHERE status IN ('approved', 'forwarded') LIMIT 1")->fetchColumn() !== false;
+        } catch (Throwable $e) {
+            return false;
+        }
     }
 
     private function hasInvoice(): bool
