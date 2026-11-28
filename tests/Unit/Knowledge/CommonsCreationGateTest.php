@@ -50,6 +50,12 @@ final class CommonsCreationGateTest extends TestCase
         $this->assertFalse(VendorIdentity::commonsMayNameVendor($v, "receipt\ngst 999999999 rt0001", '999999999RT0001'));
     }
 
+    public function testConflictingBusinessNumbersRefuse(): void
+    {
+        $v = $this->landfill(['gst_number' => '111111111RT0001']);
+        $this->assertFalse(VendorIdentity::commonsMayNameVendor($v, self::TICKET . "\ngst 222222222 rt0001", '222222222RT0001'));
+    }
+
     public function testAnUnusableCommonsNameIsRefused(): void
     {
         $this->assertFalse(VendorIdentity::commonsMayNameVendor($this->landfill(['display_name' => 'City of']), self::TICKET, null));

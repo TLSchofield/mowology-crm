@@ -463,7 +463,7 @@ function kbCommonsVendorForCreation(string $ocrText, PDO $db): ?array
             'name' => strtoupper($name),
             'kb_vendor_id' => (int)$vendor['id'],
             'identity' => [
-                'gst_number' => $gst,
+                'gst_number' => $vendor['gst_number'] ?? null,   // the commons vendor's own number, never the paper's
                 'phone_digits' => $vendor['phone_digits'] ?? null,
                 'domain' => $vendor['domain'] ?? null,
                 'name_key' => $vendor['name_key'] ?? VendorIdentity::nameKey($name),

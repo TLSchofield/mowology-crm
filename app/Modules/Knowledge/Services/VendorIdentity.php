@@ -110,7 +110,10 @@ final class VendorIdentity
         $name = trim((string)($kbVendor['display_name'] ?? ''));
         if (strlen($name) < 3 || ctype_digit($name) || !self::usableAlias($name)) return false;
         $kbGst = (string)($kbVendor['gst_number'] ?? '');
-        if ($gstOnPaper !== null && $kbGst !== '' && substr($kbGst, 0, 9) === substr($gstOnPaper, 0, 9)) return true;
+        if ($gstOnPaper !== null && $kbGst !== '') {
+            // Two business numbers that disagree are two businesses, whatever else the paper prints.
+            return substr($kbGst, 0, 9) === substr($gstOnPaper, 0, 9);
+        }
         return self::namedOnPaper($ocrLower, $name);
     }
 
